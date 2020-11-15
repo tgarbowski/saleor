@@ -45,6 +45,7 @@ class AllegroConfiguration:
     auction_format: str
     interval_for_offer_publication: str
     offer_publication_chunks: str
+    offer_description_footer: str
 
 
 class AllegroPlugin(BasePlugin):
@@ -77,7 +78,8 @@ class AllegroPlugin(BasePlugin):
                              {"name": "publication_starting_at", "value": ''},
                              {"name": "auction_format", "value": 'AUCTION'},
                              {"name": "interval_for_offer_publication", "value": '5'},
-                             {"name": "offer_publication_chunks", "value": '13'}, ]
+                             {"name": "offer_publication_chunks", "value": '13'},
+                             {"name": "offer_description_footer", "value": ''}, ]
     CONFIG_STRUCTURE = {
         "redirect_url": {
             "type": ConfigurationTypeField.STRING,
@@ -177,6 +179,11 @@ class AllegroPlugin(BasePlugin):
             "type": ConfigurationTypeField.STRING,
             "help_text": "Podaj liczbe przedziałow w ktorych mają być publikowane oferty.",
             "label": "offer_publication_chunks",
+        },
+        "offer_description_footer": {
+            "type": ConfigurationTypeField.STRING,
+            "help_text": "Podaj tekst który będzie widoczny na dole opisu oferty.",
+            "label": "offer_description_footer",
         }
     }
 
@@ -213,7 +220,9 @@ class AllegroPlugin(BasePlugin):
                                            interval_for_offer_publication=configuration[
                                                "interval_for_offer_publication"],
                                            offer_publication_chunks=configuration[
-                                               "offer_publication_chunks"])
+                                               "offer_publication_chunks"],
+                                           offer_description_footer=configuration[
+                                               "offer_description_footer"])
 
         HOURS_BEFORE_WE_REFRESH_TOKEN = 6
 
@@ -1237,6 +1246,14 @@ class AllegroProductMapper:
 
         product_sections.append({'items': product_items})
 
+
+        product_items = [{
+            'type': 'TEXT',
+            'content': '<p>' + self.get_offer_description_footer() + '</p>'
+        }]
+
+        product_sections.append({'items': product_items})
+
         self.product['description']['sections'] = product_sections
 
         return self
@@ -1319,6 +1336,10 @@ class AllegroProductMapper:
         plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID)
         configuration = {item["name"]: item["value"] for item in plugin.configuration}
         return configuration
+
+    def get_offer_description_footer(self):
+        config = self.get_plugin_configuration()
+        return config.get('offer_description_footer')
 
     def get_implied_warranty(self):
         config = self.get_plugin_configuration()
