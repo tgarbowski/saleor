@@ -64,40 +64,43 @@ class Command(BaseCommand):
                 saleor_product = product_variant.product
                 allegro_id = saleor_product.private_metadata.get('publish.allegro.id')
 
-                category_id = saleor_product.product_type.metadata.get(
-                    'allegro.mapping.categoryId')
+                if allegro_id is not None:
+                    category_id = saleor_product.product_type.metadata.get(
+                        'allegro.mapping.categoryId')
 
-                require_parameters = self.allegro_api.get_require_parameters(category_id)
+                    require_parameters = self.allegro_api.get_require_parameters(category_id)
 
-                parameters_mapper = ParametersMapperFactory().get_mapper()
+                    parameters_mapper = ParametersMapperFactory().get_mapper()
 
-                parameters = parameters_mapper.set_product(
-                    saleor_product).set_require_parameters(require_parameters).run_mapper()
+                    parameters = parameters_mapper.set_product(
+                        saleor_product).set_require_parameters(require_parameters).run_mapper()
 
-                product_mapper = ProductMapperFactory().get_mapper()
+                    product_mapper = ProductMapperFactory().get_mapper()
 
-                try:
-                    product = product_mapper.set_saleor_product(saleor_product) \
-                    .set_saleor_images(self.allegro_api.upload_images(saleor_product)) \
-                    .set_saleor_parameters(parameters).set_category(
-                    category_id).set_obj_publication_starting_at('2020-10-10 10:10').\
-                        set_offer_type('AUCTION').run_mapper()
-                except:
-                    pass
+                    try:
+                        product = product_mapper.set_saleor_product(saleor_product) \
+                        .set_saleor_images(self.allegro_api.upload_images(saleor_product)) \
+                        .set_saleor_parameters(parameters).set_category(
+                        category_id).set_obj_publication_starting_at('2020-10-10 10:10').\
+                            set_offer_type('AUCTION').run_mapper()
+                    except:
+                        pass
 
-                offer = self.allegro_api.update_allegro_offer(allegro_product=product,
-                                                  allegro_id=allegro_id)
+                    offer = self.allegro_api.update_allegro_offer(allegro_product=product,
+                                                      allegro_id=allegro_id)
 
-                if 'error' in offer:
-                    errors.append(offer.get('error_description'))
+                    if 'error' in offer:
+                        errors.append(offer.get('error_description'))
 
-                elif 'errors' in offer:
-                    errors += offer['errors']
+                    elif 'errors' in offer:
+                        errors += offer['errors']
 
-                elif offer['validation'].get('errors') is not None:
-                    if len(offer['validation'].get('errors')) > 0:
-                        for error in offer['validation'].get('errors'):
-                            errors.append(error['message'])
+                    elif offer['validation'].get('errors') is not None:
+                        if len(offer['validation'].get('errors')) > 0:
+                            for error in offer['validation'].get('errors'):
+                                errors.append(error['message'])
+                else:
+                    errors.append('produkt nie ma allegro id')
 
                 sku_errors.append({'sku': product_variant.sku, 'errors': errors})
 
