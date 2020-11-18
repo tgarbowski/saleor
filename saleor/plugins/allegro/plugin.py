@@ -333,20 +333,31 @@ class AllegroPlugin(BasePlugin):
         html += '<th></th>'
         html += '</tr>'
         for error in errors:
-            if len(error) > 0:
-                html += '<tr>'
-                html += '<td>' + str(error) + '</td>'
-                html += '</tr>'
+            html += '<tr>'
+            try:
+                if len(error.get('errors')) > 0:
+                    html += '<td style="width: 9rem;">' + str(error.get('sku')) + '</td>'
+                    html += '<td>' + str(error.get('errors')) + '</td>'
+            except:
+                if len(error) > 0:
+                    html += '<td>' + str(error) + '</td>'
+            html += '</tr>'
         html += '<tr>'
         html += '<td>' + '</td>'
         html += '</tr>'
+        html += '</table>'
+        html += '<br>'
+        html += '<table style="width:100%; margin-bottom: 1rem;">'
         html += '<tr>'
-        html += '<td>' + 'Popawnie przetworzone: ' + str(len([error for error in errors if len(error) == 0])) + '</td>'
+        html += '<td>' + 'Poprawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) == 0])) + '</td>'
         html += '</tr>'
         html += '<tr>'
-        html += '<td>' + 'Niepopawnie przetworzone: ' + str(len([error for error in errors if len(error) > 0])) + '</td>'
+        html += '<td>' + 'Niepropawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) > 0])) + '</td>'
         html += '</tr>'
         html += '</table>'
+
+
+
         return html
 
     def send_mail(self, errors):
@@ -631,7 +642,7 @@ class AllegroAPI:
 
         return response
 
-    def get_request(self, endpoint):
+    def get_request(self, endpoint, params=None):
 
         config = self.get_plugin_configuration()
         env = config.get('env')
@@ -640,7 +651,7 @@ class AllegroAPI:
         headers = {'Authorization': 'Bearer ' + self.token,
                    'Accept': 'application/vnd.allegro.public.v1+json',
                    'Content-Type': 'application/vnd.allegro.public.v1+json'}
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, params=params)
 
         return response
 
