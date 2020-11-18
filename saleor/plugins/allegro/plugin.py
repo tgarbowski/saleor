@@ -340,10 +340,10 @@ class AllegroPlugin(BasePlugin):
         html += '<br>'
         html += '<table style="width:100%; margin-bottom: 1rem;">'
         html += '<tr>'
-        html += '<td>' + 'Popawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) == 0])) + '</td>'
+        html += '<td>' + 'Poprawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) == 0])) + '</td>'
         html += '</tr>'
         html += '<tr>'
-        html += '<td>' + 'Niepopawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) > 0])) + '</td>'
+        html += '<td>' + 'Niepropawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) > 0])) + '</td>'
         html += '</tr>'
         html += '</table>'
 
