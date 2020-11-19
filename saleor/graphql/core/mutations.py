@@ -2,7 +2,6 @@ import math
 from datetime import datetime, timedelta
 from itertools import chain
 from multiprocessing.dummy import Process
-from time import sleep
 from typing import Tuple, Union
 
 import graphene
