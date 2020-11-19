@@ -352,7 +352,7 @@ class AllegroPlugin(BasePlugin):
         html += '<td>' + 'Poprawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) == 0])) + '</td>'
         html += '</tr>'
         html += '<tr>'
-        html += '<td>' + 'Niepropawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) > 0])) + '</td>'
+        html += '<td>' + 'Niepoprawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) > 0])) + '</td>'
         html += '</tr>'
         html += '</table>'
 
