@@ -1339,6 +1339,20 @@ class AllegroProductMapper:
                 name = self.remove_last_word(name)
             return name
         else:
+            description_blocks = self.parse_list_to_map(
+                self.saleor_product.description_json['blocks'])
+            if description_blocks.get('Kolor'):
+                if self.calculate_name_length(name) + len(' ' + description_blocks.
+                        get('Kolor')) <= 50:
+                    name = name + ' ' + (description_blocks.get('Kolor')).upper()
+            if description_blocks.get('Zapięcie'):
+                if self.calculate_name_length(name) + len(' ' + description_blocks.
+                        get('Zapięcie')) <= 50:
+                    name = name + ' ' + (description_blocks.get('Zapięcie')).upper()
+            if description_blocks.get('Stan'):
+                if self.calculate_name_length(name) + len(' ' + description_blocks.
+                        get('Stan')) <= 50:
+                    name = name + ' ' + (description_blocks.get('Stan')).upper()
             return name
 
     @staticmethod
