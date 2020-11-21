@@ -1341,15 +1341,18 @@ class AllegroProductMapper:
         else:
             description_blocks = self.parse_list_to_map(
                 self.saleor_product.description_json['blocks'])
-            if description_blocks.get('Kolor'):
+            if description_blocks.get('Kolor') and description_blocks.get('Kolor')\
+                    .upper() != 'INNY':
                 if self.calculate_name_length(name) + len(' ' + description_blocks.
                         get('Kolor')) <= 50:
                     name = name + ' ' + (description_blocks.get('Kolor')).upper()
-            if description_blocks.get('Zapięcie'):
+            if description_blocks.get('Zapięcie') and description_blocks.\
+                    get('Zapięcie').upper() != 'BRAK':
                 if self.calculate_name_length(name) + len(' ' + description_blocks.
                         get('Zapięcie')) <= 50:
                     name = name + ' ' + (description_blocks.get('Zapięcie')).upper()
-            if description_blocks.get('Stan'):
+            if description_blocks.get('Stan') and description_blocks.\
+                    get('Stan').upper() != 'UŻYWANY':
                 if self.calculate_name_length(name) + len(' ' + description_blocks.
                         get('Stan')) <= 50:
                     name = name + ' ' + (description_blocks.get('Stan')).upper()
