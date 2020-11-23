@@ -285,8 +285,6 @@ class AllegroPlugin(BasePlugin):
 
         product_variant = product.variants.first()
 
-        if product.is_published:
-            errors.append('003: produkt jest już opublikowany')
         if not self.active:
             errors.append('003: plugin jest nieaktywny')
         if product_variant.metadata.get('reserved') is True:
@@ -311,6 +309,10 @@ class AllegroPlugin(BasePlugin):
                                                         'starting_at'),
                                                     offer_type=product_with_params.get(
                                                         'offer_type'))
+        else:
+            product.store_value_in_private_metadata(
+                {'publish.allegro.status': ProductPublishState.MODERATED.value})
+            product.save(update_fields=["private_metadata"])
 
     def calculate_hours_to_token_expire(self):
         token_expire = datetime.strptime(self.config.token_access, '%d/%m/%Y %H:%M:%S')
