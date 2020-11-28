@@ -450,9 +450,12 @@ class AllegroAPI:
     def __init__(self, token):
         self.token = token
         self.errors = []
+        self.allegro_plugin_config = self.get_plugin_configuration()
 
     def refresh_token(self, refresh_token, client_id, client_secret,
                       saleor_redirect_url, url_env):
+
+        logger.info('Refresh token')
 
         endpoint = 'auth/oauth/token?grant_type=refresh_token&refresh_token=' + \
                    refresh_token + '&redirect_uri=' + str(saleor_redirect_url)
@@ -474,8 +477,7 @@ class AllegroAPI:
 
     def product_publish(self, saleor_product, offer_type, starting_at):
 
-        config = self.get_plugin_configuration()
-        env = config.get('auth_env')
+        env = self.allegro_plugin_config.get('auth_env')
 
         if saleor_product.get_value_from_private_metadata(
                 'publish.allegro.status') == ProductPublishState.MODERATED.value and \
@@ -629,8 +631,7 @@ class AllegroAPI:
 
     def post_request(self, endpoint, data):
 
-        config = self.get_plugin_configuration()
-        env = config.get('env')
+        env = self.allegro_plugin_config.get('env')
         url = env + '/' + endpoint
 
         headers = {'Authorization': 'Bearer ' + self.token,
@@ -642,12 +643,14 @@ class AllegroAPI:
 
         response = requests.post(url, data=json.dumps(data), headers=headers)
 
+        if response.status_code == 401 and self.is_unauthorized(response):
+            return self.post_request(endpoint, data)
+
         return response
 
     def get_request(self, endpoint, params=None):
 
-        config = self.get_plugin_configuration()
-        env = config.get('env')
+        env = self.allegro_plugin_config.get('env')
         url = env + '/' + endpoint
 
         headers = {'Authorization': 'Bearer ' + self.token,
@@ -655,12 +658,14 @@ class AllegroAPI:
                    'Content-Type': 'application/vnd.allegro.public.v1+json'}
         response = requests.get(url, headers=headers, params=params)
 
+        if response.status_code == 401 and self.is_unauthorized(response):
+            return self.get_request(endpoint, params)
+
         return response
 
     def put_request(self, endpoint, data):
 
-        config = self.get_plugin_configuration()
-        env = config.get('env')
+        env = self.allegro_plugin_config.get('env')
         url = env + '/' + endpoint
 
         headers = {'Authorization': 'Bearer ' + self.token,
@@ -668,7 +673,29 @@ class AllegroAPI:
                    'Content-Type': 'application/vnd.allegro.public.v1+json'}
         response = requests.put(url, data=json.dumps(data), headers=headers)
 
+        if response.status_code == 401 and self.is_unauthorized(response):
+            return self.put_request(endpoint, data)
+
         return response
+
+    def is_unauthorized(self, response):
+
+        if response.reason == 'Unauthorized':
+            access_token, refresh_token, expires_in = AllegroAPI(
+                self.token).refresh_token(
+                self.allegro_plugin_config.get('refresh_token'),
+                self.allegro_plugin_config.get('client_id'),
+                self.allegro_plugin_config.get('client_secret'),
+                self.allegro_plugin_config.get('saleor_redirect_url'),
+                self.allegro_plugin_config.get('auth_env')) or (None, None, None)
+            if access_token and refresh_token and expires_in is not None:
+                self.token = access_token
+                AllegroAuth.save_token_in_plugin_configuration(access_token,
+                                                               refresh_token,
+                                                               expires_in)
+            return True
+        else:
+            return False
 
     @staticmethod
     def auth_request(endpoint, data, client_id, client_secret, url_env):
