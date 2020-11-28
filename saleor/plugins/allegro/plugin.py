@@ -1381,7 +1381,7 @@ class AllegroProductMapper:
                         get('Zapięcie')) <= 50:
                     name = name + ' ' + (description_blocks.get('Zapięcie')).upper()
             if description_blocks.get('Stan') and description_blocks.\
-                    get('Stan').upper() != 'UŻYWANY':
+                    get('Stan').upper() not in ['UŻYWANY', 'UŻYWANY Z DEFEKTEM']:
                 if self.calculate_name_length(name) + len(' ' + description_blocks.
                         get('Stan')) <= 50:
                     name = name + ' ' + (description_blocks.get('Stan')).upper()
