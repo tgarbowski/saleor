@@ -155,6 +155,8 @@ class SumiPlugin(BasePlugin):
     @staticmethod
     def update_allegro_status_in_private_metadata(product, status):
         product.store_value_in_private_metadata({'publish.allegro.status': status})
+        product.store_value_in_private_metadata(
+            {'publish.status.date': datetime.today().strftime('%Y-%m-%d %H:%M:%S')})
         product.save(update_fields=["private_metadata"])
 
     @staticmethod
@@ -266,9 +268,13 @@ class SumiPlugin(BasePlugin):
                     product_variant_stock = Stock.objects.filter(
                         product_variant=product_variant.first())
                     if Stock.objects.exists():
-                        if product_variant_stock.first().quantity > -1:
+                        if product_variant_stock.first().quantity > 0:
                             result = SumiPlugin.sell_product(product_variant_stock.first())
-                            results.get('data').append(result)
+                            if result.get('error'):
+                                results['status'] = 'error'
+                                results.get('errors').append(result.get('error'))
+                            else:
+                                results.get('data').append(result)
                         else:
                             results.get('errors').append('002: stan magazynowy ' +
                                                          'produktu ' + str(
