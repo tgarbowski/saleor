@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from json import JSONDecodeError
 
+from django.db import transaction
 from django.http import HttpResponse
 from django.http.response import JsonResponse
 
@@ -119,6 +120,7 @@ class SumiPlugin(BasePlugin):
                              ', komunikat błędu: ' + str(ex)}
 
     @staticmethod
+    @transaction.atomic
     def sell_product(product_variant_stock):
         try:
             SumiPlugin.update_allegro_status_in_private_metadata(
@@ -131,8 +133,7 @@ class SumiPlugin(BasePlugin):
                          str(ex)}
 
         try:
-            product_variant_stock.decrease_stock(1)
-            return {"sku": str(product_variant_stock.product_variant),
+            return_object = {"sku": str(product_variant_stock.product_variant),
                     "name": str(product_variant_stock.product_variant.product),
                     "netPrice": str(round(float(product_variant_stock.product_variant.
                                                 cost_price_amount) / 1.23, 2)),
@@ -141,11 +142,19 @@ class SumiPlugin(BasePlugin):
                     "vatRate": '23'
                     }
         except Exception as ex:
+            transaction.set_rollback(True)
             return {
                 'error': '003: wystąpił błąd podczas przetwarzania sprzedanego ' +
                          'produktu ' + str(
                     product_variant_stock.product_variant) + ', komunikat błędu: ' +
                          str(ex)}
+        try:
+            product_variant_stock.decrease_stock(1)
+        except:
+            return {'error': '002: stan magazynowy produktu ' + str(
+                product_variant_stock.product_variant) + ' wynosi 0'}
+
+        return return_object
 
     @staticmethod
     def update_reservation_status_in_metadata(product_variant, status):
@@ -193,6 +202,7 @@ class SumiPlugin(BasePlugin):
                              str(ex)}
 
     @staticmethod
+    @transaction.atomic
     def cancel_sold_product_reservation(product_variant_stock):
         try:
             SumiPlugin.update_allegro_status_in_private_metadata\
@@ -200,6 +210,7 @@ class SumiPlugin(BasePlugin):
             product_variant_stock.increase_stock(1)
             return product_variant_stock
         except Exception as ex:
+            transaction.set_rollback(True)
             return {'error': '003: wystąpił błąd podczas przetwarzania sprzedanego '
                              'produktu ' + str(
                 product_variant_stock.product_variant) + ', komunikat błędu: ' +
