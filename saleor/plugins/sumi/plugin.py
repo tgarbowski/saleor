@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from json import JSONDecodeError
 
+from django.db import transaction
 from django.http import HttpResponse
 from django.http.response import JsonResponse
 
@@ -54,14 +55,17 @@ class SumiPlugin(BasePlugin):
         logger.info('create_reservation request: ' + str(products))
         results = {"status": "ok", "data": [], "errors": []}
         # TODO: wynieś to do dekoratora
-        if SumiPlugin.is_auth(request.headers.get('X-API-KEY')) and request.method == 'POST':
+        if SumiPlugin.is_auth(request.headers.get('X-API-KEY')) and \
+                request.method == 'POST':
             for product in products:
                 product_variant = ProductVariant.objects.filter(sku=product)
                 if product_variant.exists():
                     if not SumiPlugin.is_product_reserved(product_variant.first()):
-                        product_variant_stock = Stock.objects.filter(product_variant=product_variant.first())
+                        product_variant_stock = Stock.objects.\
+                            filter(product_variant=product_variant.first())
                         if product_variant_stock.exists():
-                            result = SumiPlugin.reserve_product(product_variant_stock.first())
+                            result = SumiPlugin.reserve_product(product_variant_stock.
+                                                                first())
                             if isinstance(result, Stock):
                                 results.get('data').append(str(result.product_variant))
                             else:
@@ -69,12 +73,14 @@ class SumiPlugin(BasePlugin):
                                     results.get('errors').append(result.get('error'))
                                     results['status'] = 'error'
                         else:
-                            results.get('errors').append('001: nie znaleziono produktu o kodzie ' + str(product))
+                            results.get('errors').append('001: nie znaleziono produktu '
+                                                         'o kodzie ' + str(product))
                             results['status'] = 'error'
                     else:
                         pass
                 else:
-                    results.get('errors').append('001: nie znaleziono produktu o kodzie ' + str(product))
+                    results.get('errors').append('001: nie znaleziono produktu o ' +
+                                                 'kodzie ' + str(product))
                     results['status'] = 'error'
 
             logger.debug('create_reservation response: ' + str(results))
@@ -87,13 +93,16 @@ class SumiPlugin(BasePlugin):
 
     @staticmethod
     def get_allegro_token(request):
-        if SumiPlugin.is_auth(request.headers.get('X-API-KEY')) and request.method == 'GET':
+        if SumiPlugin.is_auth(request.headers.get('X-API-KEY')) and \
+                request.method == 'GET':
             manager = get_plugins_manager()
             plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID)
             configuration = {item["name"]: item["value"] for item in
                              plugin.configuration}
-            valid_till = datetime.strptime(configuration.get('token_access'), '%d/%m/%Y %H:%M:%S')
-            return JsonResponse({"token": configuration.get('token_value'), "validTill": valid_till.strftime("%Y-%m-%dT%H:%M:%SZ")})
+            valid_till = datetime.strptime(configuration.get('token_access'),
+                                           '%d/%m/%Y %H:%M:%S')
+            return JsonResponse({"token": configuration.get('token_value'), "validTill":
+                valid_till.strftime("%Y-%m-%dT%H:%M:%SZ")})
         else:
             http_response = HttpResponse()
             http_response.status_code = 403
@@ -102,31 +111,50 @@ class SumiPlugin(BasePlugin):
     @staticmethod
     def reserve_product(product_variant_stock):
         try:
-            SumiPlugin.update_reservation_status_in_metadata(product_variant_stock.product_variant, True)
+            SumiPlugin.update_reservation_status_in_metadata(product_variant_stock.
+                                                             product_variant, True)
             return product_variant_stock
-        except:
-            return {'error': '002: stan magazynowy produktu ' + str(product_variant_stock.product_variant) + ' wynosi 0'}
+        except Exception as ex:
+            return {'error': '003: wystąpił błąd podczas przetwarzania sprzedanego '
+                             'produktu ' + str(product_variant_stock.product_variant) +
+                             ', komunikat błędu: ' + str(ex)}
 
     @staticmethod
+    @transaction.atomic
     def sell_product(product_variant_stock):
         try:
             SumiPlugin.update_allegro_status_in_private_metadata(
                 product_variant_stock.product_variant.product, 'sold')
-        except:
+        except Exception as ex:
             return {
-                'error': '003: wystąpił błąd podczas przetwarzania sprzedanego produktu ' + str(
-                    product_variant_stock.product_variant)}
+                'error': '003: wystąpił błąd podczas przetwarzania sprzedanego '
+                         'produktu ' + str(
+                    product_variant_stock.product_variant) + ', komunikat błędu: ' +
+                         str(ex)}
+
         try:
-            product_variant_stock.decrease_stock(1)
-            return {"sku": str(product_variant_stock.product_variant),
+            return_object = {"sku": str(product_variant_stock.product_variant),
                     "name": str(product_variant_stock.product_variant.product),
-                    "netPrice": str(round(float(product_variant_stock.product_variant.cost_price_amount) / 1.23, 2)),
-                    "grossPrice": str(product_variant_stock.product_variant.cost_price_amount),
+                    "netPrice": str(round(float(product_variant_stock.product_variant.
+                                                cost_price_amount) / 1.23, 2)),
+                    "grossPrice": str(product_variant_stock.product_variant.
+                                      cost_price_amount),
                     "vatRate": '23'
                     }
+        except Exception as ex:
+            transaction.set_rollback(True)
+            return {
+                'error': '003: wystąpił błąd podczas przetwarzania sprzedanego ' +
+                         'produktu ' + str(
+                    product_variant_stock.product_variant) + ', komunikat błędu: ' +
+                         str(ex)}
+        try:
+            product_variant_stock.decrease_stock(1)
         except:
             return {'error': '002: stan magazynowy produktu ' + str(
                 product_variant_stock.product_variant) + ' wynosi 0'}
+
+        return return_object
 
     @staticmethod
     def update_reservation_status_in_metadata(product_variant, status):
@@ -136,6 +164,8 @@ class SumiPlugin(BasePlugin):
     @staticmethod
     def update_allegro_status_in_private_metadata(product, status):
         product.store_value_in_private_metadata({'publish.allegro.status': status})
+        product.store_value_in_private_metadata(
+            {'publish.status.date': datetime.today().strftime('%Y-%m-%d %H:%M:%S')})
         product.save(update_fields=["private_metadata"])
 
     @staticmethod
@@ -163,21 +193,28 @@ class SumiPlugin(BasePlugin):
     @staticmethod
     def cancel_product_reservation(product_variant_stock):
         try:
-            SumiPlugin.update_reservation_status_in_metadata(product_variant_stock.product_variant, False)
+            SumiPlugin.update_reservation_status_in_metadata(product_variant_stock.
+                                                             product_variant, False)
             return product_variant_stock
-        except:
+        except Exception as ex:
             return {'error': '003: wystąpił błąd podczas przetwarzania produktu ' + str(
-                product_variant_stock.product_variant)}
+                product_variant_stock.product_variant) + ', komunikat błędu: ' +
+                             str(ex)}
 
     @staticmethod
+    @transaction.atomic
     def cancel_sold_product_reservation(product_variant_stock):
         try:
-            SumiPlugin.update_allegro_status_in_private_metadata(product_variant_stock.product_variant.product, 'moderated')
+            SumiPlugin.update_allegro_status_in_private_metadata\
+                (product_variant_stock.product_variant.product, 'moderated')
             product_variant_stock.increase_stock(1)
             return product_variant_stock
-        except:
-            return {'error': '003: wystąpił błąd podczas przetwarzania sprzedanego produktu ' + str(
-                product_variant_stock.product_variant)}
+        except Exception as ex:
+            transaction.set_rollback(True)
+            return {'error': '003: wystąpił błąd podczas przetwarzania sprzedanego '
+                             'produktu ' + str(
+                product_variant_stock.product_variant) + ', komunikat błędu: ' +
+                             str(ex)}
     @staticmethod
     def cancel_reservation(request):
         products = json.loads(request.body.decode('utf-8'))['skus']
@@ -189,10 +226,12 @@ class SumiPlugin(BasePlugin):
             for product in products:
                 product_variant = ProductVariant.objects.filter(sku=product)
                 if product_variant.exists():
-                    product_variant_stock = Stock.objects.filter(product_variant=product_variant.first())
+                    product_variant_stock = Stock.objects.\
+                        filter(product_variant=product_variant.first())
                     if SumiPlugin.is_product_reserved(product_variant.first()):
                         if product_variant_stock.exists():
-                            result = SumiPlugin.cancel_product_reservation(product_variant_stock.first())
+                            result = SumiPlugin.cancel_product_reservation(
+                                product_variant_stock.first())
                             if isinstance(result, Stock):
                                 results.get('data').append(str(result.product_variant))
                             else:
@@ -201,7 +240,8 @@ class SumiPlugin(BasePlugin):
                                     results['status'] = 'error'
                     if SumiPlugin.is_product_sold(product_variant.first().product):
                         if product_variant_stock.exists():
-                            result = SumiPlugin.cancel_sold_product_reservation(product_variant_stock.first())
+                            result = SumiPlugin.cancel_sold_product_reservation(
+                                product_variant_stock.first())
                             if isinstance(result, Stock):
                                 results.get('data').append(str(result.product_variant))
                                 results['data'] = list(set(results.get('data')))
@@ -236,13 +276,19 @@ class SumiPlugin(BasePlugin):
             for product in products:
                 product_variant = ProductVariant.objects.filter(sku=product)
                 if product_variant.exists():
-                    product_variant_stock = Stock.objects.filter(product_variant=product_variant.first())
+                    product_variant_stock = Stock.objects.filter(
+                        product_variant=product_variant.first())
                     if Stock.objects.exists():
                         if product_variant_stock.first().quantity > 0:
                             result = SumiPlugin.sell_product(product_variant_stock.first())
-                            results.get('data').append(result)
+                            if result.get('error'):
+                                results['status'] = 'error'
+                                results.get('errors').append(result.get('error'))
+                            else:
+                                results.get('data').append(result)
                         else:
-                            results.get('errors').append('002: stan magazynowy produktu ' + str(
+                            results.get('errors').append('002: stan magazynowy ' +
+                                                         'produktu ' + str(
                 product_variant_stock.first().product_variant) + ' wynosi 0')
                             results['status'] = 'error'
                     else:
@@ -301,7 +347,7 @@ class SumiPlugin(BasePlugin):
                             product_variant = ProductVariant.objects.filter(sku=sku)
                             if product_variant.exists():
                                 result = SumiPlugin.save_location_in_private_metadata(
-                                                            product_variant.first(), location)
+                                                    product_variant.first(), location)
                                 if isinstance(result, ProductVariant):
                                     results.get('data').append(str(result))
                                 else:
@@ -312,11 +358,12 @@ class SumiPlugin(BasePlugin):
                                     '001: nie znaleziono produktu o kodzie ' + str(
                                         sku))
                                 results['status'] = 'error'
-                        except IndexError:
+                        except IndexError as ex:
                             results['status'] = 'error'
                             results.get('errors').append('003: wystąpił błąd podczas ' +
                                                          'przetwarzania sprzedanego ' +
-                                                         'produktu ' + str(product))
+                                                         'produktu ' + str(product) +
+                                                         ', komunikat błędu: ' + str(ex))
             else:
                 results.get('errors').append(
                     '003: inny błąd')

@@ -304,6 +304,8 @@ class AllegroPlugin(BasePlugin):
             allegro_api = AllegroAPI(self.config.token_value, self.config.env)
             product.store_value_in_private_metadata(
                     {'publish.allegro.status': ProductPublishState.MODERATED.value})
+            product.store_value_in_private_metadata(
+                {'publish.status.date': datetime.today().strftime('%Y-%m-%d %H:%M:%S')})
             allegro_api.product_publish(saleor_product=product,
                                                     starting_at=product_with_params.get(
                                                         'starting_at'),
@@ -312,6 +314,8 @@ class AllegroPlugin(BasePlugin):
         else:
             product.store_value_in_private_metadata(
                 {'publish.allegro.status': ProductPublishState.MODERATED.value})
+            product.store_value_in_private_metadata(
+                {'publish.status.date': datetime.today().strftime('%Y-%m-%d %H:%M:%S')})
             product.save(update_fields=["private_metadata"])
 
     def calculate_hours_to_token_expire(self):
@@ -760,6 +764,8 @@ class AllegroAPI:
         product.store_value_in_private_metadata({'publish.allegro.status': status})
         product.store_value_in_private_metadata(
             {'publish.allegro.date': datetime.today().strftime('%Y-%m-%d %H:%M:%S')})
+        product.store_value_in_private_metadata(
+            {'publish.status.date': datetime.today().strftime('%Y-%m-%d %H:%M:%S')})
         product.store_value_in_private_metadata(
             {'publish.allegro.id': str(allegro_offer_id)})
         self.update_errors_in_private_metadata(product, errors)
