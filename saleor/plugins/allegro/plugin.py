@@ -229,7 +229,7 @@ class AllegroPlugin(BasePlugin):
         if self.config.token_access:
             if self.calculate_hours_to_token_expire() < HOURS_BEFORE_WE_REFRESH_TOKEN:
                 access_token, refresh_token, expires_in = AllegroAPI(
-                    self.config.token_access).refresh_token(self.config.refresh_token,
+                    self.config.token_access, self.config.env).refresh_token(self.config.refresh_token,
                                                             self.config.client_id,
                                                             self.config.client_secret,
                                                             self.config.saleor_redirect_url,
@@ -295,13 +295,13 @@ class AllegroPlugin(BasePlugin):
             errors.append('003: brak lokacji magazynowej dla produktu')
         if product_variant.price_amount == 0:
             errors.append('003: cena produktu wynosi 0')
-        AllegroAPI(None).update_errors_in_private_metadata(product, errors)
+        AllegroAPI(None, None).update_errors_in_private_metadata(product, errors)
         return errors
 
     def product_published(self, product_with_params: Any, previous_value: Any) -> Any:
         product = product_with_params.get('product')
         if len(self.product_validate(product)) == 0:
-            allegro_api = AllegroAPI(self.config.token_value)
+            allegro_api = AllegroAPI(self.config.token_value, self.config.env)
             product.store_value_in_private_metadata(
                     {'publish.allegro.status': ProductPublishState.MODERATED.value})
             allegro_api.product_publish(saleor_product=product,
@@ -446,13 +446,17 @@ class AllegroAuth:
 class AllegroAPI:
     token = None
     errors = []
+    env = None
 
-    def __init__(self, token):
+    def __init__(self, token, env):
         self.token = token
         self.errors = []
+        self.env = env
 
     def refresh_token(self, refresh_token, client_id, client_secret,
                       saleor_redirect_url, url_env):
+
+        logger.info('Refresh token')
 
         endpoint = 'auth/oauth/token?grant_type=refresh_token&refresh_token=' + \
                    refresh_token + '&redirect_uri=' + str(saleor_redirect_url)
@@ -474,8 +478,6 @@ class AllegroAPI:
 
     def product_publish(self, saleor_product, offer_type, starting_at):
 
-        config = self.get_plugin_configuration()
-        env = config.get('auth_env')
 
         if saleor_product.get_value_from_private_metadata(
                 'publish.allegro.status') == ProductPublishState.MODERATED.value and \
@@ -529,10 +531,10 @@ class AllegroAPI:
                     if len(offer['validation'].get('errors')) > 0:
                         for error in offer['validation'].get('errors'):
                             logger.error((error[
-                                  'message'] + ' dla ogłoszenia: ' + env + '/offer/' +
+                                  'message'] + ' dla ogłoszenia: ' + self.env + '/offer/' +
                                           offer['id'] + '/restore'))
                             self.errors.append((error[
-                                    'message'] + ' dla ogłoszenia: ' + env + '/offer/' +
+                                    'message'] + ' dla ogłoszenia: ' + self.env + '/offer/' +
                                                 offer['id'] + '/restore'))
                         self.update_status_and_publish_data_in_private_metadata(
                             saleor_product, offer['id'],
@@ -572,10 +574,10 @@ class AllegroAPI:
                     if len(offer['validation'].get('errors')) > 0:
                         for error in offer['validation'].get('errors'):
                             logger.error((error[
-                                  'message'] + ' dla ogłoszenia: ' + env + '/offer/' +
+                                  'message'] + ' dla ogłoszenia: ' + self.env + '/offer/' +
                                           offer['id'] + '/restore'))
                             self.errors.append((error[
-                                    'message'] + 'dla ogłoszenia: ' + env + '/offer/' +
+                                    'message'] + 'dla ogłoszenia: ' + self.env + '/offer/' +
                                                 offer['id'] + '/restore'))
                         self.update_status_and_publish_data_in_private_metadata(
                             saleor_product, offer['id'],
@@ -629,9 +631,7 @@ class AllegroAPI:
 
     def post_request(self, endpoint, data):
 
-        config = self.get_plugin_configuration()
-        env = config.get('env')
-        url = env + '/' + endpoint
+        url = self.env + '/' + endpoint
 
         headers = {'Authorization': 'Bearer ' + self.token,
                    'Accept': 'application/vnd.allegro.public.v1+json',
@@ -642,33 +642,58 @@ class AllegroAPI:
 
         response = requests.post(url, data=json.dumps(data), headers=headers)
 
+        if response.status_code == 401 and self.is_unauthorized(response):
+            return self.post_request(endpoint, data)
+
         return response
 
     def get_request(self, endpoint, params=None):
 
-        config = self.get_plugin_configuration()
-        env = config.get('env')
-        url = env + '/' + endpoint
+        url = self.env + '/' + endpoint
 
         headers = {'Authorization': 'Bearer ' + self.token,
                    'Accept': 'application/vnd.allegro.public.v1+json',
                    'Content-Type': 'application/vnd.allegro.public.v1+json'}
         response = requests.get(url, headers=headers, params=params)
 
+        if response.status_code == 401 and self.is_unauthorized(response):
+            return self.get_request(endpoint, params)
+
         return response
 
     def put_request(self, endpoint, data):
 
-        config = self.get_plugin_configuration()
-        env = config.get('env')
-        url = env + '/' + endpoint
+        url = self.env + '/' + endpoint
 
         headers = {'Authorization': 'Bearer ' + self.token,
                    'Accept': 'application/vnd.allegro.public.v1+json',
                    'Content-Type': 'application/vnd.allegro.public.v1+json'}
         response = requests.put(url, data=json.dumps(data), headers=headers)
 
+        if response.status_code == 401 and self.is_unauthorized(response):
+            return self.put_request(endpoint, data)
+
         return response
+
+    def is_unauthorized(self, response):
+
+        allegro_plugin_config = self.get_plugin_configuration()
+
+        if response.reason == 'Unauthorized':
+            access_token, refresh_token, expires_in = self.refresh_token(
+                allegro_plugin_config.get('refresh_token'),
+                allegro_plugin_config.get('client_id'),
+                allegro_plugin_config.get('client_secret'),
+                allegro_plugin_config.get('saleor_redirect_url'),
+                allegro_plugin_config.get('auth_env')) or (None, None, None)
+            if access_token and refresh_token and expires_in is not None:
+                self.token = access_token
+                AllegroAuth.save_token_in_plugin_configuration(access_token,
+                                                               refresh_token,
+                                                               expires_in)
+            return True
+        else:
+            return False
 
     @staticmethod
     def auth_request(endpoint, data, client_id, client_secret, url_env):
