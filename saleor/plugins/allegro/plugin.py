@@ -295,8 +295,9 @@ class AllegroPlugin(BasePlugin):
             errors.append('003: brak lokacji magazynowej dla produktu')
         if product_variant.price_amount == 0:
             errors.append('003: cena produktu wynosi 0')
-        if product_variant.weight == 0 or product_variant.weight is None:
-            errors.append('003: waga produktu wynosi 0')
+        if product_variant.cost_price_amount == 0 \
+                or product_variant.cost_price_amount is None:
+            errors.append('003: cena zakupowa produktu wynosi 0')
         AllegroAPI(None, None).update_errors_in_private_metadata(product, errors)
         return errors
 
