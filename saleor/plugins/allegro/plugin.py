@@ -1359,7 +1359,7 @@ class AllegroProductMapper:
     def prepare_name(self, name):
         if self.calculate_name_length(name) > 50:
             name = re.sub(
-                "NIEMOWLĘC[AEY]|DZIECIĘC[AEY]|DAMSK[AI]E?|MĘSK[AI]E?|INN[AEY]",
+                "NIEMOWLĘC[AEY]|DZIECIĘC[AEY]|DAMSK[AI]E?|MĘSK[AI]E?|INN[AEY]|POLIESTER",
                 "", name)
             name = re.sub("\s{3}", " ", name)
             if self.calculate_name_length(name) > 50:
@@ -1368,6 +1368,7 @@ class AllegroProductMapper:
                 name = self.remove_last_word(name)
             return name
         else:
+            name = re.sub("POLIESTER", "", name)
             description_blocks = self.parse_list_to_map(
                 self.saleor_product.description_json['blocks'])
             if description_blocks.get('Kolor') and description_blocks.get('Kolor')\
