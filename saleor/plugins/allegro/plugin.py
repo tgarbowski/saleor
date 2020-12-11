@@ -1266,6 +1266,8 @@ class AllegroProductMapper:
                     0] != 'Jakość'])
         })
 
+        product_items[1]['content'] += '<p>' + self.get_offer_description_footer() + '</p>'
+
         product_sections.append({'items': product_items})
 
         product_items = [{
@@ -1291,12 +1293,6 @@ class AllegroProductMapper:
         product_sections.append({'items': product_items})
 
 
-        product_items = [{
-            'type': 'TEXT',
-            'content': '<p>' + self.get_offer_description_footer() + '</p>'
-        }]
-
-        product_sections.append({'items': product_items})
 
         self.product['description']['sections'] = product_sections
 
