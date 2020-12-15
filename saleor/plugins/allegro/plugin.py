@@ -1239,7 +1239,7 @@ class AllegroProductMapper:
     @staticmethod
     def parse_list_to_map(list_in):
         return {item['text'].split(":")[0]: item['text'].split(":")[1].strip() for item
-                in list_in if len(item['text'].split(':')) > 1}
+                in list_in[1:] if len(item['text'].split(':')) > 1}
 
     def set_description(self, product):
         product_sections = []
