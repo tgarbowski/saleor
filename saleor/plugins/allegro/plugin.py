@@ -564,7 +564,11 @@ class AllegroAPI:
                 offer_update = self.update_offer(saleor_product, starting_at,
                                                  offer_type)
                 logger.info('Offer update: ' + str(offer_update))
-
+                if 'errors' in offer_update:
+                    self.errors.append(str(offer_update.get('errors')))
+                    self.update_errors_in_private_metadata(saleor_product,
+                                                           [error for error in
+                                                            self.errors])
                 offer = self.valid_offer(offer_id)
 
                 if 'error' in offer:
