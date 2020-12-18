@@ -23,6 +23,7 @@ urlpatterns = [
     url(r'^sumi/reserve', SumiPlugin.create_reservation),
     url(r'^sumi/cancel', SumiPlugin.cancel_reservation),
     url(r'^sumi/sell', SumiPlugin.sell_products),
+    url(r'^sumi/v2/sell', SumiPlugin.sell_products_v2),
     url(r'^sumi/token', SumiPlugin.get_allegro_token),
     url(r'^sumi/locate', SumiPlugin.locate_products),
 ]
