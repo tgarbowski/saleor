@@ -520,7 +520,10 @@ class AllegroAPI:
                 return
 
             offer = self.publish_to_allegro(allegro_product=product)
-
+            if offer is None:
+                self.update_errors_in_private_metadata(saleor_product,
+                                                       [error for error in self.errors])
+                return None
             if 'error' in offer:
                 self.errors.append(offer.get('error_description'))
                 self.update_errors_in_private_metadata(saleor_product,
@@ -624,8 +627,13 @@ class AllegroAPI:
     def publish_to_allegro(self, allegro_product):
 
         endpoint = 'sale/offers'
-        response = self.post_request(endpoint=endpoint, data=allegro_product)
-        return json.loads(response.text)
+        try:
+            response = self.post_request(endpoint=endpoint, data=allegro_product)
+            return json.loads(response.text)
+        except AttributeError as err:
+            self.errors.append('Publish to Allegro error: ' + str(err))
+            logger.error('Publish to Allegro error: ' + str(err))
+            return None
 
     def update_allegro_offer(self, allegro_product, allegro_id):
 
@@ -638,16 +646,22 @@ class AllegroAPI:
 
     def post_request(self, endpoint, data):
 
-        url = self.env + '/' + endpoint
+        try:
+            url = self.env + '/' + endpoint
 
-        headers = {'Authorization': 'Bearer ' + self.token,
-                   'Accept': 'application/vnd.allegro.public.v1+json',
-                   'Content-Type': 'application/vnd.allegro.public.v1+json'}
+            headers = {'Authorization': 'Bearer ' + self.token,
+                       'Accept': 'application/vnd.allegro.public.v1+json',
+                       'Content-Type': 'application/vnd.allegro.public.v1+json'}
 
-        logger.info("Post request url: " + str(url))
-        logger.info("Post request headers: " + str(headers))
+            logger.info("Post request url: " + str(url))
+            logger.info("Post request headers: " + str(headers))
 
-        response = requests.post(url, data=json.dumps(data), headers=headers)
+            response = requests.post(url, data=json.dumps(data), headers=headers)
+
+        except TypeError as err:
+            self.errors.append('POST request error: ' + str(err))
+            logger.error('POST request error: ' + str(err))
+            return None
 
         if response.status_code == 401 and self.is_unauthorized(response):
             return self.post_request(endpoint, data)
@@ -656,13 +670,19 @@ class AllegroAPI:
 
     def get_request(self, endpoint, params=None):
 
-        url = self.env + '/' + endpoint
+        try:
+            url = self.env + '/' + endpoint
 
-        headers = {'Authorization': 'Bearer ' + self.token,
-                   'Accept': 'application/vnd.allegro.public.v1+json',
-                   'Content-Type': 'application/vnd.allegro.public.v1+json'}
-        response = requests.get(url, headers=headers, params=params)
+            headers = {'Authorization': 'Bearer ' + self.token,
+                       'Accept': 'application/vnd.allegro.public.v1+json',
+                       'Content-Type': 'application/vnd.allegro.public.v1+json'}
 
+            response = requests.get(url, headers=headers, params=params)
+
+        except TypeError as err:
+            self.errors.append('GET request error: ' + str(err))
+            logger.error('GET request error: ' + str(err))
+            return None
         if response.status_code == 401 and self.is_unauthorized(response):
             return self.get_request(endpoint, params)
 
@@ -670,13 +690,18 @@ class AllegroAPI:
 
     def put_request(self, endpoint, data):
 
-        url = self.env + '/' + endpoint
+        try:
+            url = self.env + '/' + endpoint
 
-        headers = {'Authorization': 'Bearer ' + self.token,
-                   'Accept': 'application/vnd.allegro.public.v1+json',
-                   'Content-Type': 'application/vnd.allegro.public.v1+json'}
-        response = requests.put(url, data=json.dumps(data), headers=headers)
+            headers = {'Authorization': 'Bearer ' + self.token,
+                       'Accept': 'application/vnd.allegro.public.v1+json',
+                       'Content-Type': 'application/vnd.allegro.public.v1+json'}
+            response = requests.put(url, data=json.dumps(data), headers=headers)
 
+        except TypeError as err:
+            self.errors.append('PUT request error: ' + str(err))
+            logger.error('PUT request error: ' + str(err))
+            return None
         if response.status_code == 401 and self.is_unauthorized(response):
             return self.put_request(endpoint, data)
 
@@ -733,6 +758,9 @@ class AllegroAPI:
         except KeyError as err:
             self.errors.append('Key error ' + str(err))
             logger.error(err)
+        except AttributeError as err:
+            self.errors.append('Attribute error ' + str(err))
+            logger.error(err)
 
         return require_params
 
@@ -753,13 +781,15 @@ class AllegroAPI:
 
         response = self.post_request(endpoint=endpoint, data=data)
 
-        logger.info("Upload images response " + str(json.loads(response.text)))
-
         try:
+            logger.info("Upload images response " + str(json.loads(response.text)))
             return json.loads(response.text)['location']
         except KeyError as err:
             logger.error(err)
             self.errors.append('Key error ' + str(err))
+        except AttributeError as err:
+            logger.error(err)
+            self.errors.append('Attribute error ' + str(err))
 
     def update_status_and_publish_data_in_private_metadata(self, product,
                                                            allegro_offer_id, status,
@@ -777,9 +807,11 @@ class AllegroAPI:
 
     @staticmethod
     def update_errors_in_private_metadata(product, errors):
-        product.store_value_in_private_metadata({'publish.allegro.errors': errors})
-        product.is_published = False
-        product.save(update_fields=["private_metadata", "is_published"])
+        if(len(errors) > 0):
+            logger.error(str(product.variants.first()) + ' ' + str(errors))
+            product.store_value_in_private_metadata({'publish.allegro.errors': errors})
+            product.is_published = False
+            product.save(update_fields=["private_metadata", "is_published"])
 
     def get_detailed_offer_publication(self, offer_id):
         endpoint = 'sale/offer-publication-commands/' + str(offer_id) + '/tasks'
