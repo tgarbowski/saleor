@@ -128,11 +128,16 @@ class SumiPlugin(BasePlugin):
 
     @staticmethod
     @transaction.atomic
-    def sell_product(product_variant_stock, date=None):
-        if date is not None:
+    def sell_product(product_variant_stock, product_data=None):
+        if product_data is not None:
             try:
                 SumiPlugin.update_allegro_status_in_private_metadata(
-                    product_variant_stock.product_variant.product, 'sold', date)
+                    product_variant_stock.product_variant.product, 'sold',
+                    product_data.get('date'))
+                product_variant_stock.product_variant.price_amount = \
+                    product_data.get('price')
+                product_variant_stock.product_variant.save(
+                    update_fields=["price_amount"])
             except Exception as ex:
                 return {
                     'error': '003: wystąpił błąd podczas przetwarzania sprzedanego '
@@ -437,8 +442,8 @@ class SumiPlugin(BasePlugin):
         if SumiPlugin.is_auth(request.headers.get('X-API-KEY')) \
                 and request.method == 'POST':
             for product in products:
-                if(product.get('sku') is not None and
-                        product.get('date') is not None):
+                if product.get('sku') is not None and product.get('date') is not None \
+                        and product.get('price') is not None:
                     product_variant = ProductVariant.objects.filter(
                         sku=product.get('sku'))
                     if product_variant.exists():
@@ -447,7 +452,7 @@ class SumiPlugin(BasePlugin):
                         if Stock.objects.exists():
                             if product_variant_stock.first().quantity > 0:
                                 result = SumiPlugin.sell_product(
-                                    product_variant_stock.first(), product.get('date'))
+                                    product_variant_stock.first(), product)
                                 if result.get('error'):
                                     results['status'] = 'error'
                                     results.get('errors').append(result.get('error'))
