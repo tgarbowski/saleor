@@ -56,7 +56,7 @@ class SumiPlugin(BasePlugin):
             products = json.loads(request.body.decode('utf-8'))['skus']
         except:
             http_response = HttpResponse()
-            http_response.status_code = 403
+            http_response.status_code = 400
             logger.debug('create_reservation response: ' + str(http_response))
             return http_response
         logger.info('create_reservation request: ' + str(products))
@@ -129,41 +129,25 @@ class SumiPlugin(BasePlugin):
     @staticmethod
     @transaction.atomic
     def sell_product(product_variant_stock, product_data=None):
-        if product_data is not None:
-            try:
-                SumiPlugin.update_allegro_status_in_private_metadata(
-                    product_variant_stock.product_variant.product, 'sold',
-                    product_data.get('date'))
-                product_variant_stock.product_variant.price_amount = \
-                    product_data.get('price')
-                product_variant_stock.product_variant.save(
-                    update_fields=["price_amount"])
-            except Exception as ex:
-                return {
-                    'error': '003: wystąpił błąd podczas przetwarzania sprzedanego '
-                             'produktu ' + str(
-                        product_variant_stock.product_variant) + ', komunikat błędu: ' +
-                             str(ex)}
-        else:
-            try:
-                SumiPlugin.update_allegro_status_in_private_metadata(
-                    product_variant_stock.product_variant.product, 'sold')
-            except Exception as ex:
-                return {
-                    'error': '003: wystąpił błąd podczas przetwarzania sprzedanego '
-                             'produktu ' + str(
-                        product_variant_stock.product_variant) + ', komunikat błędu: ' +
-                             str(ex)}
+        try:
+            SumiPlugin.update_allegro_status_in_private_metadata(
+                product_variant_stock.product_variant.product, 'sold', product_data)
+        except Exception as ex:
+            return {
+                'error': '003: wystąpił błąd podczas przetwarzania sprzedanego '
+                'produktu ' + str(product_variant_stock.product_variant) +
+                         ', komunikat błędu: ' + str(ex)}
 
         try:
-            return_object = {"sku": str(product_variant_stock.product_variant),
-                    "name": str(product_variant_stock.product_variant.product),
-                    "netPrice": str(round(float(product_variant_stock.product_variant.
-                                                cost_price_amount) / 1.23, 2)),
-                    "grossPrice": str(product_variant_stock.product_variant.
-                                      cost_price_amount),
-                    "vatRate": '23'
-                    }
+            return_object = {
+                "sku": str(product_variant_stock.product_variant),
+                "name": str(product_variant_stock.product_variant.product),
+                "netPrice": str(round(float(product_variant_stock.product_variant
+                                            .cost_price_amount) / 1.23, 2)),
+                "grossPrice": str(product_variant_stock.product_variant
+                                  .cost_price_amount),
+                "vatRate": '23'
+            }
         except Exception as ex:
             transaction.set_rollback(True)
             return {
@@ -185,8 +169,14 @@ class SumiPlugin(BasePlugin):
         product_variant.save(update_fields=["metadata"])
 
     @staticmethod
-    def update_allegro_status_in_private_metadata(product, status, date=None):
+    def update_allegro_status_in_private_metadata(product, status, product_data=None):
         product.store_value_in_private_metadata({'publish.allegro.status': status})
+        date = None
+        price = None
+        if product_data is not None:
+            date = product_data.get('date')
+            price = product_data.get('price')
+
         if date is not None:
             product.store_value_in_private_metadata(
                 {'publish.status.date': datetime.strptime(date,
@@ -195,6 +185,10 @@ class SumiPlugin(BasePlugin):
             product.store_value_in_private_metadata(
                 {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw')).
                     strftime('%Y-%m-%d %H:%M:%S')})
+
+        if price is not None:
+            product.store_value_in_private_metadata({'publish.allegro.price': price})
+
         product.save(update_fields=["private_metadata"])
 
     @staticmethod
@@ -207,7 +201,6 @@ class SumiPlugin(BasePlugin):
         else:
             return False
 
-
     @staticmethod
     def is_product_sold(product):
         if product.private_metadata.get('publish.allegro.status') is not None:
@@ -217,7 +210,6 @@ class SumiPlugin(BasePlugin):
                 return False
         else:
             return False
-
 
     @staticmethod
     def cancel_product_reservation(product_variant_stock):
@@ -234,28 +226,29 @@ class SumiPlugin(BasePlugin):
     @transaction.atomic
     def cancel_sold_product_reservation(product_variant_stock):
         try:
-            SumiPlugin.update_allegro_status_in_private_metadata\
-                (product_variant_stock.product_variant.product, 'moderated')
+            SumiPlugin.update_allegro_status_in_private_metadata(
+                product_variant_stock.product_variant.product, 'moderated')
             product_variant_stock.increase_stock(1)
             return product_variant_stock
         except Exception as ex:
             transaction.set_rollback(True)
             return {'error': '003: wystąpił błąd podczas przetwarzania sprzedanego '
-                             'produktu ' + str(
-                product_variant_stock.product_variant) + ', komunikat błędu: ' +
+                             'produktu ' + str(product_variant_stock.product_variant) +
+                             ', komunikat błędu: ' +
                              str(ex)}
+
     @staticmethod
     def cancel_reservation(request):
         try:
             products = json.loads(request.body.decode('utf-8'))['skus']
         except:
             http_response = HttpResponse()
-            http_response.status_code = 403
+            http_response.status_code = 400
             logger.debug('cancel_reservation response: ' + str(http_response))
             return http_response
         logger.info('cancel_reservation request: ' + str(products))
         results = {"status": "ok", "data": [], "errors": []}
-        # TODO: wynieś to do dekoratora
+        # TODO: wynieś to do dekoratora i wywołuj PRZED parsowaniem requesta
         if SumiPlugin.is_auth(
                 request.headers.get('X-API-KEY')) and request.method == 'POST':
             for product in products:
@@ -306,7 +299,7 @@ class SumiPlugin(BasePlugin):
             products = json.loads(request.body.decode('utf-8'))['skus']
         except:
             http_response = HttpResponse()
-            http_response.status_code = 403
+            http_response.status_code = 400
             logger.debug('sell_products response: ' + str(http_response))
             return http_response
         logger.info('sell_products request: ' + str(products))
@@ -372,7 +365,7 @@ class SumiPlugin(BasePlugin):
             products = json.loads(request.body.decode('utf-8')).get('locations')
         except JSONDecodeError:
             http_response = HttpResponse()
-            http_response.status_code = 403
+            http_response.status_code = 400
             logger.debug('locate_products response: ' + str(http_response))
             return http_response
         logger.info('locate_products request: ' + str(products))
@@ -430,60 +423,65 @@ class SumiPlugin(BasePlugin):
 
     @staticmethod
     def sell_products_v2(request):
+        http_response = HttpResponse()
+        if not SumiPlugin.is_auth(
+                request.headers.get('X-API-KEY')) or request.method != 'POST':
+            http_response.status_code = 403
+            logger.debug('sell_products_v2 response: ' + str(http_response))
+            return http_response
+
         try:
             products = json.loads(request.body.decode('utf-8')).get('products')
         except JSONDecodeError:
-            http_response = HttpResponse()
-            http_response.status_code = 403
+            http_response.status_code = 400
             logger.debug('sell_products_v2 response: ' + str(http_response))
             return http_response
+        if products is None:
+            http_response.status_code = 400
+            logger.debug('sell_products_v2 response: ' + str(http_response))
+            return http_response
+
         logger.info('sell_products_v2 request: ' + str(products))
         results = {"status": "ok", "data": [], "errors": []}
-        if SumiPlugin.is_auth(request.headers.get('X-API-KEY')) \
-                and request.method == 'POST':
-            for product in products:
-                if product.get('sku') is not None and product.get('date') is not None \
-                        and product.get('price') is not None:
-                    product_variant = ProductVariant.objects.filter(
-                        sku=product.get('sku'))
-                    if product_variant.exists():
-                        product_variant_stock = Stock.objects.filter(
-                            product_variant=product_variant.first())
-                        if Stock.objects.exists():
-                            if product_variant_stock.first().quantity > 0:
-                                result = SumiPlugin.sell_product(
-                                    product_variant_stock.first(), product)
-                                if result.get('error'):
-                                    results['status'] = 'error'
-                                    results.get('errors').append(result.get('error'))
-                                else:
-                                    results.get('data').append(result)
-                            else:
-                                results.get('errors').append('002: stan magazynowy ' +
-                                                             'produktu ' + str(
-                        product_variant_stock.first().product_variant) + ' wynosi 0')
+        for product in products:
+            if product.get('sku') is not None and product.get('date') is not None \
+                    and product.get('price') is not None:
+                product_variant = ProductVariant.objects.filter(
+                    sku=product.get('sku'))
+                if product_variant.exists():
+                    product_variant_stock = Stock.objects.filter(
+                        product_variant=product_variant.first())
+                    if Stock.objects.exists():
+                        if product_variant_stock.first().quantity > 0:
+                            result = SumiPlugin.sell_product(
+                                product_variant_stock.first(), product)
+                            if result.get('error'):
                                 results['status'] = 'error'
+                                results.get('errors').append(result.get('error'))
+                            else:
+                                results.get('data').append(result)
                         else:
                             results.get('errors').append(
-                                '001: nie znaleziono produktu o kodzie ' + str(
-                                    product.get('sku')))
+                                '002: stan magazynowy produktu ' + str(
+                                    product_variant_stock.first().product_variant) +
+                                ' wynosi 0')
                             results['status'] = 'error'
-
                     else:
                         results.get('errors').append(
-                            '001: nie znaleziono produktu o kodzie ' + str(product.get('sku')))
+                            '001: nie znaleziono produktu o kodzie ' + str(
+                                product.get('sku')))
                         results['status'] = 'error'
+
                 else:
                     results.get('errors').append(
-                        '003: wystąpił błąd podczas przetwarzania danych ' + str(product))
+                        '001: nie znaleziono produktu o kodzie ' + str(
+                            product.get('sku')))
                     results['status'] = 'error'
+            else:
+                results.get('errors').append(
+                    '003: wystąpił błąd podczas przetwarzania danych ' + str(
+                        product))
+                results['status'] = 'error'
 
-            logger.debug('sell_products_v2 response: ' + str(results))
-            return JsonResponse(results)
-        else:
-            http_response = HttpResponse()
-            http_response.status_code = 403
-            logger.debug('sell_products_v2 response: ' + str(http_response))
-            return http_response
-
-
+        logger.debug('sell_products_v2 response: ' + str(results))
+        return JsonResponse(results)
