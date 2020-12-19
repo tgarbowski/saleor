@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+import pytz
 import requests
 from django.core.mail import EmailMultiAlternatives
 from django.shortcuts import redirect
@@ -308,7 +309,8 @@ class AllegroPlugin(BasePlugin):
             product.store_value_in_private_metadata(
                     {'publish.allegro.status': ProductPublishState.MODERATED.value})
             product.store_value_in_private_metadata(
-                {'publish.status.date': datetime.today().strftime('%Y-%m-%d %H:%M:%S')})
+                {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
+                    .strftime('%Y-%m-%d %H:%M:%S')})
             allegro_api.product_publish(saleor_product=product,
                                                     starting_at=product_with_params.get(
                                                         'starting_at'),
@@ -318,7 +320,8 @@ class AllegroPlugin(BasePlugin):
             product.store_value_in_private_metadata(
                 {'publish.allegro.status': ProductPublishState.MODERATED.value})
             product.store_value_in_private_metadata(
-                {'publish.status.date': datetime.today().strftime('%Y-%m-%d %H:%M:%S')})
+                {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
+                    .strftime('%Y-%m-%d %H:%M:%S')})
             product.save(update_fields=["private_metadata"])
 
     def calculate_hours_to_token_expire(self):
@@ -796,9 +799,11 @@ class AllegroAPI:
                                                            is_published, errors):
         product.store_value_in_private_metadata({'publish.allegro.status': status})
         product.store_value_in_private_metadata(
-            {'publish.allegro.date': datetime.today().strftime('%Y-%m-%d %H:%M:%S')})
+            {'publish.allegro.date': datetime.now(pytz.timezone('Europe/Warsaw'))
+                .strftime('%Y-%m-%d %H:%M:%S')})
         product.store_value_in_private_metadata(
-            {'publish.status.date': datetime.today().strftime('%Y-%m-%d %H:%M:%S')})
+            {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
+                .strftime('%Y-%m-%d %H:%M:%S')})
         product.store_value_in_private_metadata(
             {'publish.allegro.id': str(allegro_offer_id)})
         self.update_errors_in_private_metadata(product, errors)
