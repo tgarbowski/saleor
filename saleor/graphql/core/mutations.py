@@ -561,7 +561,8 @@ class BaseBulkMutation(BaseMutation):
 
             for i, instance in enumerate(instances):
                 instance.refresh_from_db()
-                if not instance.is_published:
+                if not instance.is_published and data.get('starting_at') and \
+                        data.get('offer_type'):
                     starting_at = (datetime.strptime(data.get('starting_at'), '%Y-%m-%d %H:%M') + timedelta(minutes=(start))).strftime("%Y-%m-%d %H:%M")
                     info.context.plugins.product_published({"product": instance, "offer_type": data.get('offer_type'), "starting_at": starting_at})
 
