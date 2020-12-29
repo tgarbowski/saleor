@@ -101,6 +101,7 @@ class BaseMutation(graphene.Mutation):
         _meta=None,
         error_type_class=None,
         error_type_field=None,
+        errors_mapping=None,
         **options,
     ):
         if not _meta:
@@ -120,6 +121,7 @@ class BaseMutation(graphene.Mutation):
         _meta.permissions = permissions
         _meta.error_type_class = error_type_class
         _meta.error_type_field = error_type_field
+        _meta.errors_mapping = errors_mapping
         super().__init_subclass_with_meta__(
             description=description, _meta=_meta, **options
         )
@@ -189,6 +191,20 @@ class BaseMutation(graphene.Mutation):
             )
         return instances
 
+    @staticmethod
+    def remap_error_fields(validation_error, field_map):
+        """Rename validation_error fields accoring to provided field_map.
+
+        Skips renaming fields from field_map that are not on validation_error.
+        """
+        for old_field, new_field in field_map.items():
+            try:
+                validation_error.error_dict[
+                    new_field
+                ] = validation_error.error_dict.pop(old_field)
+            except KeyError:
+                pass
+
     @classmethod
     def clean_instance(cls, info, instance):
         """Clean the instance that was created using the input data.
@@ -207,6 +223,9 @@ class BaseMutation(graphene.Mutation):
                     if field not in cls._meta.exclude:
                         new_error_dict[field] = errors
                 error.error_dict = new_error_dict
+
+            if cls._meta.errors_mapping:
+                cls.remap_error_fields(error, cls._meta.errors_mapping)
 
             if error.error_dict:
                 raise error
@@ -457,6 +476,11 @@ class ModelMutation(BaseMutation):
         return instance
 
     @classmethod
+    def post_save_action(cls, info, instance, cleaned_input):
+        """Perform an action after saving an object and its m2m."""
+        pass
+
+    @classmethod
     def perform_mutation(cls, _root, info, **data):
         """Perform model mutation.
 
@@ -472,6 +496,7 @@ class ModelMutation(BaseMutation):
         cls.clean_instance(info, instance)
         cls.save(info, instance, cleaned_input)
         cls._save_m2m(info, instance, cleaned_input)
+        cls.post_save_action(info, instance, cleaned_input)
         return cls.success_response(instance)
 
 

@@ -7,7 +7,9 @@ from io import BytesIO
 from typing import List, Optional
 from unittest.mock import MagicMock, Mock
 
+import graphene
 import pytest
+import pytz
 from django.conf import settings
 from django.contrib.auth.models import Group, Permission
 from django.contrib.sites.models import Site
@@ -16,16 +18,20 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.forms import ModelForm
 from django.test.utils import CaptureQueriesContext as BaseCaptureQueriesContext
+from django.utils import timezone
 from django_countries import countries
 from PIL import Image
 from prices import Money, TaxedMoney
 
 from ..account.models import Address, StaffNotificationRecipient, User
-from ..app.models import App
-from ..checkout import utils
+from ..app.models import App, AppInstallation
+from ..app.types import AppType
 from ..checkout.models import Checkout
 from ..checkout.utils import add_variant_to_checkout
+from ..core import JobStatus
 from ..core.payments import PaymentInterface
+from ..csv.events import ExportEvents
+from ..csv.models import ExportEvent, ExportFile
 from ..discount import DiscountInfo, DiscountValueType, VoucherType
 from ..discount.models import (
     Sale,
@@ -43,6 +49,7 @@ from ..order.models import FulfillmentStatus, Order, OrderEvent, OrderLine
 from ..order.utils import recalculate_order
 from ..page.models import Page, PageTranslation
 from ..payment import ChargeStatus, TransactionKind
+from ..payment.interface import GatewayConfig, PaymentData
 from ..payment.models import Payment
 from ..plugins.models import PluginConfiguration
 from ..plugins.vatlayer.plugin import VatlayerPlugin
@@ -64,6 +71,7 @@ from ..product.models import (
     ProductType,
     ProductVariant,
     ProductVariantTranslation,
+    VariantImage,
 )
 from ..product.tests.utils import create_image
 from ..product.utils.attributes import associate_attribute_values_to_instance
@@ -178,9 +186,19 @@ def setup_vatlayer(settings):
 
 
 @pytest.fixture(autouse=True)
-def setup_dummy_gateway(settings):
-    settings.PLUGINS = ["saleor.payment.gateways.dummy.plugin.DummyGatewayPlugin"]
+def setup_dummy_gateways(settings):
+    settings.PLUGINS = [
+        "saleor.payment.gateways.dummy.plugin.DummyGatewayPlugin",
+        "saleor.payment.gateways.dummy_credit_card.plugin.DummyCreditCardGatewayPlugin",
+    ]
     return settings
+
+
+@pytest.fixture
+def sample_gateway(settings):
+    settings.PLUGINS += [
+        "saleor.plugins.tests.sample_plugins.ActiveDummyPaymentGateway"
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -200,10 +218,12 @@ def site_settings(db, settings) -> SiteSettings:
     settings.SITE_ID = site.pk
 
     main_menu = Menu.objects.get_or_create(
-        name=settings.DEFAULT_MENUS["top_menu_name"]
+        name=settings.DEFAULT_MENUS["top_menu_name"],
+        slug=settings.DEFAULT_MENUS["top_menu_name"],
     )[0]
     secondary_menu = Menu.objects.get_or_create(
-        name=settings.DEFAULT_MENUS["bottom_menu_name"]
+        name=settings.DEFAULT_MENUS["bottom_menu_name"],
+        slug=settings.DEFAULT_MENUS["bottom_menu_name"],
     )[0]
     obj.top_menu = main_menu
     obj.bottom_menu = secondary_menu
@@ -213,7 +233,7 @@ def site_settings(db, settings) -> SiteSettings:
 
 @pytest.fixture
 def checkout(db):
-    checkout = Checkout.objects.create()
+    checkout = Checkout.objects.create(currency="USD")
     checkout.set_country("US", commit=True)
     return checkout
 
@@ -222,6 +242,29 @@ def checkout(db):
 def checkout_with_item(checkout, product):
     variant = product.variants.get()
     add_variant_to_checkout(checkout, variant, 3)
+    checkout.save()
+    return checkout
+
+
+@pytest.fixture
+def checkout_ready_to_complete(checkout_with_item, address, shipping_method, gift_card):
+    checkout = checkout_with_item
+    checkout.shipping_address = address
+    checkout.shipping_method = shipping_method
+    checkout.billing_address = address
+    checkout.store_value_in_metadata(items={"accepted": "true"})
+    checkout.store_value_in_private_metadata(items={"accepted": "false"})
+    checkout_with_item.gift_cards.add(gift_card)
+    checkout.save()
+    return checkout
+
+
+@pytest.fixture
+def checkout_with_digital_item(checkout, digital_content):
+    """Create a checkout with a digital line."""
+    variant = digital_content.product_variant
+    add_variant_to_checkout(checkout, variant, 1)
+    checkout.email = "customer@example.com"
     checkout.save()
     return checkout
 
@@ -265,10 +308,15 @@ def checkout_with_single_item(checkout, product):
 
 @pytest.fixture
 def checkout_with_variant_without_inventory_tracking(
-    checkout, variant_without_inventory_tracking
+    checkout, variant_without_inventory_tracking, address, shipping_method
 ):
     variant = variant_without_inventory_tracking
     add_variant_to_checkout(checkout, variant, 1)
+    checkout.shipping_address = address
+    checkout.shipping_method = shipping_method
+    checkout.billing_address = address
+    checkout.store_value_in_metadata(items={"accepted": "true"})
+    checkout.store_value_in_private_metadata(items={"accepted": "false"})
     checkout.save()
     return checkout
 
@@ -323,6 +371,21 @@ def checkout_with_voucher_percentage_and_shipping(
 
 
 @pytest.fixture
+def checkout_with_payments(checkout):
+    Payment.objects.bulk_create(
+        [
+            Payment(
+                gateway="mirumee.payments.dummy", is_active=True, checkout=checkout
+            ),
+            Payment(
+                gateway="mirumee.payments.dummy", is_active=False, checkout=checkout
+            ),
+        ]
+    )
+    return checkout
+
+
+@pytest.fixture
 def address(db):  # pylint: disable=W0613
     return Address.objects.create(
         first_name="John",
@@ -345,7 +408,7 @@ def address_other_country():
         city="BENNETTMOUTH",
         postal_code="13377",
         country="IS",
-        phone="",
+        phone="+40123123123",
     )
 
 
@@ -402,6 +465,7 @@ def user_checkout(customer_user):
         billing_address=customer_user.default_billing_address,
         shipping_address=customer_user.default_shipping_address,
         note="Test notes",
+        currency="USD",
     )
     return checkout
 
@@ -419,7 +483,10 @@ def user_checkout_with_items(user_checkout, product_list):
 def order(customer_user):
     address = customer_user.default_billing_address.get_copy()
     return Order.objects.create(
-        billing_address=address, user_email=customer_user.email, user=customer_user
+        billing_address=address,
+        shipping_address=address,
+        user_email=customer_user.email,
+        user=customer_user,
     )
 
 
@@ -478,6 +545,31 @@ def shipping_zone(db):  # pylint: disable=W0613
 
 
 @pytest.fixture
+def shipping_zones(db):
+    shipping_zone_poland, shipping_zone_usa = ShippingZone.objects.bulk_create(
+        [
+            ShippingZone(name="Poland", countries=["PL"]),
+            ShippingZone(name="USA", countries=["US"]),
+        ]
+    )
+    shipping_zone_poland.shipping_methods.create(
+        name="DHL",
+        minimum_order_price=Money(0, "USD"),
+        type=ShippingMethodType.PRICE_BASED,
+        price=Money(10, "USD"),
+        shipping_zone=shipping_zone,
+    )
+    shipping_zone_usa.shipping_methods.create(
+        name="DHL",
+        minimum_order_price=Money(0, "USD"),
+        type=ShippingMethodType.PRICE_BASED,
+        price=Money(10, "USD"),
+        shipping_zone=shipping_zone,
+    )
+    return [shipping_zone_poland, shipping_zone_usa]
+
+
+@pytest.fixture
 def shipping_zone_without_countries(db):  # pylint: disable=W0613
     shipping_zone = ShippingZone.objects.create(name="Europe", countries=[])
     shipping_zone.shipping_methods.create(
@@ -531,6 +623,16 @@ def size_attribute(db):  # pylint: disable=W0613
 
 
 @pytest.fixture
+def weight_attribute(db):
+    attribute = Attribute.objects.create(slug="material", name="Material")
+    AttributeValue.objects.create(attribute=attribute, name="Cotton", slug="cotton")
+    AttributeValue.objects.create(
+        attribute=attribute, name="Poliester", slug="poliester"
+    )
+    return attribute
+
+
+@pytest.fixture
 def attribute_list() -> List[Attribute]:
     return list(
         Attribute.objects.bulk_create(
@@ -578,6 +680,7 @@ def categories_tree(db, product_type):  # pylint: disable=W0613
         product_type=product_type,
         category=child,
         is_published=True,
+        visible_in_listings=True,
     )
 
     associate_attribute_values_to_instance(product, product_attr, attr_value)
@@ -664,10 +767,12 @@ def product(product_type, category, warehouse):
     product = Product.objects.create(
         name="Test product",
         slug="test-product-11",
-        minimal_variant_price_amount="10.00",
+        minimal_variant_price_amount=Decimal(10),
         product_type=product_type,
         category=category,
         is_published=True,
+        available_for_purchase=datetime.date(1999, 1, 1),
+        visible_in_listings=True,
     )
 
     associate_attribute_values_to_instance(product, product_attr, product_attr_value)
@@ -695,6 +800,8 @@ def product_with_single_variant(product_type, category, warehouse):
         product_type=product_type,
         category=category,
         is_published=True,
+        available_for_purchase=datetime.date(1999, 1, 1),
+        visible_in_listings=True,
     )
     variant = ProductVariant.objects.create(
         product=product,
@@ -714,6 +821,8 @@ def product_with_two_variants(product_type, category, warehouse):
         product_type=product_type,
         category=category,
         is_published=True,
+        available_for_purchase=datetime.date(1999, 1, 1),
+        visible_in_listings=True,
     )
 
     variants = [
@@ -755,6 +864,8 @@ def product_with_variant_with_two_attributes(
         product_type=product_type,
         category=category,
         is_published=True,
+        available_for_purchase=datetime.date(1999, 1, 1),
+        visible_in_listings=True,
     )
 
     variant = ProductVariant.objects.create(
@@ -803,6 +914,8 @@ def product_with_default_variant(product_type_without_variant, category, warehou
         product_type=product_type_without_variant,
         category=category,
         is_published=True,
+        available_for_purchase=datetime.date(1999, 1, 1),
+        visible_in_listings=True,
     )
     variant = ProductVariant.objects.create(
         product=product, sku="1234", track_inventory=True, price_amount=Decimal(10)
@@ -821,6 +934,8 @@ def variant_without_inventory_tracking(
         product_type=product_type_without_variant,
         category=category,
         is_published=True,
+        available_for_purchase=datetime.date.today(),
+        visible_in_listings=True,
     )
     variant = ProductVariant.objects.create(
         product=product,
@@ -847,8 +962,26 @@ def variant(product) -> ProductVariant:
 @pytest.fixture
 def variant_with_many_stocks(variant, warehouses_with_shipping_zone):
     warehouses = warehouses_with_shipping_zone
-    Stock.objects.create(warehouse=warehouses[0], product_variant=variant, quantity=4)
-    Stock.objects.create(warehouse=warehouses[1], product_variant=variant, quantity=3)
+    Stock.objects.bulk_create(
+        [
+            Stock(warehouse=warehouses[0], product_variant=variant, quantity=4),
+            Stock(warehouse=warehouses[1], product_variant=variant, quantity=3),
+        ]
+    )
+    return variant
+
+
+@pytest.fixture
+def variant_with_many_stocks_different_shipping_zones(
+    variant, warehouses_with_different_shipping_zone
+):
+    warehouses = warehouses_with_different_shipping_zone
+    Stock.objects.bulk_create(
+        [
+            Stock(warehouse=warehouses[0], product_variant=variant, quantity=4),
+            Stock(warehouse=warehouses[1], product_variant=variant, quantity=3),
+        ]
+    )
     return variant
 
 
@@ -879,6 +1012,7 @@ def product_without_shipping(category, warehouse):
         product_type=product_type,
         category=category,
         is_published=True,
+        visible_in_listings=True,
     )
     variant = ProductVariant.objects.create(
         product=product, sku="SKU_B", price_amount=Decimal(10)
@@ -910,6 +1044,7 @@ def product_list(product_type, category, warehouse):
                     category=category,
                     product_type=product_type,
                     is_published=True,
+                    visible_in_listings=True,
                 ),
                 Product(
                     pk=1487,
@@ -918,6 +1053,7 @@ def product_list(product_type, category, warehouse):
                     category=category,
                     product_type=product_type,
                     is_published=True,
+                    visible_in_listings=True,
                 ),
                 Product(
                     pk=1489,
@@ -926,6 +1062,7 @@ def product_list(product_type, category, warehouse):
                     category=category,
                     product_type=product_type,
                     is_published=True,
+                    visible_in_listings=True,
                 ),
             ]
         )
@@ -1008,6 +1145,7 @@ def unavailable_product(product_type, category):
         product_type=product_type,
         is_published=False,
         category=category,
+        visible_in_listings=False,
     )
     return product
 
@@ -1019,6 +1157,7 @@ def unavailable_product_with_variant(product_type, category, warehouse):
         slug="test-product-6",
         product_type=product_type,
         is_published=False,
+        visible_in_listings=False,
         category=category,
     )
 
@@ -1042,6 +1181,7 @@ def product_with_images(product_type, category, media_root):
         product_type=product_type,
         category=category,
         is_published=True,
+        visible_in_listings=True,
     )
     file_mock_0 = MagicMock(spec=File, name="FileMock0")
     file_mock_0.name = "image0.jpg"
@@ -1170,7 +1310,7 @@ def order_line_with_one_allocation(customer_user, variant_with_many_stocks):
         quantity=2,
         variant=variant,
         unit_price=TaxedMoney(net=net, gross=gross),
-        tax_rate=23,
+        tax_rate=Decimal(23),
     )
 
     Allocation.objects.create(
@@ -1216,6 +1356,8 @@ def order_with_lines(order, product_type, category, shipping_zone, warehouse):
         product_type=product_type,
         category=category,
         is_published=True,
+        available_for_purchase=datetime.date.today(),
+        visible_in_listings=True,
     )
     variant = ProductVariant.objects.create(
         product=product,
@@ -1248,6 +1390,8 @@ def order_with_lines(order, product_type, category, shipping_zone, warehouse):
         product_type=product_type,
         category=category,
         is_published=True,
+        available_for_purchase=datetime.date.today(),
+        visible_in_listings=True,
     )
     variant = ProductVariant.objects.create(
         product=product, sku="SKU_B", cost_price=Money(2, "USD"), price_amount=20
@@ -1321,6 +1465,12 @@ def order_events(order):
 @pytest.fixture
 def fulfilled_order(order_with_lines):
     order = order_with_lines
+    invoice = order.invoices.create(
+        url="http://www.example.com/invoice.pdf",
+        number="01/12/2020/TEST",
+        created=datetime.datetime.now(tz=pytz.utc),
+        status=JobStatus.SUCCESS,
+    )
     fulfillment = order.fulfillments.create(tracking_number="123")
     line_1 = order.lines.first()
     stock_1 = line_1.allocations.get().stock
@@ -1438,7 +1588,7 @@ def payment_txn_to_confirm(order_with_lines, payment_dummy):
 
     payment.transactions.create(
         amount=payment.total,
-        kind=TransactionKind.CAPTURE,
+        kind=TransactionKind.ACTION_TO_CONFIRM,
         gateway_response={},
         is_success=True,
         action_required=True,
@@ -1469,6 +1619,31 @@ def payment_not_authorized(payment_dummy):
     payment_dummy.is_active = False
     payment_dummy.save()
     return payment_dummy
+
+
+@pytest.fixture
+def dummy_gateway_config():
+    return GatewayConfig(
+        gateway_name="Dummy",
+        auto_capture=True,
+        supported_currencies="USD",
+        connection_params={"secret-key": "nobodylikesspanishinqusition"},
+    )
+
+
+@pytest.fixture
+def dummy_payment_data(payment_dummy):
+    return PaymentData(
+        amount=Decimal(10),
+        currency="USD",
+        graphql_payment_id=graphene.Node.to_global_id("Payment", payment_dummy.pk),
+        payment_id=payment_dummy.pk,
+        billing=None,
+        shipping=None,
+        order_id=None,
+        customer_ip_address=None,
+        customer_email="example@test.com",
+    )
 
 
 @pytest.fixture
@@ -1516,6 +1691,11 @@ def permission_manage_products():
 
 
 @pytest.fixture
+def permission_manage_product_types_and_attributes():
+    return Permission.objects.get(codename="manage_product_types_and_attributes")
+
+
+@pytest.fixture
 def permission_manage_shipping():
     return Permission.objects.get(codename="manage_shipping")
 
@@ -1543,11 +1723,6 @@ def permission_manage_pages():
 @pytest.fixture
 def permission_manage_translations():
     return Permission.objects.get(codename="manage_translations")
-
-
-@pytest.fixture
-def permission_manage_webhooks():
-    return Permission.objects.get(codename="manage_webhooks")
 
 
 @pytest.fixture
@@ -1678,7 +1853,7 @@ def model_form_class():
 
 @pytest.fixture
 def menu(db):
-    return Menu.objects.get_or_create(name="test-navbar")[0]
+    return Menu.objects.get_or_create(name="test-navbar", slug="test-navbar")[0]
 
 
 @pytest.fixture
@@ -1813,7 +1988,33 @@ def payment_dummy(db, order_with_lines):
         is_active=True,
         cc_first_digits="4111",
         cc_last_digits="1111",
-        cc_brand="VISA",
+        cc_brand="visa",
+        cc_exp_month=12,
+        cc_exp_year=2027,
+        total=order_with_lines.total.gross.amount,
+        currency=order_with_lines.total.gross.currency,
+        billing_first_name=order_with_lines.billing_address.first_name,
+        billing_last_name=order_with_lines.billing_address.last_name,
+        billing_company_name=order_with_lines.billing_address.company_name,
+        billing_address_1=order_with_lines.billing_address.street_address_1,
+        billing_address_2=order_with_lines.billing_address.street_address_2,
+        billing_city=order_with_lines.billing_address.city,
+        billing_postal_code=order_with_lines.billing_address.postal_code,
+        billing_country_code=order_with_lines.billing_address.country.code,
+        billing_country_area=order_with_lines.billing_address.country_area,
+        billing_email=order_with_lines.user_email,
+    )
+
+
+@pytest.fixture
+def payment_dummy_credit_card(db, order_with_lines):
+    return Payment.objects.create(
+        gateway="mirumee.payments.dummy_credit_card",
+        order=order_with_lines,
+        is_active=True,
+        cc_first_digits="4111",
+        cc_last_digits="1111",
+        cc_brand="visa",
         cc_exp_month=12,
         cc_exp_year=2027,
         total=order_with_lines.total.gross.amount,
@@ -1846,6 +2047,8 @@ def digital_content(category, media_root, warehouse) -> DigitalContent:
         product_type=product_type,
         category=category,
         is_published=True,
+        available_for_purchase=datetime.date(1999, 1, 1),
+        visible_in_listings=True,
     )
     product_variant = ProductVariant.objects.create(
         product=product,
@@ -1990,7 +2193,28 @@ def other_description_json():
 
 @pytest.fixture
 def app(db):
-    return App.objects.create(name="Sample app objects", is_active=True)
+    app = App.objects.create(name="Sample app objects", is_active=True)
+    app.tokens.create(name="Default")
+    return app
+
+
+@pytest.fixture
+def external_app(db):
+    app = App.objects.create(
+        name="External App",
+        is_active=True,
+        type=AppType.THIRDPARTY,
+        identifier="mirumee.app.sample",
+        about_app="About app text.",
+        data_privacy="Data privacy text.",
+        data_privacy_url="http://www.example.com/privacy/",
+        homepage_url="http://www.example.com/homepage/",
+        support_url="http://www.example.com/support/contact/",
+        configuration_url="http://www.example.com/app-configuration/",
+        app_url="http://www.example.com/app/",
+    )
+    app.tokens.create(name="Default")
+    return app
 
 
 @pytest.fixture
@@ -2090,10 +2314,18 @@ def warehouses_with_shipping_zone(warehouses, shipping_zone):
 
 
 @pytest.fixture
+def warehouses_with_different_shipping_zone(warehouses, shipping_zones):
+    warehouses[0].shipping_zones.add(shipping_zones[0])
+    warehouses[1].shipping_zones.add(shipping_zones[1])
+    return warehouses
+
+
+@pytest.fixture
 def warehouse_no_shipping_zone(address):
     warehouse = Warehouse.objects.create(
         address=address,
-        name="Warehouse withot shipping zone",
+        name="Warehouse without shipping zone",
+        slug="warehouse-no-shipping-zone",
         email="test2@example.com",
     )
     return warehouse
@@ -2167,4 +2399,87 @@ def allocations(order_list, stock):
                 order_line=lines[2], stock=stock, quantity_allocated=lines[2].quantity
             ),
         ]
+    )
+
+
+@pytest.fixture
+def app_installation():
+    app_installation = AppInstallation.objects.create(
+        app_name="External App", manifest_url="http://localhost:3000/manifest",
+    )
+    return app_installation
+
+
+@pytest.fixture
+def user_export_file(staff_user):
+    job = ExportFile.objects.create(user=staff_user)
+    return job
+
+
+@pytest.fixture
+def app_export_file(app):
+    job = ExportFile.objects.create(app=app)
+    return job
+
+
+@pytest.fixture
+def export_file_list(staff_user):
+    export_file_list = list(
+        ExportFile.objects.bulk_create(
+            [
+                ExportFile(user=staff_user),
+                ExportFile(user=staff_user,),
+                ExportFile(user=staff_user, status=JobStatus.SUCCESS,),
+                ExportFile(user=staff_user, status=JobStatus.SUCCESS),
+                ExportFile(user=staff_user, status=JobStatus.FAILED,),
+            ]
+        )
+    )
+
+    updated_date = datetime.datetime(
+        2019, 4, 18, tzinfo=timezone.get_current_timezone()
+    )
+    created_date = datetime.datetime(
+        2019, 4, 10, tzinfo=timezone.get_current_timezone()
+    )
+    new_created_and_updated_dates = [
+        (created_date, updated_date),
+        (created_date, updated_date + datetime.timedelta(hours=2)),
+        (
+            created_date + datetime.timedelta(hours=2),
+            updated_date - datetime.timedelta(days=2),
+        ),
+        (created_date - datetime.timedelta(days=2), updated_date),
+        (
+            created_date - datetime.timedelta(days=5),
+            updated_date - datetime.timedelta(days=5),
+        ),
+    ]
+    for counter, export_file in enumerate(export_file_list):
+        created, updated = new_created_and_updated_dates[counter]
+        export_file.created_at = created
+        export_file.updated_at = updated
+
+    ExportFile.objects.bulk_update(export_file_list, ["created_at", "updated_at"])
+
+    return export_file_list
+
+
+@pytest.fixture
+def user_export_event(user_export_file):
+    return ExportEvent.objects.create(
+        type=ExportEvents.EXPORT_FAILED,
+        export_file=user_export_file,
+        user=user_export_file.user,
+        parameters={"message": "Example error message"},
+    )
+
+
+@pytest.fixture
+def app_export_event(app_export_file):
+    return ExportEvent.objects.create(
+        type=ExportEvents.EXPORT_FAILED,
+        export_file=app_export_file,
+        app=app_export_file.app,
+        parameters={"message": "Example error message"},
     )
