@@ -6,6 +6,7 @@ from django.conf import settings
 from graphene import relay
 from graphene_federation import key
 from graphql.error import GraphQLError
+from saleor.graphql.json_meta.types import ObjectWithJSONMetadata
 
 from ....core.permissions import OrderPermissions, ProductPermissions
 from ....core.weight import convert_weight_to_default_weight_unit

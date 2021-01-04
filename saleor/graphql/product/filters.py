@@ -20,7 +20,7 @@ from ...search.backends import picker
 from ...warehouse.models import Stock
 from ..core.filters import EnumFilter, ListObjectTypeFilter, ObjectTypeFilter
 from ..core.types import FilterInputObjectType
-from ..core.types.common import IntRangeInput, PriceRangeInput
+from ..core.types.common import IntRangeInput, PriceRangeInput, DateRangeInput
 from ..core.utils import from_global_id_strict_type
 from ..utils import (
     get_nodes,
