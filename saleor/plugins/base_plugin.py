@@ -565,8 +565,8 @@ class BasePlugin:
         config_structure = getattr(cls, "CONFIG_STRUCTURE") or {}
         desired_config_keys = set(config_structure.keys())
         for config_field in configuration:
-            if config_field["name"] not in desired_config_keys:
-                continue
+            # if config_field["name"] not in desired_config_keys:
+            #     continue
             updated_configuration.append(config_field)
 
         configured_keys = set(d["name"] for d in updated_configuration)
