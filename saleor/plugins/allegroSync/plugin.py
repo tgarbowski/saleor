@@ -53,8 +53,8 @@ class AllegroSyncPlugin(BasePlugin):
 
         if not product.is_published:
             errors.append('flaga is_published jest ustawiona na false')
-        if product.private_metadata.get('publish.allegro.status') != 'published':
-            errors.append('publish.allegro.status != published')
+        if product.private_metadata.get('publish.status') != 'published':
+            errors.append('publish.status != published')
 
         return errors
 
@@ -93,9 +93,9 @@ class AllegroSyncPlugin(BasePlugin):
                         product = variant.product
                         product_errors = AllegroSyncPlugin.valid_product(product)
                         if len(product_errors) == 0:
-                            if product.private_metadata.get('publish.allegro.id') != id:
+                            if product.private_metadata.get('publish.id') != id:
                                 product.store_value_in_private_metadata({
-                                    'publish.allegro.id': id})
+                                    'publish.id': id})
                                 product.save(update_fields=["private_metadata"])
                     else:
                         product_errors.append('nie znaleziono produktu o podanym SKU')

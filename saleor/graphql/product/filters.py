@@ -302,7 +302,7 @@ def filter_quantity(qs, quantity_value, warehouses=None):
 def filter_allegro_status(qs, _, value):
     if value:
         json_dict = {
-            "publish.allegro.status": value
+            "publish.status": value
         }
         qs = Product.objects.filter(private_metadata__contains=json_dict)
     return qs

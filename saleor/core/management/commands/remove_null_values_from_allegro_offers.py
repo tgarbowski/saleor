@@ -25,8 +25,8 @@ class Command(BaseCommand):
 
         if not product.is_published:
             errors.append('flaga is_published jest ustawiona na false')
-        if product.private_metadata.get('publish.allegro.status') != 'published':
-            errors.append('publish.allegro.status != published')
+        if product.private_metadata.get('publish.status') != 'published':
+            errors.append('publish.status != published')
 
         return errors
 
@@ -62,7 +62,7 @@ class Command(BaseCommand):
 
             if product_variant:
                 saleor_product = product_variant.product
-                allegro_id = saleor_product.private_metadata.get('publish.allegro.id')
+                allegro_id = saleor_product.private_metadata.get('publish.id')
 
                 if allegro_id is not None:
                     category_id = saleor_product.product_type.metadata.get(

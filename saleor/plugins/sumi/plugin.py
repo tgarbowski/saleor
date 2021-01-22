@@ -170,7 +170,7 @@ class SumiPlugin(BasePlugin):
 
     @staticmethod
     def update_allegro_status_in_private_metadata(product, status, product_data=None):
-        product.store_value_in_private_metadata({'publish.allegro.status': status})
+        product.store_value_in_private_metadata({'publish.status': status})
         date = None
         price = None
         if product_data is not None:
@@ -187,7 +187,7 @@ class SumiPlugin(BasePlugin):
                     strftime('%Y-%m-%d %H:%M:%S')})
 
         if price is not None:
-            product.store_value_in_private_metadata({'publish.allegro.price': price})
+            product.store_value_in_private_metadata({'publish.price': price})
 
         product.save(update_fields=["private_metadata"])
 
@@ -203,8 +203,8 @@ class SumiPlugin(BasePlugin):
 
     @staticmethod
     def is_product_sold(product):
-        if product.private_metadata.get('publish.allegro.status') is not None:
-            if product.private_metadata.get('publish.allegro.status') == 'sold':
+        if product.private_metadata.get('publish.status') is not None:
+            if product.private_metadata.get('publish.status') == 'sold':
                 return True
             else:
                 return False

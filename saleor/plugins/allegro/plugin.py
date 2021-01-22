@@ -307,7 +307,7 @@ class AllegroPlugin(BasePlugin):
         if len(self.product_validate(product)) == 0:
             allegro_api = AllegroAPI(self.config.token_value, self.config.env)
             product.store_value_in_private_metadata(
-                    {'publish.allegro.status': ProductPublishState.MODERATED.value})
+                    {'publish.status': ProductPublishState.MODERATED.value})
             product.store_value_in_private_metadata(
                 {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
                     .strftime('%Y-%m-%d %H:%M:%S')})
@@ -318,7 +318,7 @@ class AllegroPlugin(BasePlugin):
                                                         'offer_type'))
         else:
             product.store_value_in_private_metadata(
-                {'publish.allegro.status': ProductPublishState.MODERATED.value})
+                {'publish.status': ProductPublishState.MODERATED.value})
             product.store_value_in_private_metadata(
                 {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
                     .strftime('%Y-%m-%d %H:%M:%S')})
@@ -490,9 +490,9 @@ class AllegroAPI:
 
 
         if saleor_product.get_value_from_private_metadata(
-                'publish.allegro.status') == ProductPublishState.MODERATED.value and \
+                'publish.status') == ProductPublishState.MODERATED.value and \
                 saleor_product.get_value_from_private_metadata(
-                    "publish.allegro.date") is None and \
+                    "publish.date") is None and \
                 saleor_product.is_published is False:
 
             saleor_product.is_published = True
@@ -560,12 +560,12 @@ class AllegroAPI:
 
                 return offer['id']
 
-        if saleor_product.get_value_from_private_metadata('publish.allegro.status') == \
+        if saleor_product.get_value_from_private_metadata('publish.status') == \
                 ProductPublishState.MODERATED.value and \
                 saleor_product.get_value_from_private_metadata(
-                    'publish.allegro.date') is not None and \
+                    'publish.date') is not None and \
                 saleor_product.is_published is False:
-            offer_id = saleor_product.private_metadata.get('publish.allegro.id')
+            offer_id = saleor_product.private_metadata.get('publish.id')
             if offer_id is not None:
                 offer_update = self.update_offer(saleor_product, starting_at,
                                                  offer_type)
@@ -597,14 +597,14 @@ class AllegroAPI:
                             ProductPublishState.MODERATED.value, False, self.errors)
                     else:
                         self.offer_publication(
-                            saleor_product.private_metadata.get('publish.allegro.id'))
+                            saleor_product.private_metadata.get('publish.id'))
                         self.update_status_and_publish_data_in_private_metadata(
                             saleor_product, offer['id'],
                             ProductPublishState.PUBLISHED.value, True, self.errors)
 
     def update_offer(self, saleor_product, starting_at, offer_type):
 
-        offer_id = saleor_product.private_metadata.get('publish.allegro.id')
+        offer_id = saleor_product.private_metadata.get('publish.id')
         category_id = saleor_product.product_type.metadata.get(
             'allegro.mapping.categoryId')
         require_parameters = self.get_require_parameters(category_id)
@@ -797,15 +797,15 @@ class AllegroAPI:
     def update_status_and_publish_data_in_private_metadata(self, product,
                                                            allegro_offer_id, status,
                                                            is_published, errors):
-        product.store_value_in_private_metadata({'publish.allegro.status': status})
+        product.store_value_in_private_metadata({'publish.status': status})
         product.store_value_in_private_metadata(
-            {'publish.allegro.date': datetime.now(pytz.timezone('Europe/Warsaw'))
+            {'publish.date': datetime.now(pytz.timezone('Europe/Warsaw'))
                 .strftime('%Y-%m-%d %H:%M:%S')})
         product.store_value_in_private_metadata(
             {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
                 .strftime('%Y-%m-%d %H:%M:%S')})
         product.store_value_in_private_metadata(
-            {'publish.allegro.id': str(allegro_offer_id)})
+            {'publish.id': str(allegro_offer_id)})
         self.update_errors_in_private_metadata(product, errors)
         product.is_published = is_published
         product.save(update_fields=["private_metadata", "is_published"])
@@ -814,9 +814,10 @@ class AllegroAPI:
     def update_errors_in_private_metadata(product, errors):
         if(len(errors) > 0):
             logger.error(str(product.variants.first()) + ' ' + str(errors))
-            product.store_value_in_private_metadata({'publish.allegro.errors': errors})
+            product.store_value_in_private_metadata({'publish.errors': errors})
             product.is_published = False
             product.save(update_fields=["private_metadata", "is_published"])
+
 
     def get_detailed_offer_publication(self, offer_id):
         endpoint = 'sale/offer-publication-commands/' + str(offer_id) + '/tasks'

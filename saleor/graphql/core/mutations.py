@@ -594,7 +594,7 @@ class BaseBulkMutation(BaseMutation):
                     if (i + 1) % step == 0:
                         start += interval
 
-                    error = instance.get_value_from_private_metadata('publish.allegro.errors')
+                    error = instance.get_value_from_private_metadata('publish.errors')
                     if error is not None:
                         publish_errors.append({'sku': instance.variants.first().sku, 'errors': error})
             if len(publish_errors) > 0:
