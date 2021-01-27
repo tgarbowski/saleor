@@ -6,9 +6,12 @@ from ....product.models import (
     CollectionProduct,
     Product,
     ProductImage,
+    ProductType,
     ProductVariant,
+    VariantImage,
 )
 from ...core.dataloaders import DataLoader
+from ...utils import get_user_or_app_from_context
 
 
 class CategoryByIdLoader(DataLoader):
@@ -23,8 +26,17 @@ class ProductByIdLoader(DataLoader):
     context_key = "product_by_id"
 
     def batch_load(self, keys):
-        products = Product.objects.visible_to_user(self.user).in_bulk(keys)
+        requestor = get_user_or_app_from_context(self.context)
+        products = Product.objects.visible_to_user(requestor).in_bulk(keys)
         return [products.get(product_id) for product_id in keys]
+
+
+class ProductTypeByIdLoader(DataLoader):
+    context_key = "product_type_by_id"
+
+    def batch_load(self, keys):
+        product_types = ProductType.objects.in_bulk(keys)
+        return [product_types.get(product_type_id) for product_type_id in keys]
 
 
 class ImagesByProductIdLoader(DataLoader):
@@ -57,6 +69,40 @@ class ProductVariantsByProductIdLoader(DataLoader):
             variant_map[variant.product_id].append(variant)
             variant_loader.prime(variant.id, variant)
         return [variant_map.get(product_id, []) for product_id in keys]
+
+
+class ProductImageByIdLoader(DataLoader):
+    context_key = "product_image_by_id"
+
+    def batch_load(self, keys):
+        product_images = ProductImage.objects.in_bulk(keys)
+        return [product_images.get(product_image_id) for product_image_id in keys]
+
+
+class ImagesByProductVariantIdLoader(DataLoader):
+    context_key = "images_by_product_variant"
+
+    def batch_load(self, keys):
+        variant_images = VariantImage.objects.filter(variant_id__in=keys).values_list(
+            "variant_id", "image_id"
+        )
+
+        variant_image_pairs = defaultdict(list)
+        for variant_id, image_id in variant_images:
+            variant_image_pairs[variant_id].append(image_id)
+
+        def map_variant_images(images):
+            images_map = {image.id: image for image in images}
+            return [
+                [images_map[image_id] for image_id in variant_image_pairs[variant_id]]
+                for variant_id in keys
+            ]
+
+        return (
+            ProductImageByIdLoader(self.context)
+            .load_many(set(image_id for variant_id, image_id in variant_images))
+            .then(map_variant_images)
+        )
 
 
 class CollectionByIdLoader(DataLoader):

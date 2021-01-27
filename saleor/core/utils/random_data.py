@@ -58,6 +58,7 @@ from ...product.models import (
     ProductImage,
     ProductType,
     ProductVariant,
+    VariantImage,
 )
 from ...product.tasks import update_products_minimal_variant_prices_of_discount_task
 from ...product.thumbnails import (
@@ -125,6 +126,12 @@ IMAGES_MAPPING = {
     116: ["saleordemoproduct_cl_bogo02_1.png"],
     117: ["saleordemoproduct_cl_bogo03_1.png"],
     118: ["saleordemoproduct_cl_bogo04_1.png", "saleordemoproduct_cl_bogo04_2.png"],
+    119: ["saleor-digital-03_1.png"],
+    120: ["saleor-digital-03_2.png"],
+    121: ["saleor-digital-03_3.png"],
+    122: ["saleor-digital-03_4.png"],
+    123: ["saleor-digital-03_5.png"],
+    124: ["saleor-digital-03_6.png"],
 }
 
 
@@ -212,6 +219,7 @@ def create_products(products_data, placeholder_dir, create_images):
         defaults["weight"] = get_weight(defaults["weight"])
         defaults["category_id"] = defaults.pop("category")
         defaults["product_type_id"] = defaults.pop("product_type")
+
         product, _ = Product.objects.update_or_create(pk=pk, defaults=defaults)
 
         if create_images:
@@ -230,7 +238,7 @@ def create_stocks(variant, warehouse_qs=None, **defaults):
         )
 
 
-def create_product_variants(variants_data):
+def create_product_variants(variants_data, create_images):
     for variant in variants_data:
         pk = variant["pk"]
         defaults = variant["fields"]
@@ -242,8 +250,16 @@ def create_product_variants(variants_data):
         defaults["product_id"] = product_id
         set_field_as_money(defaults, "price_override")
         set_field_as_money(defaults, "cost_price")
-        quantity = defaults.pop("quantity")
+        is_default_variant = defaults.pop("default", False)
         variant, _ = ProductVariant.objects.update_or_create(pk=pk, defaults=defaults)
+        if is_default_variant:
+            product = variant.product
+            product.default_variant = variant
+            product.save(update_fields=["default_variant", "updated_at"])
+        if create_images:
+            image = variant.product.images.first()
+            VariantImage.objects.create(variant=variant, image=image)
+        quantity = random.randint(100, 500)
         create_stocks(variant, quantity=quantity)
 
 
@@ -304,7 +320,6 @@ def create_products_by_schema(placeholder_dir, create_images):
     for item in db_items:
         model = item.pop("model")
         types[model].append(item)
-
     create_product_types(product_type_data=types["product.producttype"])
     create_categories(
         categories_data=types["product.category"], placeholder_dir=placeholder_dir
@@ -316,7 +331,9 @@ def create_products_by_schema(placeholder_dir, create_images):
         placeholder_dir=placeholder_dir,
         create_images=create_images,
     )
-    create_product_variants(variants_data=types["product.productvariant"])
+    create_product_variants(
+        variants_data=types["product.productvariant"], create_images=create_images
+    )
     assign_attributes_to_product_types(
         AttributeProduct, attributes=types["product.attributeproduct"]
     )
@@ -512,7 +529,11 @@ def create_fulfillments(order):
 
 
 def create_fake_order(discounts, max_order_lines=5):
-    customers = User.objects.filter(is_superuser=False).order_by("?")
+    customers = (
+        User.objects.filter(is_superuser=False)
+        .exclude(default_billing_address=None)
+        .order_by("?")
+    )
     customer = random.choice([None, customers.first()])
 
     if customer:

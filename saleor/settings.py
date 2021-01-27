@@ -12,7 +12,6 @@ import pkg_resources
 import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.utils import get_random_secret_key
-from django_prices.utils.formatting import get_currency_fraction
 from pytimeparse import parse
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
@@ -95,9 +94,12 @@ LANGUAGES = [
     ("is", "Icelandic"),
     ("it", "Italian"),
     ("ja", "Japanese"),
+    ("ka", "Georgian"),
+    ("km", "Khmer"),
     ("ko", "Korean"),
     ("lt", "Lithuanian"),
     ("mn", "Mongolian"),
+    ("my", "Burmese"),
     ("nb", "Norwegian"),
     ("nl", "Dutch"),
     ("pl", "Polish"),
@@ -234,9 +236,11 @@ INSTALLED_APPS = [
     "saleor.product",
     "saleor.checkout",
     "saleor.core",
+    "saleor.csv",
     "saleor.graphql",
     "saleor.menu",
     "saleor.order",
+    "saleor.invoice",
     "saleor.seo",
     "saleor.shipping",
     "saleor.search",
@@ -290,53 +294,53 @@ if ENABLE_DEBUG_TOOLBAR:
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "root": {"level": "INFO", "handlers": ["console"]},
+    "root": {"level": "INFO", "handlers": ["default"]},
     "formatters": {
+        "django.server": {
+            "()": "django.utils.log.ServerFormatter",
+            "format": "[{server_time}] {message}",
+            "style": "{",
+        },
+        "json": {
+            "()": "saleor.core.logging.JsonFormatter",
+            "datefmt": "%Y-%m-%dT%H:%M:%SZ",
+            "format": (
+                "%(asctime)s %(levelname)s %(lineno)s %(message)s %(name)s "
+                + "%(pathname)s %(process)d %(threadName)s"
+            ),
+        },
         "verbose": {
             "format": (
                 "%(levelname)s %(name)s %(message)s [PID:%(process)d:%(threadName)s]"
             )
         },
-        "simple": {"format": "%(levelname)s %(message)s"},
     },
-    "filters": {"require_debug_false": {"()": "django.utils.log.RequireDebugFalse"}},
     "handlers": {
-        "mail_admins": {
-            "level": "ERROR",
-            "filters": ["require_debug_false"],
-            "class": "django.utils.log.AdminEmailHandler",
-        },
-        "console": {
+        "default": {
             "level": "DEBUG",
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
+            "formatter": "verbose" if DEBUG else "json",
         },
-        "null": {"class": "logging.NullHandler"},
+        "django.server": {
+            "level": "INFO",
+            "class": "logging.StreamHandler",
+            "formatter": "django.server" if DEBUG else "json",
+        },
     },
     "loggers": {
-        "django": {
-            "handlers": ["console", "mail_admins"],
+        "django": {"level": "INFO", "propagate": True},
+        "django.server": {
+            "handlers": ["django.server"],
             "level": "INFO",
-            "propagate": True,
+            "propagate": False,
         },
-        "django.server": {"handlers": ["console"], "level": "INFO", "propagate": False},
-        "saleor": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
+        "saleor": {"level": "DEBUG", "propagate": True},
         "saleor.graphql.errors.handled": {
-            "handlers": ["console"],
-            "level": "ERROR",
-            "propagate": True,
+            "handlers": ["default"],
+            "level": "INFO",
+            "propagate": False,
         },
-        # You can configure this logger to go to another file using a file handler.
-        # Refer to https://docs.djangoproject.com/en/2.2/topics/logging/#examples.
-        # This allow easier filtering from GraphQL query/permission errors that may
-        # have been triggered by your frontend applications from the internal errors
-        # that happen in backend
-        "saleor.graphql.errors.unhandled": {
-            "handlers": ["console"],
-            "level": "ERROR",
-            "propagate": True,
-        },
-        "graphql.execution.utils": {"handlers": ["null"], "propagate": False},
+        "graphql.execution.utils": {"propagate": False},
     },
 }
 
@@ -351,7 +355,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 DEFAULT_COUNTRY = os.environ.get("DEFAULT_COUNTRY", "US")
 DEFAULT_CURRENCY = os.environ.get("DEFAULT_CURRENCY", "USD")
-DEFAULT_DECIMAL_PLACES = get_currency_fraction(DEFAULT_CURRENCY)
+DEFAULT_DECIMAL_PLACES = 3
 DEFAULT_MAX_DIGITS = 12
 DEFAULT_CURRENCY_CODE_LENGTH = 3
 
@@ -388,7 +392,7 @@ TEST_RUNNER = "saleor.tests.runner.PytestTestRunner"
 PLAYGROUND_ENABLED = get_bool_from_env("PLAYGROUND_ENABLED", True)
 
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1"))
-ALLOWED_GRAPHQL_ORIGINS = os.environ.get("ALLOWED_GRAPHQL_ORIGINS", "*")
+ALLOWED_GRAPHQL_ORIGINS = get_list(os.environ.get("ALLOWED_GRAPHQL_ORIGINS", "*"))
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
@@ -462,7 +466,6 @@ SEARCH_BACKEND = "saleor.search.backends.postgresql"
 
 AUTHENTICATION_BACKENDS = [
     "saleor.core.auth_backend.JSONWebTokenBackend",
-    "django.contrib.auth.backends.ModelBackend",
 ]
 
 # CELERY SETTINGS
@@ -510,9 +513,12 @@ PLUGINS = [
     "saleor.plugins.vatlayer.plugin.VatlayerPlugin",
     "saleor.plugins.webhook.plugin.WebhookPlugin",
     "saleor.payment.gateways.dummy.plugin.DummyGatewayPlugin",
+    "saleor.payment.gateways.dummy_credit_card.plugin.DummyCreditCardGatewayPlugin",
     "saleor.payment.gateways.stripe.plugin.StripeGatewayPlugin",
     "saleor.payment.gateways.braintree.plugin.BraintreeGatewayPlugin",
     "saleor.payment.gateways.razorpay.plugin.RazorpayGatewayPlugin",
+    "saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
+    "saleor.plugins.invoicing.plugin.InvoicingPlugin",
     "saleor.plugins.allegro.plugin.AllegroPlugin",
     "saleor.plugins.sumi.plugin.SumiPlugin",
     "saleor.plugins.allegroSync.plugin.AllegroSyncPlugin",
@@ -570,6 +576,9 @@ CACHES = {"default": django_cache_url.config()}
 # Default False because storefront and dashboard don't support expiration of token
 JWT_EXPIRE = get_bool_from_env("JWT_EXPIRE", False)
 JWT_TTL_ACCESS = timedelta(seconds=parse(os.environ.get("JWT_TTL_ACCESS", "5 minutes")))
+JWT_TTL_APP_ACCESS = timedelta(
+    seconds=parse(os.environ.get("JWT_TTL_APP_ACCESS", "5 minutes"))
+)
 JWT_TTL_REFRESH = timedelta(seconds=parse(os.environ.get("JWT_TTL_REFRESH", "30 days")))
 
 

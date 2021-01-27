@@ -6,9 +6,10 @@ from django.conf import settings
 from graphene import relay
 from graphene_federation import key
 from graphql.error import GraphQLError
+from saleor.graphql.json_meta.types import ObjectWithJSONMetadata
 
-from ...json_meta.types import ObjectWithJSONMetadata
-from ....core.permissions import ProductPermissions
+from ....core.permissions import OrderPermissions, ProductPermissions
+from ....core.weight import convert_weight_to_default_weight_unit
 from ....product import models
 from ....product.templatetags.product_images import (
     get_product_image_thumbnail,
@@ -30,7 +31,7 @@ from ...core.connection import CountableDjangoObjectType
 from ...core.enums import ReportingPeriod, TaxRateType
 from ...core.fields import FilterInputConnectionField, PrefetchingConnectionField
 from ...core.types import Image, Money, MoneyRange, TaxedMoney, TaxedMoneyRange, TaxType
-from ...decorators import permission_required
+from ...decorators import one_of_permissions_required, permission_required
 from ...discount.dataloaders import DiscountsByDateTimeLoader
 from ...meta.deprecated.resolvers import resolve_meta, resolve_private_meta
 from ...meta.types import ObjectWithMetadata
@@ -41,7 +42,7 @@ from ...translations.types import (
     ProductTranslation,
     ProductVariantTranslation,
 )
-from ...utils import get_database_id
+from ...utils import get_database_id, get_user_or_app_from_context
 from ...utils.filters import reporting_period_to_date
 from ...warehouse.dataloaders import (
     AvailableQuantityByProductVariantIdAndCountryCodeLoader,
@@ -51,15 +52,22 @@ from ..dataloaders import (
     CategoryByIdLoader,
     CollectionsByProductIdLoader,
     ImagesByProductIdLoader,
+    ImagesByProductVariantIdLoader,
+    ProductAttributesByProductTypeIdLoader,
     ProductByIdLoader,
+    ProductTypeByIdLoader,
+    ProductVariantByIdLoader,
     ProductVariantsByProductIdLoader,
     SelectedAttributesByProductIdLoader,
     SelectedAttributesByProductVariantIdLoader,
+    VariantAttributesByProductTypeIdLoader,
 )
-from ..filters import AttributeFilterInput
+from ..filters import AttributeFilterInput, ProductFilterInput
 from ..resolvers import resolve_attributes
+from ..sorters import ProductOrder
 from .attributes import Attribute, SelectedAttribute
 from .digital_contents import DigitalContent
+
 
 
 def resolve_attribute_list(
@@ -276,7 +284,9 @@ class ProductVariant(CountableDjangoObjectType):
         model = models.ProductVariant
 
     @staticmethod
-    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
+    @one_of_permissions_required(
+        [ProductPermissions.MANAGE_PRODUCTS, OrderPermissions.MANAGE_ORDERS]
+    )
     def resolve_stocks(root: models.ProductVariant, info, country_code=None):
         if not country_code:
             return root.stocks.annotate_available_quantity()
@@ -399,15 +409,15 @@ class ProductVariant(CountableDjangoObjectType):
         return calculate_revenue_for_variant(root, start_date)
 
     @staticmethod
-    def resolve_images(root: models.ProductVariant, *_args):
-        return root.images.all()
+    def resolve_images(root: models.ProductVariant, info, *_args):
+        return ImagesByProductVariantIdLoader(info.context).load(root.id)
 
     @classmethod
     def get_node(cls, info, pk):
-        user = info.context.user
-        visible_products = models.Product.objects.visible_to_user(user).values_list(
-            "pk", flat=True
-        )
+        requestor = get_user_or_app_from_context(info.context)
+        visible_products = models.Product.objects.visible_to_user(
+            requestor
+        ).values_list("pk", flat=True)
         qs = cls._meta.model.objects.filter(product__id__in=visible_products)
         return qs.filter(pk=pk).first()
 
@@ -423,6 +433,10 @@ class ProductVariant(CountableDjangoObjectType):
     @staticmethod
     def __resolve_reference(root, _info, **_kwargs):
         return graphene.Node.get_node_from_global_id(_info, root.id)
+
+    @staticmethod
+    def resolve_weight(root: models.ProductVariant, _info, **_kwargs):
+        return convert_weight_to_default_weight_unit(root.weight)
 
 
 @key(fields="id")
@@ -475,18 +489,24 @@ class Product(CountableDjangoObjectType):
         lambda: Collection, description="List of collections for the product."
     )
     translation = TranslationField(ProductTranslation, type_name="product")
+    is_available_for_purchase = graphene.Boolean(
+        description="Whether the product is available for purchase."
+    )
+    is_published = graphene.Boolean(
+        required=True, description="Whether the product is published."
+    )
 
     class Meta:
         description = "Represents an individual item for sale in the storefront."
         interfaces = [relay.Node, ObjectWithMetadata, ObjectWithJSONMetadata]
         model = models.Product
         only_fields = [
+            "available_for_purchase",
             "category",
             "charge_taxes",
             "description",
             "description_json",
             "id",
-            "is_published",
             "name",
             "slug",
             "product_type",
@@ -495,7 +515,17 @@ class Product(CountableDjangoObjectType):
             "seo_title",
             "updated_at",
             "weight",
+            "visible_in_listings",
+            "default_variant",
         ]
+
+    @staticmethod
+    def resolve_default_variant(root: models.Product, info):
+        default_variant_id = root.default_variant_id
+        if default_variant_id is None:
+            return None
+
+        return ProductVariantByIdLoader(info.context).load(root.default_variant_id)
 
     @staticmethod
     def resolve_category(root: models.Product, info):
@@ -604,11 +634,9 @@ class Product(CountableDjangoObjectType):
 
     @classmethod
     def get_node(cls, info, pk):
-
-        user = info.context.app or info.context.user
-
         if info.context:
-            qs = cls._meta.model.objects.visible_to_user(user)
+            requestor = get_user_or_app_from_context(info.context)
+            qs = cls._meta.model.objects.visible_to_user(requestor)
             return qs.filter(pk=pk).first()
         return None
 
@@ -624,6 +652,22 @@ class Product(CountableDjangoObjectType):
     @staticmethod
     def __resolve_reference(root, _info, **_kwargs):
         return graphene.Node.get_node_from_global_id(_info, root.id)
+
+    @staticmethod
+    def resolve_weight(root: models.Product, _info, **_kwargs):
+        return convert_weight_to_default_weight_unit(root.weight)
+
+    @staticmethod
+    def resolve_is_available_for_purchase(root: models.Product, _info):
+        return root.is_available_for_purchase()
+
+    @staticmethod
+    def resolve_product_type(root: models.Product, info):
+        return ProductTypeByIdLoader(info.context).load(root.product_type_id)
+
+    @staticmethod
+    def resolve_is_published(root: models.Product, _info):
+        return root.is_visible
 
 
 @key(fields="id")
@@ -676,12 +720,12 @@ class ProductType(CountableDjangoObjectType):
         return root.get_value_from_metadata("vatlayer.code")
 
     @staticmethod
-    def resolve_product_attributes(root: models.ProductType, *_args, **_kwargs):
-        return root.product_attributes.product_attributes_sorted().all()
+    def resolve_product_attributes(root: models.ProductType, info):
+        return ProductAttributesByProductTypeIdLoader(info.context).load(root.pk)
 
     @staticmethod
-    def resolve_variant_attributes(root: models.ProductType, *_args, **_kwargs):
-        return root.variant_attributes.variant_attributes_sorted().all()
+    def resolve_variant_attributes(root: models.ProductType, info):
+        return VariantAttributesByProductTypeIdLoader(info.context).load(root.pk)
 
     @staticmethod
     def resolve_products(root: models.ProductType, info, **_kwargs):
@@ -706,16 +750,26 @@ class ProductType(CountableDjangoObjectType):
     def __resolve_reference(root, _info, **_kwargs):
         return graphene.Node.get_node_from_global_id(_info, root.id)
 
+    @staticmethod
+    def resolve_weight(root: models.ProductType, _info, **_kwargs):
+        return convert_weight_to_default_weight_unit(root.weight)
+
 
 @key(fields="id")
 class Collection(CountableDjangoObjectType):
-    products = PrefetchingConnectionField(
-        Product, description="List of products in this collection."
+    products = FilterInputConnectionField(
+        Product,
+        filter=ProductFilterInput(description="Filtering options for products."),
+        sort_by=ProductOrder(description="Sort products."),
+        description="List of products in this collection.",
     )
     background_image = graphene.Field(
         Image, size=graphene.Int(description="Size of the image.")
     )
     translation = TranslationField(CollectionTranslation, type_name="collection")
+    is_published = graphene.Boolean(
+        required=True, description="Whether the collection is published."
+    )
 
     class Meta:
         description = "Represents a collection of products."
@@ -723,7 +777,6 @@ class Collection(CountableDjangoObjectType):
             "description",
             "description_json",
             "id",
-            "is_published",
             "name",
             "publication_date",
             "seo_description",
@@ -746,13 +799,13 @@ class Collection(CountableDjangoObjectType):
 
     @staticmethod
     def resolve_products(root: models.Collection, info, first=None, **kwargs):
-        return root.products.collection_sorted(info.context.user)
+        return root.products.visible_to_user(info.context.user)
 
     @classmethod
     def get_node(cls, info, id):
         if info.context:
-            user = info.context.user
-            qs = cls._meta.model.objects.visible_to_user(user)
+            requestor = get_user_or_app_from_context(info.context)
+            qs = cls._meta.model.objects.visible_to_user(requestor)
             return qs.filter(id=id).first()
         return None
 
@@ -768,6 +821,10 @@ class Collection(CountableDjangoObjectType):
     @staticmethod
     def __resolve_reference(root, _info, **_kwargs):
         return graphene.Node.get_node_from_global_id(_info, root.id)
+
+    @staticmethod
+    def resolve_is_published(root: models.Collection, _info):
+        return root.is_visible
 
 
 @key(fields="id")
@@ -835,8 +892,11 @@ class Category(CountableDjangoObjectType):
 
     @staticmethod
     def resolve_products(root: models.Category, info, **_kwargs):
+        requestor = get_user_or_app_from_context(info.context)
         tree = root.get_descendants(include_self=True)
         qs = models.Product.objects.published()
+        if not qs.user_has_access_to_all(requestor):
+            qs = qs.exclude(visible_in_listings=False)
         return qs.filter(category__in=tree)
 
     @staticmethod
