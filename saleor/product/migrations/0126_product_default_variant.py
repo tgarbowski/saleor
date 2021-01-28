@@ -10,7 +10,7 @@ def set_default_variants(apps, schema_editor):
         first_variant = product.variants.first()
         if first_variant:
             product.default_variant = first_variant
-            product.save(update_fields=["default_variant", "updated_at"])
+            product.save(update_fields=["default_variant"])
 
 
 class Migration(migrations.Migration):
