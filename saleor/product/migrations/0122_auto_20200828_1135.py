@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
             field=models.BooleanField(default=False),
         ),
         migrations.RunPython(
-            set_all_published_products_as_searchable_and_available_for_purchase,
+            # set_all_published_products_as_searchable_and_available_for_purchase,
             migrations.RunPython.noop,
         ),
     ]
