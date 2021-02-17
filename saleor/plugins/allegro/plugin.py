@@ -304,18 +304,23 @@ class AllegroPlugin(BasePlugin):
 
     def product_published(self, product_with_params: Any, previous_value: Any) -> Any:
         product = product_with_params.get('product')
+        offer_type = product_with_params.get('offer_type')
+        product.delete_value_from_private_metadata('publish.allegro.errors')
+
         if len(self.product_validate(product)) == 0:
             allegro_api = AllegroAPI(self.config.token_value, self.config.env)
             product.store_value_in_private_metadata(
-                    {'publish.allegro.status': ProductPublishState.MODERATED.value})
+                {'publish.allegro.status': ProductPublishState.MODERATED.value})
             product.store_value_in_private_metadata(
                 {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
                     .strftime('%Y-%m-%d %H:%M:%S')})
-            allegro_api.product_publish(saleor_product=product,
-                                                    starting_at=product_with_params.get(
-                                                        'starting_at'),
-                                                    offer_type=product_with_params.get(
-                                                        'offer_type'))
+            product.store_value_in_private_metadata({'publish.type': offer_type})
+
+            allegro_api.product_publish(
+                saleor_product=product,
+                starting_at=product_with_params.get('starting_at'),
+                offer_type=offer_type
+            )
         else:
             product.store_value_in_private_metadata(
                 {'publish.allegro.status': ProductPublishState.MODERATED.value})
@@ -367,8 +372,6 @@ class AllegroPlugin(BasePlugin):
         html += '<td>' + 'Niepropawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) > 0])) + '</td>'
         html += '</tr>'
         html += '</table>'
-
-
 
         return html
 
@@ -487,7 +490,6 @@ class AllegroAPI:
             return None
 
     def product_publish(self, saleor_product, offer_type, starting_at):
-
 
         if saleor_product.get_value_from_private_metadata(
                 'publish.allegro.status') == ProductPublishState.MODERATED.value and \
@@ -812,7 +814,7 @@ class AllegroAPI:
 
     @staticmethod
     def update_errors_in_private_metadata(product, errors):
-        if(len(errors) > 0):
+        if len(errors) > 0:
             logger.error(str(product.variants.first()) + ' ' + str(errors))
             product.store_value_in_private_metadata({'publish.allegro.errors': errors})
             product.is_published = False
@@ -912,7 +914,7 @@ class BaseParametersMapper:
                     value = self.set_allegro_typed_value(key, mapped_parameter_value)
                     return value
                 elif key.get('restrictions') and key.get('restrictions').get('range'):
-                    if('-' in mapped_parameter_value):
+                    if '-' in mapped_parameter_value:
                         value = self.set_allegro_typed_range_value(key, mapped_parameter_value)
                         return value
                 else:
@@ -1032,7 +1034,7 @@ class AllegroParametersMapper(BaseParametersMapper):
 
     @staticmethod
     def parse_attributes_to_map(list_in):
-            return {item[0]: item[1:] for item in list_in}
+        return {item[0]: item[1:] for item in list_in}
 
     @staticmethod
     def get_plugin_configuration():
@@ -1054,8 +1056,8 @@ class AllegroParametersMapper(BaseParametersMapper):
         mapped_parameter_key = self.get_specific_parameter_key(
             parameter) or self.get_global_parameter_key(parameter) or parameter
 
-        if(type(mapped_parameter_key) == list):
-            if(len(mapped_parameter_key) < 2):
+        if type(mapped_parameter_key) == list:
+            if len(mapped_parameter_key) < 2:
                 mapped_parameter_key, *_ = mapped_parameter_key
             else:
                 mapped_parameter_key, mapped_parameter_key_in_saleor_scope = mapped_parameter_key
@@ -1097,9 +1099,9 @@ class AllegroParametersMapper(BaseParametersMapper):
             return mapped_parameter_map.get(key)
 
     def get_allegro_parameter(self, parameter):
-        mapped_parameter_key, mapped_parameter_value, mapped_parameter_key_in_saleor_scope  = \
+        mapped_parameter_key, mapped_parameter_value, mapped_parameter_key_in_saleor_scope = \
             self.get_mapped_parameter_key_and_value(parameter)
-        if(mapped_parameter_key_in_saleor_scope):
+        if mapped_parameter_key_in_saleor_scope:
             mapped_parameter_key = mapped_parameter_key_in_saleor_scope
         allegro_parameter = self.create_allegro_parameter(slugify(parameter),
                                                           mapped_parameter_value)
@@ -1133,12 +1135,12 @@ class AllegroParametersMapper(BaseParametersMapper):
 
         if allegro_parameter is None:
             if mapped_parameter_value is None:
-                if ('rozmiar-buty-damskie' in self.product_attributes):
+                if 'rozmiar-buty-damskie' in self.product_attributes:
                     key = 'rozmiar-buty-damskie-' + self.product_attributes.get(
                         'rozmiar-buty-damskie')
                     mapped_parameter_value = self.get_shoe_size(
                         slugify(mapped_parameter_key), key)
-                if ('rozmiar-buty-meskie' in self.product_attributes):
+                if 'rozmiar-buty-meskie' in self.product_attributes:
                     key = 'rozmiar-buty-meskie-' + self.product_attributes.get(
                         'rozmiar-buty-meskie')
                     mapped_parameter_value = self.get_shoe_size(
@@ -1332,8 +1334,6 @@ class AllegroProductMapper:
 
         product_sections.append({'items': product_items})
 
-
-
         self.product['description']['sections'] = product_sections
 
         return self
@@ -1500,12 +1500,14 @@ class AllegroProductMapper:
             self.set_price_amount(
                 str(product_variant.price_amount))
             self.set_price_currency(product_variant.currency)
+            self.set_publication_republish('False')
         else:
             product_variant = ProductVariant.objects.filter(
                 product=self.saleor_product).first()
             self.set_starting_price_amount(
                 str(product_variant.price_amount))
             self.set_starting_price_currency(product_variant.currency)
+            self.set_publication_republish('True')
 
         self.set_name(self.prepare_name(self.saleor_product.name))
         self.set_images(self.saleor_images)
@@ -1528,7 +1530,6 @@ class AllegroProductMapper:
 
         self.set_publication_status('INACTIVE')
         self.set_publication_ended_by('USER')
-        self.set_publication_republish('True')
 
         self.set_parameters(self.saleor_parameters)
         self.set_external(
