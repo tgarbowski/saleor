@@ -1508,6 +1508,7 @@ class AllegroProductMapper:
                 str(product_variant.price_amount))
             self.set_starting_price_currency(product_variant.currency)
             self.set_publication_republish('True')
+            self.set_publication_duration(self.get_publication_duration())
 
         self.set_name(self.prepare_name(self.saleor_product.name))
         self.set_images(self.saleor_images)
@@ -1518,7 +1519,6 @@ class AllegroProductMapper:
         self.set_stock_available('1')
 
         self.set_stock_unit('SET')
-        self.set_publication_duration(self.get_publication_duration())
         self.set_publication_ending_at('')
         if self.get_publication_starting_at() is not None:
             if datetime.strptime(self.get_publication_starting_at(),
