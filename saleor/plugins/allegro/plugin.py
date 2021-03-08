@@ -491,7 +491,9 @@ class AllegroAPI:
             return None
 
     def product_publish(self, saleor_product, offer_type, starting_at):
-        return async_product_publish(self, saleor_product, offer_type, starting_at)
+        parameters_mapper_factory = ParametersMapperFactory()
+        product_mapper_factory = ProductMapperFactory()
+        return async_product_publish(self, saleor_product, offer_type, starting_at, parameters_mapper_factory, product_mapper_factory)
 
     def update_offer(self, saleor_product, starting_at, offer_type):
 
