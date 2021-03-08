@@ -243,7 +243,6 @@ INSTALLED_APPS = [
     "saleor.invoice",
     "saleor.seo",
     "saleor.shipping",
-    "saleor.search",
     "saleor.site",
     "saleor.data_feeds",
     "saleor.page",
@@ -462,8 +461,6 @@ PLACEHOLDER_IMAGES = {
 
 DEFAULT_PLACEHOLDER = "images/placeholder255x255.png"
 
-SEARCH_BACKEND = "saleor.search.backends.postgresql"
-
 AUTHENTICATION_BACKENDS = [
     "saleor.core.auth_backend.JSONWebTokenBackend",
 ]
@@ -518,6 +515,7 @@ PLUGINS = [
     "saleor.payment.gateways.braintree.plugin.BraintreeGatewayPlugin",
     "saleor.payment.gateways.razorpay.plugin.RazorpayGatewayPlugin",
     "saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
+    "saleor.payment.gateways.authorize_net.plugin.AuthorizeNetGatewayPlugin",
     "saleor.plugins.invoicing.plugin.InvoicingPlugin",
     "saleor.plugins.allegro.plugin.AllegroPlugin",
     "saleor.plugins.sumi.plugin.SumiPlugin",
