@@ -304,7 +304,6 @@ class AllegroPlugin(BasePlugin):
         return errors
 
     def product_published(self, product_with_params: Any, previous_value: Any) -> Any:
-        print('kupa')
         product = product_with_params.get('product')
         offer_type = product_with_params.get('offer_type')
         product.delete_value_from_private_metadata('publish.allegro.errors')
@@ -492,8 +491,7 @@ class AllegroAPI:
             return None
 
     def product_publish(self, saleor_product, offer_type, starting_at):
-        print('dupa1')
-        return async_product_publish.delay(self, saleor_product, offer_type, starting_at)
+        return async_product_publish(self, saleor_product, offer_type, starting_at)
 
     def update_offer(self, saleor_product, starting_at, offer_type):
 

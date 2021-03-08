@@ -1,4 +1,4 @@
-from celery import shared_task
+from ...celeryconf import app
 
 import logging
 logger = logging.getLogger(__name__)
@@ -6,14 +6,9 @@ logger = logging.getLogger(__name__)
 from saleor.plugins.allegro import ProductPublishState
 
 
-@shared_task
+@app.task
 def async_product_publish(self, saleor_product, offer_type, starting_at):
-    return _product_publish_test(self, saleor_product, offer_type, starting_at)
-    #return _product_publish(self, saleor_product, offer_type, starting_at)
-
-def _product_publish_test(self, saleor_product, offer_type, starting_at):
-    print('this should work asyc')
-    pass
+    return _product_publish(self, saleor_product, offer_type, starting_at)
 
 def _product_publish(self, saleor_product, offer_type, starting_at):
         if saleor_product.get_value_from_private_metadata(
