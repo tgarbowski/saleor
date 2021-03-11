@@ -251,6 +251,7 @@ INSTALLED_APPS = [
     "saleor.webhook",
     "saleor.wishlist",
     "saleor.app",
+    "saleor.salingo",
     # External apps
     "versatileimagefield",
     "django_measurement",
@@ -262,7 +263,6 @@ INSTALLED_APPS = [
     "django_countries",
     "django_filters",
     "phonenumber_field",
-    "saleor.salingo",
 ]
 
 

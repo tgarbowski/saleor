@@ -6,8 +6,9 @@ from ..utils import read_sql_from_file
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("salingo", "0001_sku_to_date")
     ]
 
     operations = [
-        migrations.RunSQL(read_sql_from_file('sku_to_date.sql'))
+        migrations.RunSQL(read_sql_from_file('update_prices.sql'))
     ]
