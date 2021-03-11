@@ -9,5 +9,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(read_sql_from_file('sku_to_date.sql'))
+        migrations.RunSQL(read_sql_from_file('sku_to_date.sql')),
+        migrations.RunSQL(
+            """
+            update product_product pp set updated_at  =
+            (select sku_to_date(sku) from product_productvariant pv where pp.id = pv.product_id)
+            """
+        )
     ]
