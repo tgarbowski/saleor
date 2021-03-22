@@ -5,7 +5,6 @@ from ...celeryconf import app
 logger = logging.getLogger(__name__)
 from saleor.plugins.allegro import ProductPublishState
 
-@app.task
 def async_product_publish(allegro_api_instance, saleor_product, offer_type, starting_at, parameters_mapper_factory, product_mapper_factory):
     return _product_publish(allegro_api_instance, saleor_product, offer_type, starting_at, parameters_mapper_factory, product_mapper_factory)
 

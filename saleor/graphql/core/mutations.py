@@ -584,22 +584,44 @@ class BaseBulkMutation(BaseMutation):
             interval, chunks = info.context.plugins.get_intervals_and_chunks()
             step = math.ceil(len(instances) / (chunks))
 
-            for i, instance in enumerate(instances):
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from time import time
+
+            def publish(instance, data, start):
                 instance.refresh_from_db()
                 if not instance.is_published and data.get('starting_at') and \
                         data.get('offer_type'):
-                    starting_at = (datetime.strptime(data.get('starting_at'), '%Y-%m-%d %H:%M') + timedelta(minutes=(start))).strftime("%Y-%m-%d %H:%M")
-                    info.context.plugins.product_published({"product": instance, "offer_type": data.get('offer_type'), "starting_at": starting_at})
+                    starting_at = (datetime.strptime(data.get('starting_at'),
+                                                     '%Y-%m-%d %H:%M') + timedelta(
+                        minutes=(start))).strftime("%Y-%m-%d %H:%M")
+                    info.context.plugins.product_published(
+                        {"product": instance, "offer_type": data.get('offer_type'),
+                         "starting_at": starting_at})
 
+                    error = instance.get_value_from_private_metadata(
+                        'publish.allegro.errors')
+                    if error:
+                        return {'sku': instance.variants.first().sku, 'errors': error}
+                    else:
+                        return None
+
+            i = 0
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                for instance in instances:
+                    publish_errors.append(executor.submit(publish, instance, data, start))
                     if (i + 1) % step == 0:
                         start += interval
-
-                    error = instance.get_value_from_private_metadata('publish.allegro.errors')
-                    if error is not None:
-                        publish_errors.append({'sku': instance.variants.first().sku, 'errors': error})
-            if len(publish_errors) > 0:
+                    i = i + 1
+            cleaned_errors = []
+            for task in as_completed(publish_errors):
+                if task.result():
+                    cleaned_errors.append(task.result())
+            '''
+            for instance in as_completed(publish_errors):
+                print(instance)
+            if cleaned_errors:
                 info.context.plugins.send_mail_with_publish_errors(publish_errors)
-
+            '''
             data.pop('offer_type', None)
             data.pop('starting_at', None)
         for instance, node_id in zip(instances, ids):
@@ -625,7 +647,7 @@ class BaseBulkMutation(BaseMutation):
             errors = ValidationError(errors)
         count = len(clean_instance_ids)
 
-        if len(publish_errors) > 0:
+        if len(cleaned_errors) > 0:
             return count, errors
 
         if count:
