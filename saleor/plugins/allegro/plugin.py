@@ -305,6 +305,7 @@ class AllegroPlugin(BasePlugin):
 
     def product_published(self, product_with_params: Any, previous_value: Any) -> Any:
         product = product_with_params.get('product')
+        product_id = product.id
         offer_type = product_with_params.get('offer_type')
         product.delete_value_from_private_metadata('publish.allegro.errors')
 
@@ -316,12 +317,19 @@ class AllegroPlugin(BasePlugin):
                 {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
                     .strftime('%Y-%m-%d %H:%M:%S')})
             product.store_value_in_private_metadata({'publish.type': offer_type})
-
+            '''
             allegro_api.product_publish(
-                saleor_product=product,
+                saleor_product=product_id,
                 starting_at=product_with_params.get('starting_at'),
                 offer_type=offer_type
             )
+            '''
+            allegro_api.product_publish(
+                product_id,
+                self.config.publication_starting_at,
+                offer_type
+            )
+
         else:
             product.store_value_in_private_metadata(
                 {'publish.allegro.status': ProductPublishState.MODERATED.value})
@@ -490,10 +498,9 @@ class AllegroAPI:
         else:
             return None
 
-    def product_publish(self, saleor_product, offer_type, starting_at):
-        parameters_mapper_factory = ParametersMapperFactory()
-        product_mapper_factory = ProductMapperFactory()
-        return async_product_publish(self, saleor_product, offer_type, starting_at, parameters_mapper_factory, product_mapper_factory)
+    def product_publish(self, saleor_product_id, offer_type, starting_at):
+        print(111111111)
+        async_product_publish.delay(self.token, self.env, saleor_product_id, offer_type, starting_at)
 
     def update_offer(self, saleor_product, starting_at, offer_type):
 
@@ -702,6 +709,7 @@ class AllegroAPI:
         self.update_errors_in_private_metadata(product, errors)
         product.is_published = is_published
         product.save(update_fields=["private_metadata", "is_published"])
+        print('UPDATED')
 
     @staticmethod
     def update_errors_in_private_metadata(product, errors):

@@ -1,21 +1,48 @@
 import logging
+from datetime import datetime, timedelta
+import pytz
 
 from ...celeryconf import app
+from .utils import ParametersMapperFactory, ProductMapperFactory, AllegroAPI
+from saleor.product.models import Product
 
 logger = logging.getLogger(__name__)
 from saleor.plugins.allegro import ProductPublishState
 
 @app.task
-def async_product_publish(allegro_api_instance, saleor_product, offer_type, starting_at, parameters_mapper_factory, product_mapper_factory):
-    return _product_publish(allegro_api_instance, saleor_product, offer_type, starting_at, parameters_mapper_factory, product_mapper_factory)
+def async_product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at):
+    _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at)
 
-def _product_publish(allegro_api_instance, saleor_product, offer_type, starting_at, parameters_mapper_factory, product_mapper_factory):
+def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at):
+        allegro_api_instance = AllegroAPI(token_allegro, env_allegro)
+        parameters_mapper_factory = ParametersMapperFactory()
+        product_mapper_factory = ProductMapperFactory()
+        saleor_product = Product.objects.get(pk=saleor_product_id)
+        print('ASDASDAD')
+        print(saleor_product)
+        print(saleor_product_id)
+        print(saleor_product.get_value_from_private_metadata('publish.allegro.status'))
+
+        saleor_product.store_value_in_private_metadata(
+            {'publish.allegro.status': ProductPublishState.MODERATED.value})
+        saleor_product.store_value_in_private_metadata(
+            {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
+                .strftime('%Y-%m-%d %H:%M:%S')})
+        saleor_product.store_value_in_private_metadata({'publish.type': offer_type})
+
+        print(saleor_product.get_value_from_private_metadata('publish.allegro.status'))
+        print(11, ProductPublishState.MODERATED.value)
+        print(saleor_product.get_value_from_private_metadata("publish.allegro.date"))
+        print(saleor_product.is_published)
+
+
+
         if saleor_product.get_value_from_private_metadata(
                 'publish.allegro.status') == ProductPublishState.MODERATED.value and \
                 saleor_product.get_value_from_private_metadata(
                     "publish.allegro.date") is None and \
                 saleor_product.is_published is False:
-
+            print('PCK')
             saleor_product.is_published = True
             saleor_product.save(update_fields=["is_published"])
 
@@ -30,7 +57,7 @@ def _product_publish(allegro_api_instance, saleor_product, offer_type, starting_
                 saleor_product).set_require_parameters(require_parameters).run_mapper()
 
             product_mapper = product_mapper_factory.get_mapper()
-
+            print('STARTING', starting_at)
             try:
                 product = product_mapper.set_saleor_product(saleor_product) \
                     .set_saleor_images(allegro_api_instance.upload_images(saleor_product)) \
@@ -38,6 +65,7 @@ def _product_publish(allegro_api_instance, saleor_product, offer_type, starting_
                     starting_at).set_offer_type(offer_type).set_category(
                     category_id).run_mapper()
             except IndexError as err:
+                print('CCCCCC')
                 allegro_api_instance.errors.append(str(err))
                 allegro_api_instance.update_errors_in_private_metadata(saleor_product,
                                                                        [error for error in allegro_api_instance.errors])
