@@ -4,16 +4,18 @@ import pytz
 
 from ...celeryconf import app
 from .utils import ParametersMapperFactory, ProductMapperFactory, AllegroAPI
-from saleor.product.models import Product
+from saleor.product.models import Product, ProductImage
 
 logger = logging.getLogger(__name__)
 from saleor.plugins.allegro import ProductPublishState
 
 @app.task
-def async_product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at):
-    _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at)
+def async_product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at, starting_at_string):
+    _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at, starting_at_string)
 
-def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at):
+def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at, starting_at_string):
+        print(1, starting_at, 2)
+        print(type(starting_at))
         allegro_api_instance = AllegroAPI(token_allegro, env_allegro)
         parameters_mapper_factory = ParametersMapperFactory()
         product_mapper_factory = ProductMapperFactory()
@@ -22,6 +24,10 @@ def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, 
         print(saleor_product)
         print(saleor_product_id)
         print(saleor_product.get_value_from_private_metadata('publish.allegro.status'))
+
+        asd = ProductImage.objects.filter(id=saleor_product_id).first()
+        print(asd.image)
+        print(asd.image.url)
 
         saleor_product.store_value_in_private_metadata(
             {'publish.allegro.status': ProductPublishState.MODERATED.value})
@@ -65,7 +71,6 @@ def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, 
                     starting_at).set_offer_type(offer_type).set_category(
                     category_id).run_mapper()
             except IndexError as err:
-                print('CCCCCC')
                 allegro_api_instance.errors.append(str(err))
                 allegro_api_instance.update_errors_in_private_metadata(saleor_product,
                                                                        [error for error in allegro_api_instance.errors])
