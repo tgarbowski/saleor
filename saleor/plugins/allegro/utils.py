@@ -2,27 +2,17 @@ import json
 import logging
 import re
 import uuid
-import webbrowser
+
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
 
 import pytz
 import requests
-from django.core.mail import EmailMultiAlternatives
-from django.shortcuts import redirect
 from slugify import slugify
 
-from saleor.product.models import AssignedProductAttribute, \
-    AttributeValue, ProductImage, ProductVariant
-
-from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from saleor.plugins.manager import get_plugins_manager
-from saleor.plugins.models import PluginConfiguration
 from saleor.product.models import AssignedProductAttribute, \
-    AttributeValue, ProductImage, ProductVariant
-from . import ProductPublishState
+    AttributeValue, ProductVariant, Product
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +52,7 @@ class AllegroAPI:
     def product_publish(self, saleor_product_id, offer_type, starting_at):
          async_product_publish(self.token, self.env, saleor_product_id, offer_type, starting_at)
 
-    def update_offer(self, saleor_product, starting_at, offer_type):
+    def update_offer(self, saleor_product, starting_at, offer_type, product_images):
 
         offer_id = saleor_product.private_metadata.get('publish.allegro.id')
         category_id = saleor_product.product_type.metadata.get(
@@ -73,7 +63,7 @@ class AllegroAPI:
             saleor_product).set_require_parameters(require_parameters).run_mapper()
         product_mapper = ProductMapperFactory().get_mapper()
         product = product_mapper.set_saleor_product(saleor_product) \
-            .set_saleor_images(self.upload_images(saleor_product)) \
+            .set_saleor_images(self.upload_images(product_images)) \
             .set_saleor_parameters(parameters).set_obj_publication_starting_at(
             starting_at).set_offer_type(offer_type).set_category(
             category_id).run_mapper()
@@ -83,7 +73,7 @@ class AllegroAPI:
     @staticmethod
     def get_plugin_configuration():
         manager = get_plugins_manager()
-        plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID)
+        plugin = manager.get_plugin('allegro')
         configuration = {item["name"]: item["value"] for item in plugin.configuration}
         return configuration
 
@@ -109,7 +99,6 @@ class AllegroAPI:
         return json.loads(response.text)
 
     def post_request(self, endpoint, data):
-        print('DATA', data)
         try:
             url = self.env + '/' + endpoint
 
@@ -121,7 +110,6 @@ class AllegroAPI:
             logger.info("Post request headers: " + str(headers))
 
             response = requests.post(url, data=json.dumps(data), headers=headers)
-            print(response.json())
 
         except TypeError as err:
             self.errors.append('POST request error: ' + str(err))
@@ -229,24 +217,15 @@ class AllegroAPI:
 
         return require_params
 
-    def upload_images(self, saleor_product):
-
-        asd = ProductImage.objects.filter(product=saleor_product).first()
-        print(asd)
-        print(asd.image)
-        print(asd.image.url)
-
-
-        images_url = [pi.image.url.replace('/media', '') for pi in
-                      ProductImage.objects.filter(product=saleor_product)]
-        print('IMAGES_URL', images_url)
+    def upload_images(self, product_images):
+        images_url = [pi.replace('/media', '') for pi in product_images]
         return [self.upload_image(image_url) for image_url in images_url]
 
     def upload_image(self, url):
         endpoint = 'sale/images'
 
         data = {
-            "url": 'https://saleor-test-media.s3.amazonaws.com/products/photo6320256943650315074jpg'
+            "url": url
         }
         logger.info("Upload images from: " + str(url))
 
@@ -505,7 +484,6 @@ class AllegroParametersMapper(BaseParametersMapper):
     @staticmethod
     def get_plugin_configuration():
         manager = get_plugins_manager()
-        #plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID)
         plugin = manager.get_plugin('allegro')
         configuration = {item["name"]: item["value"] for item in plugin.configuration}
         return configuration
@@ -987,7 +965,7 @@ class AllegroProductMapper:
 
         self.set_stock_unit('SET')
         self.set_publication_ending_at('')
-        '''
+
         if self.get_publication_starting_at() is not None:
             if datetime.strptime(self.get_publication_starting_at(),
                                  '%Y-%m-%d %H:%M') > (
@@ -995,12 +973,29 @@ class AllegroProductMapper:
                 self.set_publication_starting_at(str((datetime.strptime(
                     self.get_publication_starting_at(), '%Y-%m-%d %H:%M') - timedelta(
                     hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")))
-        '''
+
         self.set_publication_status('INACTIVE')
         self.set_publication_ended_by('USER')
 
         self.set_parameters(self.saleor_parameters)
         self.set_external(
             str(ProductVariant.objects.filter(product=self.saleor_product).first()))
-        self.set_publication_starting_at('BUY_NOW')
+
         return self.product
+
+
+def email_errors(products_bulk_ids):
+    # Send email on last bulk item
+    products = Product.objects.filter(id__in=products_bulk_ids)
+    publish_errors = []
+
+    for product in products:
+        error = product.get_value_from_private_metadata('publish.allegro.errors')
+        if error is not None:
+            publish_errors.append(
+                {'sku': product.variants.first().sku, 'errors': error})
+
+    if publish_errors:
+        manager = get_plugins_manager()
+        plugin = manager.get_plugin('allegro')
+        plugin.send_mail_with_publish_errors(publish_errors, None)

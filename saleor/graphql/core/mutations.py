@@ -584,21 +584,21 @@ class BaseBulkMutation(BaseMutation):
             interval, chunks = info.context.plugins.get_intervals_and_chunks()
             step = math.ceil(len(instances) / (chunks))
 
+            instances_ids = []
             for i, instance in enumerate(instances):
                 instance.refresh_from_db()
+                instances_ids.append(instance.id)
+
                 if not instance.is_published and data.get('starting_at') and \
                         data.get('offer_type'):
                     starting_at = (datetime.strptime(data.get('starting_at'), '%Y-%m-%d %H:%M') + timedelta(minutes=(start))).strftime("%Y-%m-%d %H:%M")
-                    info.context.plugins.product_published({"product": instance, "offer_type": data.get('offer_type'), "starting_at": starting_at})
+                    if i == len(instances) - 1:
+                        info.context.plugins.product_published({"product": instance, "offer_type": data.get('offer_type'), "starting_at": starting_at, "products_bulk_ids": instances_ids})
+                    else:
+                        info.context.plugins.product_published({"product": instance, "offer_type": data.get('offer_type'), "starting_at": starting_at, "products_bulk_ids": None})
 
                     if (i + 1) % step == 0:
                         start += interval
-
-                    error = instance.get_value_from_private_metadata('publish.allegro.errors')
-                    if error is not None:
-                        publish_errors.append({'sku': instance.variants.first().sku, 'errors': error})
-            if len(publish_errors) > 0:
-                info.context.plugins.send_mail_with_publish_errors(publish_errors)
 
             data.pop('offer_type', None)
             data.pop('starting_at', None)

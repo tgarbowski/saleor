@@ -1,33 +1,20 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 
 from ...celeryconf import app
-from .utils import ParametersMapperFactory, ProductMapperFactory, AllegroAPI
-from saleor.product.models import Product, ProductImage
+from .utils import ParametersMapperFactory, ProductMapperFactory, AllegroAPI, email_errors
+from saleor.product.models import Product
 
 logger = logging.getLogger(__name__)
 from saleor.plugins.allegro import ProductPublishState
 
 @app.task
-def async_product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at, starting_at_string):
-    _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at, starting_at_string)
-
-def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, starting_at, starting_at_string):
-        print(1, starting_at, 2)
-        print(type(starting_at))
+def async_product_publish(token_allegro, env_allegro, product_id, offer_type, starting_at, starting_at_string, product_images, products_bulk_ids):
         allegro_api_instance = AllegroAPI(token_allegro, env_allegro)
         parameters_mapper_factory = ParametersMapperFactory()
         product_mapper_factory = ProductMapperFactory()
-        saleor_product = Product.objects.get(pk=saleor_product_id)
-        print('ASDASDAD')
-        print(saleor_product)
-        print(saleor_product_id)
-        print(saleor_product.get_value_from_private_metadata('publish.allegro.status'))
-
-        asd = ProductImage.objects.filter(id=saleor_product_id).first()
-        print(asd.image)
-        print(asd.image.url)
+        saleor_product = Product.objects.get(pk=product_id)
 
         saleor_product.store_value_in_private_metadata(
             {'publish.allegro.status': ProductPublishState.MODERATED.value})
@@ -36,19 +23,11 @@ def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, 
                 .strftime('%Y-%m-%d %H:%M:%S')})
         saleor_product.store_value_in_private_metadata({'publish.type': offer_type})
 
-        print(saleor_product.get_value_from_private_metadata('publish.allegro.status'))
-        print(11, ProductPublishState.MODERATED.value)
-        print(saleor_product.get_value_from_private_metadata("publish.allegro.date"))
-        print(saleor_product.is_published)
-
-
-
         if saleor_product.get_value_from_private_metadata(
                 'publish.allegro.status') == ProductPublishState.MODERATED.value and \
                 saleor_product.get_value_from_private_metadata(
-                    "publish.allegro.date") is None and \
-                saleor_product.is_published is False:
-            print('PCK')
+                    "publish.allegro.date") is None:
+
             saleor_product.is_published = True
             saleor_product.save(update_fields=["is_published"])
 
@@ -63,34 +42,41 @@ def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, 
                 saleor_product).set_require_parameters(require_parameters).run_mapper()
 
             product_mapper = product_mapper_factory.get_mapper()
-            print('STARTING', starting_at)
+
             try:
                 product = product_mapper.set_saleor_product(saleor_product) \
-                    .set_saleor_images(allegro_api_instance.upload_images(saleor_product)) \
+                    .set_saleor_images(allegro_api_instance.upload_images(product_images)) \
                     .set_saleor_parameters(parameters).set_obj_publication_starting_at(
-                    starting_at).set_offer_type(offer_type).set_category(
+                    starting_at_string).set_offer_type(offer_type).set_category(
                     category_id).run_mapper()
             except IndexError as err:
                 allegro_api_instance.errors.append(str(err))
                 allegro_api_instance.update_errors_in_private_metadata(saleor_product,
                                                                        [error for error in allegro_api_instance.errors])
+
+                if products_bulk_ids: email_errors(products_bulk_ids)
                 return
 
             offer = allegro_api_instance.publish_to_allegro(allegro_product=product)
+
             if offer is None:
                 allegro_api_instance.update_errors_in_private_metadata(saleor_product,
                                                                        [error for error in allegro_api_instance.errors])
+                if products_bulk_ids: email_errors(products_bulk_ids)
                 return None
+
             if 'error' in offer:
                 allegro_api_instance.errors.append(offer.get('error_description'))
                 allegro_api_instance.update_errors_in_private_metadata(saleor_product,
                                                                        [error for error in allegro_api_instance.errors])
+                if products_bulk_ids: email_errors(products_bulk_ids)
                 return None
             elif 'errors' in offer:
                 allegro_api_instance.errors += offer['errors']
                 allegro_api_instance.update_errors_in_private_metadata(saleor_product, [
                     error.get('message') if type(error) is not str else error for error
                     in allegro_api_instance.errors])
+                if products_bulk_ids: email_errors(products_bulk_ids)
                 return None
             else:
                 if offer is not None and offer.get('validation').get(
@@ -112,8 +98,8 @@ def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, 
                             saleor_product, offer['id'],
                             ProductPublishState.PUBLISHED.value, True, allegro_api_instance.errors)
 
+                if products_bulk_ids: email_errors(products_bulk_ids)
                 return offer['id']
-
         if saleor_product.get_value_from_private_metadata('publish.allegro.status') == \
                 ProductPublishState.MODERATED.value and \
                 saleor_product.get_value_from_private_metadata(
@@ -122,7 +108,7 @@ def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, 
             offer_id = saleor_product.private_metadata.get('publish.allegro.id')
             if offer_id is not None:
                 offer_update = allegro_api_instance.update_offer(saleor_product, starting_at,
-                                                                 offer_type)
+                                                                 offer_type, product_images)
                 logger.info('Offer update: ' + str(offer_update))
 
                 offer = allegro_api_instance.valid_offer(offer_id)
@@ -155,3 +141,5 @@ def _product_publish(token_allegro, env_allegro, saleor_product_id, offer_type, 
                         allegro_api_instance.update_status_and_publish_data_in_private_metadata(
                             saleor_product, offer['id'],
                             ProductPublishState.PUBLISHED.value, True, allegro_api_instance.errors)
+
+        if products_bulk_ids: email_errors(products_bulk_ids)
