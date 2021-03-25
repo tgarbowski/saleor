@@ -309,16 +309,14 @@ class AllegroPlugin(BasePlugin):
         product.save()
 
         if len(self.product_validate(product)) == 0:
-            starting_at = product_with_params.get('starting_at')
-
             async_product_publish.delay(token_allegro=self.config.token_value,
                                         env_allegro=self.config.env,
                                         product_id=product.id,
                                         offer_type=product_with_params.get('offer_type'),
                                         starting_at=product_with_params.get('starting_at'),
-                                        starting_at_string=starting_at,
                                         product_images=product_images,
-                                        products_bulk_ids=products_bulk_ids)
+                                        products_bulk_ids=products_bulk_ids,
+                                        is_published=product.is_published)
         else:
             product.store_value_in_private_metadata(
                 {'publish.allegro.status': ProductPublishState.MODERATED.value})

@@ -577,7 +577,6 @@ class BaseBulkMutation(BaseMutation):
         model_type = registry.get_type_for_model(instance_model)
         instances = cls.get_nodes_or_error(ids, "id", model_type)
 
-        publish_errors = []
         from saleor.graphql.product.bulk_mutations.products import ProductBulkPublish
         if type(instance_model) == type(Product) and cls == ProductBulkPublish:
 
@@ -625,12 +624,10 @@ class BaseBulkMutation(BaseMutation):
             errors = ValidationError(errors)
         count = len(clean_instance_ids)
 
-        if len(publish_errors) > 0:
-            return count, errors
-
         if count:
             qs = instance_model.objects.filter(pk__in=clean_instance_ids)
-            cls.bulk_action(queryset=qs, **data)
+            if not data['is_published'] is True:
+                cls.bulk_action(queryset=qs, **data)
         return count, errors
 
     @classmethod

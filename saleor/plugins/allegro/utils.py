@@ -49,11 +49,7 @@ class AllegroAPI:
         else:
             return None
 
-    def product_publish(self, saleor_product_id, offer_type, starting_at):
-         async_product_publish(self.token, self.env, saleor_product_id, offer_type, starting_at)
-
     def update_offer(self, saleor_product, starting_at, offer_type, product_images):
-
         offer_id = saleor_product.private_metadata.get('publish.allegro.id')
         category_id = saleor_product.product_type.metadata.get(
             'allegro.mapping.categoryId')
