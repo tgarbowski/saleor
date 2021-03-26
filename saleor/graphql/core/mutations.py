@@ -626,7 +626,7 @@ class BaseBulkMutation(BaseMutation):
 
         if count:
             qs = instance_model.objects.filter(pk__in=clean_instance_ids)
-            if not data['is_published'] is True:
+            if not data.get('is_published') or data['is_published'] is False:
                 cls.bulk_action(queryset=qs, **data)
         return count, errors
 
