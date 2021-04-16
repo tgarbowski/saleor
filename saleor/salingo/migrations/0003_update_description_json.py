@@ -21,13 +21,17 @@ def get_object_from_json(products):
 
 def generate_new_description_json(products):
     for key, value in products.items():
-        for specification in enumerate(value['blocks']):
-            values = list(specification)[1]
-            values['key'] = generate_key_id()
-            values['type'] = 'unstyled'
-            values['depth'] = 0
-            values['entityRanges'] = []
-            values['inlineStyleRanges'] = []
+        try:
+            for specification in enumerate(value['blocks']):
+                values = list(specification)[1]
+                values['key'] = generate_key_id()
+                if 'type' not in values:
+                    values['type'] = 'unstyled'
+                values['depth'] = 0
+                values['entityRanges'] = []
+                values['inlineStyleRanges'] = []
+        except KeyError:
+            continue
 
 
 def update_db_table(description_json, id):
