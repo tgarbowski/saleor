@@ -47,6 +47,8 @@ class AllegroAPI:
             return json.loads(response.text)['access_token'], json.loads(response.text)[
                 'refresh_token'], json.loads(response.text)['expires_in']
         else:
+            logger.error(f"Refresh token error, status_code: {response.status_code}, "
+                         f"response: {response.text}")
             return None
 
     def update_offer(self, saleor_product, starting_at, offer_type, product_images):
