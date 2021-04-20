@@ -11,6 +11,7 @@ from .plugins.views import handle_plugin_webhook
 from .plugins.allegro.plugin import AllegroAuth
 from .plugins.sumi.plugin import SumiPlugin
 from .product.views import digital_product
+from .core import views
 
 urlpatterns = [
     url(r"^graphql/", csrf_exempt(GraphQLView.as_view(schema=schema)), name="api"),
@@ -36,7 +37,6 @@ urlpatterns = [
 
 if settings.DEBUG:
     import warnings
-    from .core import views
 
     try:
         import debug_toolbar
@@ -48,7 +48,7 @@ if settings.DEBUG:
     else:
         urlpatterns += [url(r"^__debug__/", include(debug_toolbar.urls))]
 
-    urlpatterns += static("/media/", document_root=settings.MEDIA_ROOT) + [
-        url(r"^static/(?P<path>.*)$", serve),
-        url(r"^", views.home, name="home"),
-    ]
+urlpatterns += static("/media/", document_root=settings.MEDIA_ROOT) + [
+    url(r"^static/(?P<path>.*)$", serve),
+    url(r"^", views.home, name="home"),
+]
