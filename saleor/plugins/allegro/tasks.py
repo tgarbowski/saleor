@@ -11,138 +11,72 @@ from saleor.plugins.allegro import ProductPublishState
 
 @app.task
 def async_product_publish(token_allegro, env_allegro, product_id, offer_type, starting_at, product_images, products_bulk_ids, is_published):
-        allegro_api_instance = AllegroAPI(token_allegro, env_allegro)
-        parameters_mapper_factory = ParametersMapperFactory()
-        product_mapper_factory = ProductMapperFactory()
-        saleor_product = Product.objects.get(pk=product_id)
+    allegro_api_instance = AllegroAPI(token_allegro, env_allegro)
 
-        saleor_product.store_value_in_private_metadata(
-            {'publish.allegro.status': ProductPublishState.MODERATED.value})
-        saleor_product.store_value_in_private_metadata(
-            {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
-                .strftime('%Y-%m-%d %H:%M:%S')})
-        saleor_product.store_value_in_private_metadata({'publish.type': offer_type})
+    saleor_product = Product.objects.get(pk=product_id)
+    saleor_product.store_value_in_private_metadata(
+        {'publish.allegro.status': ProductPublishState.MODERATED.value})
+    saleor_product.store_value_in_private_metadata(
+        {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
+            .strftime('%Y-%m-%d %H:%M:%S')})
+    saleor_product.store_value_in_private_metadata({'publish.type': offer_type})
+    saleor_product.is_published = is_published
+    saleor_product.save(update_fields=["is_published"])
 
-        saleor_product.is_published = is_published
+    if saleor_product.get_value_from_private_metadata(
+            'publish.allegro.status') == ProductPublishState.MODERATED.value and \
+            saleor_product.get_value_from_private_metadata(
+                "publish.allegro.date") is None and saleor_product.is_published is False:
+
+        saleor_product.is_published = True
         saleor_product.save(update_fields=["is_published"])
 
-        if saleor_product.get_value_from_private_metadata(
-                'publish.allegro.status') == ProductPublishState.MODERATED.value and \
-                saleor_product.get_value_from_private_metadata(
-                    "publish.allegro.date") is None and saleor_product.is_published is False:
+        product = allegro_api_instance.prepare_for_offer(saleor_product, starting_at, offer_type, product_images, 'required')
+        offer = allegro_api_instance.publish_to_allegro(allegro_product=product)
 
-            saleor_product.is_published = True
-            saleor_product.save(update_fields=["is_published"])
+        if offer is None:
+            allegro_api_instance.update_errors_in_private_metadata(
+                saleor_product,
+                [error for error in allegro_api_instance.errors])
 
-            category_id = saleor_product.product_type.metadata.get(
-                'allegro.mapping.categoryId')
-
-            require_parameters = allegro_api_instance.get_require_parameters(category_id)
-
-            parameters_mapper = parameters_mapper_factory.get_mapper()
-
-            parameters = parameters_mapper.set_product(
-                saleor_product).set_require_parameters(require_parameters).run_mapper()
-
-            product_mapper = product_mapper_factory.get_mapper()
-
-            try:
-                product = product_mapper.set_saleor_product(saleor_product) \
-                    .set_saleor_images(allegro_api_instance.upload_images(product_images)) \
-                    .set_saleor_parameters(parameters).set_obj_publication_starting_at(
-                    starting_at).set_offer_type(offer_type).set_category(
-                    category_id).run_mapper()
-            except IndexError as err:
-                allegro_api_instance.errors.append(str(err))
-                allegro_api_instance.update_errors_in_private_metadata(saleor_product,
-                                                                       [error for error in allegro_api_instance.errors])
-
-                if products_bulk_ids: email_errors(products_bulk_ids)
-                return
-
-            offer = allegro_api_instance.publish_to_allegro(allegro_product=product)
-
+            if products_bulk_ids: email_errors(products_bulk_ids)
+            return
+        # Save errors if they exist
+        err_handling_response = AllegroAPI.error_handling(offer, allegro_api_instance, saleor_product, ProductPublishState, 'old')
+        # If must_assign_offer_to_product create new product with an offer
+        if err_handling_response == 'must_assign_offer_to_product':
+            product = allegro_api_instance.prepare_for_offer(saleor_product, starting_at, offer_type, product_images, 'requiredForProduct')
+            offer = allegro_api_instance.publish_to_allegro_product_create(product)
             if offer is None:
-                allegro_api_instance.update_errors_in_private_metadata(saleor_product,
-                                                                       [error for error in allegro_api_instance.errors])
-                if products_bulk_ids: email_errors(products_bulk_ids)
-                return None
+                allegro_api_instance.update_errors_in_private_metadata(
+                    saleor_product,
+                    [error for error in allegro_api_instance.errors])
+                return
+            err_handling_response = AllegroAPI.error_handling(offer, allegro_api_instance, saleor_product, ProductPublishState, 'new')
 
-            if 'error' in offer:
-                allegro_api_instance.errors.append(offer.get('error_description'))
-                allegro_api_instance.update_errors_in_private_metadata(saleor_product,
-                                                                       [error for error in allegro_api_instance.errors])
-                if products_bulk_ids: email_errors(products_bulk_ids)
-                return None
-            elif 'errors' in offer:
-                allegro_api_instance.errors += offer['errors']
-                allegro_api_instance.update_errors_in_private_metadata(saleor_product, [
-                    error.get('message') if type(error) is not str else error for error
-                    in allegro_api_instance.errors])
-                if products_bulk_ids: email_errors(products_bulk_ids)
-                return None
-            else:
-                if offer is not None and offer.get('validation').get(
-                        'errors') is not None:
-                    if len(offer['validation'].get('errors')) > 0:
-                        for error in offer['validation'].get('errors'):
-                            logger.error((error[
-                                              'message'] + ' dla ogłoszenia: ' + allegro_api_instance.env + '/offer/' +
-                                          offer['id'] + '/restore'))
-                            allegro_api_instance.errors.append((error[
-                                                    'message'] + ' dla ogłoszenia: ' + allegro_api_instance.env + '/offer/' +
-                                                                offer['id'] + '/restore'))
-                        allegro_api_instance.update_status_and_publish_data_in_private_metadata(
-                            saleor_product, offer['id'],
-                            ProductPublishState.MODERATED.value, False, allegro_api_instance.errors)
-                    else:
-                        offer_publication = allegro_api_instance.offer_publication(offer['id'])
-                        allegro_api_instance.update_status_and_publish_data_in_private_metadata(
-                            saleor_product, offer['id'],
-                            ProductPublishState.PUBLISHED.value, True, allegro_api_instance.errors)
+        if products_bulk_ids:
+            email_errors(products_bulk_ids)
+        return
 
-                if products_bulk_ids: email_errors(products_bulk_ids)
-                return offer['id']
-        if saleor_product.get_value_from_private_metadata('publish.allegro.status') == \
-                ProductPublishState.MODERATED.value and \
-                saleor_product.get_value_from_private_metadata(
-                    'publish.allegro.date') is not None and \
-                saleor_product.is_published is False:
+    if saleor_product.get_value_from_private_metadata('publish.allegro.status') == \
+            ProductPublishState.MODERATED.value and \
+            saleor_product.get_value_from_private_metadata(
+                'publish.allegro.date') is not None and \
+            saleor_product.is_published is False:
 
-            offer_id = saleor_product.private_metadata.get('publish.allegro.id')
-            if offer_id is not None:
-                offer_update = allegro_api_instance.update_offer(saleor_product, starting_at,
-                                                                 offer_type, product_images)
-                logger.info('Offer update: ' + str(offer_update))
+        offer_id = saleor_product.private_metadata.get('publish.allegro.id')
 
-                offer = allegro_api_instance.valid_offer(offer_id)
+        if offer_id is not None:
+            product = allegro_api_instance.prepare_for_offer(saleor_product, starting_at, offer_type, product_images, 'required')
+            #offer_update = allegro_api_instance.update_allegro_offer(allegro_product=product, allegro_id=offer_id)
+            offer_update = allegro_api_instance.publish_to_allegro_product_create(product)
+            logger.info('Offer update: ' + str(offer_update))
+            offer = allegro_api_instance.valid_offer(offer_id)
+            # Save errors if they exist
+            err_handling_response = AllegroAPI.error_handling(offer, allegro_api_instance, saleor_product, ProductPublishState, 'old')
+            # If must_assign_offer_to_product create new product with an offer
+            if err_handling_response == 'must_assign_offer_to_product':
+                pass
+                # TODO
 
-                if 'error' in offer:
-                    allegro_api_instance.errors.append(offer.get('error_description'))
-                    allegro_api_instance.update_errors_in_private_metadata(saleor_product,
-                                                                           [error for error in
-                                                                            allegro_api_instance.errors])
-                elif 'errors' in offer:
-                    allegro_api_instance.errors += offer['errors']
-                    allegro_api_instance.update_errors_in_private_metadata(saleor_product,
-                                                                           [error.get('message') for
-                                                                            error in allegro_api_instance.errors])
-                elif offer['validation'].get('errors') is not None:
-                    if len(offer['validation'].get('errors')) > 0:
-                        for error in offer['validation'].get('errors'):
-                            logger.error((error[
-                                              'message'] + ' dla ogłoszenia: ' + allegro_api_instance.env + '/offer/' +
-                                          offer['id'] + '/restore'))
-                            allegro_api_instance.errors.append((error[
-                                                    'message'] + 'dla ogłoszenia: ' + allegro_api_instance.env + '/offer/' +
-                                                                offer['id'] + '/restore'))
-                        allegro_api_instance.update_status_and_publish_data_in_private_metadata(
-                            saleor_product, offer['id'],
-                            ProductPublishState.MODERATED.value, False, allegro_api_instance.errors)
-                    else:
-                        allegro_api_instance.offer_publication(
-                            saleor_product.private_metadata.get('publish.allegro.id'))
-                        allegro_api_instance.update_status_and_publish_data_in_private_metadata(
-                            saleor_product, offer['id'],
-                            ProductPublishState.PUBLISHED.value, True, allegro_api_instance.errors)
-        if products_bulk_ids: email_errors(products_bulk_ids)
+    if products_bulk_ids: email_errors(products_bulk_ids)
