@@ -107,10 +107,11 @@ class AllegroAPI:
     def transform_product(self, data):
         offer = data
 
-        amount = data['sellingMode']['price']['amount']
-        print(amount)
-        amount = float(amount)
-        amount = str(round(amount, 2))
+        #amount = data['sellingMode']['price']['amount']
+        #print(amount)
+        #amount = float(amount)
+        #amount = str(round(amount, 2))
+        amount = '9.99'
 
         offer['product'] = {
             'name': data['name'],
