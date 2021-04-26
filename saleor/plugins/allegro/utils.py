@@ -53,13 +53,13 @@ class AllegroAPI:
                          f"response: {response.text}")
             return None
 
-    def prepare_for_offer(self, saleor_product, starting_at, offer_type, product_images, parameters_type):
+    def prepare_offer(self, saleor_product, starting_at, offer_type, product_images, parameters_type):
         category_id = saleor_product.product_type.metadata.get(
             'allegro.mapping.categoryId')
         require_parameters = self.get_require_parameters(category_id, parameters_type)
         parameters_mapper = ParametersMapperFactory().get_mapper()
         parameters = parameters_mapper.set_product(
-            saleor_product).set_require_parameters(require_parameters).run_mapper()
+            saleor_product).set_require_parameters(require_parameters).run_mapper(parameters_type)
         product_mapper = ProductMapperFactory().get_mapper()
 
         try:
@@ -73,6 +73,29 @@ class AllegroAPI:
             self.update_errors_in_private_metadata(
                 saleor_product,
                 [error for error in allegro_api_instance.errors])
+
+        return product
+
+    def prepare_product_parameters(self, saleor_product, parameters_type):
+        category_id = saleor_product.product_type.metadata.get(
+            'allegro.mapping.categoryId')
+        require_parameters = self.get_require_parameters(category_id, parameters_type)
+        parameters_mapper = ParametersMapperFactory().get_mapper()
+        parameters = parameters_mapper.set_product(
+            saleor_product).set_require_parameters(require_parameters).run_mapper(parameters_type)
+
+        return parameters
+
+    def prepare_product(self, saleor_product, parameters, product_images):
+        product_mapper = ProductMapperFactory().get_mapper()
+
+        category_id = saleor_product.product_type.metadata.get(
+            'allegro.mapping.categoryId')
+
+        product = product_mapper.set_saleor_product(saleor_product) \
+            .set_saleor_images(product_images) \
+            .set_saleor_parameters(parameters).set_category(
+            category_id).run_product_mapper()
 
         return product
 
@@ -104,66 +127,23 @@ class AllegroAPI:
         response = self.put_request(endpoint=endpoint, data=allegro_product)
         return json.loads(response.text)
 
-    def transform_product(self, data):
-        offer = data
+    def add_product_to_offer(self, allegro_product_id, allegro_id):
+        endpoint = 'sale/product-offers/' + allegro_id
 
-        #amount = data['sellingMode']['price']['amount']
-        #print(amount)
-        #amount = float(amount)
-        #amount = str(round(amount, 2))
-        amount = '9.99'
-
-        offer['product'] = {
-            'name': data['name'],
-            'category': data['category'],
-            'images': [image['url'] for image in data['images']],
-            'parameters': data['parameters']
+        allegro_product = {
+            "product":{
+                "id": allegro_product_id
+            }
         }
-        offer['parameters'] = []
-        offer['images'] = [image['url'] for image in data['images']]
-        offer['sellingMode']['price']['amount'] = amount
-        offer['publication']['status'] = 'ACTIVE'
+        response = self.patch_request(endpoint=endpoint, data=allegro_product, api_version=self.api_beta)
+        return response.json()
 
-        # Remove 'state' parameter from new product
-        for i, parameter in enumerate(offer['product']['parameters']):
-            if parameter['id'] == '11323':
-                offer['parameters'].append(parameter)
-                del offer['product']['parameters'][i]
-        # Name brand, if set to "ambiguousValueId" - other
-        '''
-        for i, parameter in enumerate(offer['product']['parameters']):
-            if parameter['id'] == '7108':
-                offer['product']['parameters'][i]['valuesIds'] = ['7108_52']
-                offer['product']['parameters'][i]['values'] = ['mmmmm']
-        '''
-        # Model na produkcji nie potrzebny
-        model = {
-         "id":"215918",
-         "valuesIds":[
-         ],
-         "values":[
-            "vvvv"
-         ]
-        }
+    def propose_a_product(self, product):
+        endpoint = 'sale/product-proposals'
+        response = self.post_request(endpoint=endpoint, data=product,
+                                      api_version=self.api_public)
 
-        offer['product']['parameters'].append(model)
-
-        return offer
-
-    def publish_to_allegro_product_create(self, allegro_product):
-        endpoint = 'sale/product-offers'
-        allegro_product = self.transform_product(allegro_product)
-        try:
-            response = self.post_request(
-                endpoint=endpoint,
-                data=allegro_product,
-                api_version=self.api_beta)
-
-            return json.loads(response.text)
-        except AttributeError as err:
-            self.errors.append('Publish to Allegro with new product error: ' + str(err))
-            logger.error('Publish to Allegro with new product error: ' + str(err))
-            return None
+        return json.loads(response.text)
 
     def post_request(self, endpoint, data, api_version):
         try:
@@ -183,6 +163,31 @@ class AllegroAPI:
         except TypeError as err:
             self.errors.append('POST request error: ' + str(err))
             logger.error('POST request error: ' + str(err))
+            return None
+
+        if response.status_code == 401 and self.is_unauthorized(response):
+            return self.post_request(endpoint, data, api_version)
+
+        return response
+
+    def patch_request(self, endpoint, data, api_version):
+        try:
+            url = self.env + '/' + endpoint
+
+            headers = {'Authorization': 'Bearer ' + self.token,
+                       'Accept': f'application/vnd.allegro.{api_version}+json',
+                       'Content-Type': f'application/vnd.allegro.{api_version}+json'}
+
+            logger.info("Patch request url: " + str(url))
+            logger.info("Patch request headers: " + str(headers))
+
+            response = requests.patch(url, data=json.dumps(data), headers=headers)
+
+            return response
+
+        except TypeError as err:
+            self.errors.append('PATCH request error: ' + str(err))
+            logger.error('PATCH request error: ' + str(err))
             return None
 
         if response.status_code == 401 and self.is_unauthorized(response):
@@ -211,7 +216,6 @@ class AllegroAPI:
         return response
 
     def put_request(self, endpoint, data):
-
         try:
             url = self.env + '/' + endpoint
 
@@ -365,47 +369,44 @@ class AllegroAPI:
 
         return json.loads(response.text)
 
-    @staticmethod
-    def error_handling(offer, allegro_api_instance, saleor_product, ProductPublishState, api_version):
+    def error_handling_product(self, allegro_product, saleor_product):
+        if 'errors' in allegro_product:
+            product_errors = [error.get('userMessage') for error in allegro_product['errors']]
+            self.errors += product_errors
+            self.update_errors_in_private_metadata(
+                saleor_product,
+                self.errors)
+
+    def error_handling(self, offer, saleor_product, ProductPublishState):
         must_assign_offer_to_product = False
-        if api_version == 'new':
-            message = 'userMessage'
-        else:
-            message = 'message'
-
         if 'error' in offer:
-            allegro_api_instance.errors.append(offer.get('error_description'))
-            allegro_api_instance.update_errors_in_private_metadata(
+            self.errors.append(offer.get('error_description'))
+            self.update_errors_in_private_metadata(
                 saleor_product,
-                [error for error in allegro_api_instance.errors])
+                [error for error in self.errors])
         elif 'errors' in offer:
-            allegro_api_instance.errors += offer['errors']
-            allegro_api_instance.update_errors_in_private_metadata(
+            self.errors += offer['errors']
+            self.update_errors_in_private_metadata(
                 saleor_product,
-                [error.get('message') for error in allegro_api_instance.errors])
-
+                [error.get('message') for error in self.errors])
         elif offer['validation'].get('errors') is not None:
             if len(offer['validation'].get('errors')) > 0:
                 for error in offer['validation'].get('errors'):
                     if 'too few offers related to a product' in error['message']:
                         must_assign_offer_to_product = True
-                    logger.error((error[
-                                      'message'] + ' dla ogłoszenia: ' + allegro_api_instance.env + '/offer/' +
-                                  offer['id'] + '/restore'))
-                    allegro_api_instance.errors.append((error[
-                                                            'message'] + 'dla ogłoszenia: ' + allegro_api_instance.env + '/offer/' +
-                                                        offer['id'] + '/restore'))
-                allegro_api_instance.update_status_and_publish_data_in_private_metadata(
+                    logger.error((error['message'] + ' dla ogłoszenia: ' + self.env + '/offer/' + offer['id'] + '/restore'))
+                    self.errors.append((error['message'] + 'dla ogłoszenia: ' + self.env + '/offer/' + offer['id'] + '/restore'))
+                self.update_status_and_publish_data_in_private_metadata(
                     saleor_product, offer['id'],
                     ProductPublishState.MODERATED.value, False,
-                    allegro_api_instance.errors)
+                    self.errors)
             else:
-                allegro_api_instance.offer_publication(
+                self.offer_publication(
                     saleor_product.private_metadata.get('publish.allegro.id'))
-                allegro_api_instance.update_status_and_publish_data_in_private_metadata(
+                self.update_status_and_publish_data_in_private_metadata(
                     saleor_product, offer['id'],
                     ProductPublishState.PUBLISHED.value, True,
-                    allegro_api_instance.errors)
+                    self.errors)
 
         if must_assign_offer_to_product:
             return 'must_assign_offer_to_product'
@@ -535,7 +536,7 @@ class AllegroParametersMapper(BaseParametersMapper):
     def map(self):
         return self
 
-    def run_mapper(self):
+    def run_mapper(self, parameters_type):
 
         attributes, attributes_name = self.get_product_attributes()
 
@@ -548,9 +549,18 @@ class AllegroParametersMapper(BaseParametersMapper):
 
         producer_code = [element for element in self.require_parameters if element['name'] == 'Kod producenta']
 
-        if producer_code:
-            product_id = self.product.id
-            self.mapped_parameters.append(self.producer_code_parameter(product_id, producer_code[0]))
+        if parameters_type == 'requiredForProduct':
+            for param, mapped in zip(self.require_parameters, self.mapped_parameters):
+                if param.get('restrictions').get('range') is False:
+                    del mapped['rangeValue']
+                    del mapped['valuesIds']
+                if param['name'] == 'Marka' and param['options']['ambiguousValueId'] == mapped['valuesIds'][0]:
+                    mapped['values'] = ['inny']
+
+            if producer_code:
+                product_id = self.product.id
+                self.mapped_parameters.append(
+                    self.producer_code_parameter(product_id, producer_code[0]))
 
         return self.mapped_parameters
 
@@ -564,7 +574,6 @@ class AllegroParametersMapper(BaseParametersMapper):
                 sku
             ]
         }
-
         return producer_code
 
     def get_specific_parameter_key(self, parameter):
@@ -858,6 +867,10 @@ class AllegroProductMapper:
         self.product['images'] = [{'url': image} for image in images]
         return self
 
+    def set_images_product(self, images):
+        self.product['images'] = images
+        return self
+
     @staticmethod
     def parse_list_to_map(list_in):
         return {item['text'].split(":")[0]: item['text'].split(":")[1].strip() for item
@@ -1059,6 +1072,12 @@ class AllegroProductMapper:
 
     def get_offer_type(self):
         return self.offer_type
+
+    def run_product_mapper(self):
+        self.set_name(self.prepare_name(self.saleor_product.name))
+        self.set_parameters(self.saleor_parameters)
+        self.set_images_product(self.saleor_images)
+        return self.product
 
     def run_mapper(self):
         self.set_implied_warranty(self.get_implied_warranty())
