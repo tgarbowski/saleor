@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 class AllegroAPI:
     token = None
-    errors = []
-    product_errors = []
+    #errors = []
+    #product_errors = []
     env = None
     api_public = 'public.v1'
     api_beta = 'beta.v2'
@@ -28,7 +28,9 @@ class AllegroAPI:
     def __init__(self, token, env):
         self.token = token
         self.errors = []
+        self.product_errors = []
         self.env = env
+        self.require_parameters = []
 
     def refresh_token(self, refresh_token, client_id, client_secret,
                       saleor_redirect_url, url_env):
@@ -82,6 +84,7 @@ class AllegroAPI:
         category_id = saleor_product.product_type.metadata.get(
             'allegro.mapping.categoryId')
         require_parameters = self.get_require_parameters(category_id, parameters_type)
+        self.require_parameters = require_parameters
         parameters_mapper = ParametersMapperFactory().get_mapper()
         parameters = parameters_mapper.set_product(
             saleor_product).set_require_parameters(require_parameters).run_mapper(parameters_type)
@@ -322,7 +325,7 @@ class AllegroAPI:
 
     def update_status_and_publish_data_in_private_metadata(self, product,
                                                            allegro_offer_id, status,
-                                                           is_published, errors):
+                                                           errors):
         product.store_value_in_private_metadata({'publish.allegro.status': status})
         product.store_value_in_private_metadata(
             {'publish.allegro.date': datetime.now(pytz.timezone('Europe/Warsaw'))
@@ -333,17 +336,20 @@ class AllegroAPI:
         product.store_value_in_private_metadata(
             {'publish.allegro.id': str(allegro_offer_id)})
         self.update_errors_in_private_metadata(product, errors)
-        product.is_published = is_published
         product.save()
 
     @staticmethod
     def update_errors_in_private_metadata(product, errors):
         if errors:
+            product.is_published = False
             logger.error(str(product.variants.first()) + ' ' + str(errors))
             product.store_value_in_private_metadata({'publish.allegro.errors': errors})
-            product.is_published = False
-            product.save(update_fields=["private_metadata", "is_published"])
         else:
+            product.is_published = True
+            product.store_value_in_private_metadata({'publish.allegro.errors': []})
+        product.save(update_fields=["private_metadata", "is_published"])
+
+    def update_product_errors_in_private_metadata(self, product, errors):
             product.store_value_in_private_metadata({'publish.allegro.errors': errors})
             product.save(update_fields=["private_metadata"])
 
@@ -375,14 +381,32 @@ class AllegroAPI:
 
         return json.loads(response.text)
 
+    def transform_product_error_response(self, error):
+        if 'parametrze' in error:
+            parameter_id = error.split("parametrze")[1].split()[0]
+
+            try:
+                parameter_id = int(parameter_id)
+            except ValueError:
+                return error
+
+            for parameter in self.require_parameters:
+                if int(parameter['id']) == parameter_id:
+                    parameter_name = parameter['name']
+                    error += f', Nazwa parametru: {parameter_name}'
+                    break
+        return error
+
     def error_handling_product(self, allegro_product, saleor_product):
         if 'errors' in allegro_product:
             product_errors = [error.get('userMessage') for error in allegro_product['errors']]
-            for error in product_errors:
+            for i, error in enumerate(product_errors):
+                error = self.transform_product_error_response(error)
+                product_errors[i] = error
                 logger.error(error)
             self.product_errors += product_errors
-            self.errors += product_errors
-            self.update_errors_in_private_metadata(
+            self.errors += self.product_errors
+            self.update_product_errors_in_private_metadata(
                 saleor_product,
                 self.errors)
 
@@ -407,15 +431,15 @@ class AllegroAPI:
                     self.errors.append((error['message'] + 'dla ogłoszenia: ' + self.env + '/offer/' + offer['id'] + '/restore'))
                 self.update_status_and_publish_data_in_private_metadata(
                     saleor_product, offer['id'],
-                    ProductPublishState.MODERATED.value, False,
+                    ProductPublishState.MODERATED.value,
                     self.errors)
             else:
-                self.errors = self.product_errors
+                self.errors = []
                 self.offer_publication(
                     saleor_product.private_metadata.get('publish.allegro.id'))
                 self.update_status_and_publish_data_in_private_metadata(
                     saleor_product, offer['id'],
-                    ProductPublishState.PUBLISHED.value, True,
+                    ProductPublishState.PUBLISHED.value,
                     self.errors)
 
         if must_assign_offer_to_product:

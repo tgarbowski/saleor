@@ -21,7 +21,7 @@ def async_product_publish(token_allegro, env_allegro, product_id, offer_type, st
         {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
             .strftime('%Y-%m-%d %H:%M:%S')})
     saleor_product.store_value_in_private_metadata({'publish.type': offer_type})
-    saleor_product.is_published = is_published
+    saleor_product.is_published = False
     saleor_product.save(update_fields=["is_published"])
     # New offer
     if saleor_product.get_value_from_private_metadata(
@@ -72,7 +72,6 @@ def async_product_publish(token_allegro, env_allegro, product_id, offer_type, st
                 allegro_api_instance.error_handling(offer, saleor_product, ProductPublishState)
             else:
                 allegro_api_instance.error_handling_product(propose_product, saleor_product)
-
 
         if products_bulk_ids:
             email_errors(products_bulk_ids)
