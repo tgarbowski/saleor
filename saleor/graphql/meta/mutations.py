@@ -11,6 +11,7 @@ from ..core.types.common import MetadataError
 from .extra_methods import MODEL_EXTRA_METHODS
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from .types import ObjectWithMetadata
+from ...product.models import ProductVariant, Product, ProductImage
 
 
 class MetadataPermissionOptions(graphene.types.mutation.MutationOptions):
@@ -114,6 +115,28 @@ class BaseMetadataMutation(BaseMutation):
         """Return a success response."""
         return cls(**{"item": instance, "errors": []})
 
+    @classmethod
+    def assign_sku_to_metadata_bundle_id(cls, instance, data):
+        bundle_id = ProductVariant.objects.get(product=instance.pk).sku
+        print(instance.private_metadata)
+        product_variants = ProductVariant.objects.filter(sku__in=eval(data['skus']))
+        for index, product_variant in enumerate(product_variants):
+            product = product_variant.product
+            if 'bundle.id' not in product.metadata or \
+                    product.metadata['bundle.id'] is "":
+                product.metadata["bundle.id"] = bundle_id
+                product.save()
+
+    @classmethod
+    def assign_photos_from_products_to_megapack(cls, instance, items):
+        product_variants = ProductVariant.objects.filter(sku__in=eval(items['skus']))
+        for product_variant in product_variants:
+            if 'bundle.id' not in product_variant.product.metadata or product_variant.\
+                    product.metadata['bundle.id'] is "":
+                photo = ProductImage.objects.get(product=product_variant.product.pk)
+                ProductImage.objects.create(product=instance, ppoi=photo.ppoi,\
+                                            alt=photo.alt, image=photo.image)
+
 
 class MetadataInput(graphene.InputObjectType):
     key = graphene.String(required=True, description="Key of a metadata item.")
@@ -195,6 +218,9 @@ class UpdatePrivateMetadata(BaseMetadataMutation):
             metadata_list = data.pop("input")
             cls.validate_metadata_keys(metadata_list)
             items = {data.key: data.value for data in metadata_list}
+            if 'skus' in items:
+                cls.assign_sku_to_metadata_bundle_id(instance, items)
+                cls.assign_photos_from_products_to_megapack(instance, items)
             instance.store_value_in_private_metadata(items=items)
             instance.save(update_fields=["private_metadata"])
         return cls.success_response(instance)
