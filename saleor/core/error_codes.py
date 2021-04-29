@@ -16,6 +16,7 @@ class MetadataErrorCode(Enum):
     INVALID = "invalid"
     NOT_FOUND = "not_found"
     REQUIRED = "required"
+    MEGAPACK_ASSIGNED = "mega_pack_assigned"
 
 
 class TranslationErrorCode(Enum):

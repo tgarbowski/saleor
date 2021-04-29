@@ -123,6 +123,7 @@ class MenuError(Error):
 
 class MetadataError(Error):
     code = MetadataErrorCode(description="The error code.", required=True)
+    name = graphene.String(description="Product SKU", required=False)
 
 
 class OrderError(Error):
