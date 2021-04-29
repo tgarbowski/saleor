@@ -585,11 +585,14 @@ class AllegroParametersMapper(BaseParametersMapper):
 
         if parameters_type == 'requiredForProduct':
             for param, mapped in zip(self.require_parameters, self.mapped_parameters):
+                try:
+                    if param['options']['ambiguousValueId'] == mapped['valuesIds'][0] and param['options']['customValuesEnabled']:
+                        mapped['values'] = ['inny']
+                except IndexError:
+                    pass
                 if param.get('restrictions').get('range') is False:
                     del mapped['rangeValue']
                     del mapped['valuesIds']
-                if param['name'] == 'Marka' and param['options']['ambiguousValueId'] == mapped['valuesIds'][0]:
-                    mapped['values'] = ['inny']
 
             if producer_code:
                 product_id = self.product.id
