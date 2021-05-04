@@ -11,6 +11,7 @@ import requests
 from slugify import slugify
 
 from saleor.plugins.manager import get_plugins_manager
+from saleor.plugins.models import PluginConfiguration
 from saleor.product.models import AssignedProductAttribute, \
     AttributeValue, ProductVariant, Product
 
@@ -19,8 +20,6 @@ logger = logging.getLogger(__name__)
 
 class AllegroAPI:
     token = None
-    #errors = []
-    #product_errors = []
     env = None
     api_public = 'public.v1'
     api_beta = 'beta.v2'
@@ -165,8 +164,6 @@ class AllegroAPI:
 
             response = requests.post(url, data=json.dumps(data), headers=headers)
 
-            return response
-
         except TypeError as err:
             self.errors.append('POST request error: ' + str(err))
             logger.error('POST request error: ' + str(err))
@@ -189,8 +186,6 @@ class AllegroAPI:
             logger.info("Patch request headers: " + str(headers))
 
             response = requests.patch(url, data=json.dumps(data), headers=headers)
-
-            return response
 
         except TypeError as err:
             self.errors.append('PATCH request error: ' + str(err))
@@ -252,12 +247,29 @@ class AllegroAPI:
                 allegro_plugin_config.get('auth_env')) or (None, None, None)
             if access_token and refresh_token and expires_in is not None:
                 self.token = access_token
-                AllegroAuth.save_token_in_plugin_configuration(access_token,
+                self.save_token_in_plugin_configuration(access_token,
                                                                refresh_token,
                                                                expires_in)
             return True
         else:
             return False
+
+    @staticmethod
+    def save_token_in_plugin_configuration(access_token, refresh_token, expires_in):
+        cleaned_data = {
+            "configuration": [{"name": "token_value", "value": access_token},
+                              {"name": "token_access",
+                               "value": (datetime.now() + timedelta(
+                                   seconds=expires_in)).strftime("%d/%m/%Y %H:%M:%S")},
+                              {"name": "refresh_token", "value": refresh_token}]
+        }
+
+        manager = get_plugins_manager()
+        plugin = manager.get_plugin('allegro')
+
+        plugin.save_plugin_configuration(
+            plugin_configuration=PluginConfiguration.objects.get(
+                identifier=plugin.PLUGIN_ID), cleaned_data=cleaned_data)
 
     @staticmethod
     def auth_request(endpoint, data, client_id, client_secret, url_env):
