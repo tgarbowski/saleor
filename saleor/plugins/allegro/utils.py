@@ -394,19 +394,15 @@ class AllegroAPI:
         return json.loads(response.text)
 
     def transform_product_error_response(self, error):
-        if 'parametrze' in error:
-            parameter_id = error.split("parametrze")[1].split()[0]
-
-            try:
-                parameter_id = int(parameter_id)
-            except ValueError:
-                return error
-
+        parameters_ids = [int(s) for s in error.split() if s.isdigit()]
+        if parameters_ids:
+            parameter_names = ''
             for parameter in self.require_parameters:
-                if int(parameter['id']) == parameter_id:
-                    parameter_name = parameter['name']
-                    error += f', Nazwa parametru: {parameter_name}'
-                    break
+                if int(parameter['id']) in parameters_ids:
+                    parameter_names += parameter['name'] + ','
+            if parameter_names:
+                error += f' Nazwy parametrów: {parameter_names}'
+                error = error.rstrip(',')
         return error
 
     def error_handling_product(self, allegro_product, saleor_product):
