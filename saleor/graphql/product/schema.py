@@ -120,7 +120,7 @@ from .resolvers import (
     resolve_product_variant_by_sku,
     resolve_product_variants,
     resolve_products,
-    resolve_report_product_sales,
+    resolve_report_product_sales, resolve_product_variants_skus,
 )
 from .sorters import (
     AttributeSortingInput,
@@ -234,6 +234,13 @@ class ProductQueries(graphene.ObjectType):
         ),
         description="Look up a product variant by ID or SKU.",
     )
+    product_variants_skus = FilterInputConnectionField(
+        ProductVariant,
+        sku=graphene.Argument(
+            graphene.String, description="SKU matcher to get product_variants_count"
+        ),
+        description="Look for a mega pack SKU number"
+    )
     product_variants = FilterInputConnectionField(
         ProductVariant,
         ids=graphene.List(
@@ -314,6 +321,9 @@ class ProductQueries(graphene.ObjectType):
     @permission_required(ProductPermissions.MANAGE_PRODUCTS)
     def resolve_report_product_sales(self, *_args, period, **_kwargs):
         return resolve_report_product_sales(period)
+
+    def resolve_product_variants_skus(self, info, sku, **_kwargs):
+        return resolve_product_variants_skus(info, sku)
 
 
 class ProductMutations(graphene.ObjectType):

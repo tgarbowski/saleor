@@ -149,7 +149,7 @@ class BaseMetadataMutation(BaseMutation):
         for product_variant in product_variants:
             if 'bundle.id' not in product_variant.product.metadata or product_variant.\
                     product.metadata['bundle.id'] == '':
-                photo = ProductImage.objects.get(product=product_variant.product.pk)
+                photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
                 ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
                                             alt=photo.alt, image=photo.image)
 
@@ -173,7 +173,6 @@ class BaseMetadataMutation(BaseMutation):
                             "input": ValidationError(
                                 "Metadata key cannot be empty.",
                                 code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
-                                name="dfadfd",
                             )
                         }
                     )
