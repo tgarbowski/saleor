@@ -3,17 +3,37 @@ from datetime import datetime
 import pytz
 
 from ...celeryconf import app
-from .utils import AllegroAPI, email_errors
+from .utils import AllegroAPI, email_errors, get_plugin_configuration
 from saleor.product.models import Product
 from saleor.plugins.allegro import ProductPublishState
 
 logger = logging.getLogger(__name__)
 
 
-@app.task
-def async_product_publish(token_allegro, env_allegro, product_id, offer_type, starting_at, product_images, products_bulk_ids, is_published):
-    allegro_api_instance = AllegroAPI(token_allegro, env_allegro)
+@app.task()
+def refresh_token_task():
+    config = get_plugin_configuration()
+    token_expiration = config.get('token_access')
+    HOURS_BEFORE_WE_REFRESH_TOKEN = 6
 
+    if config['token_access']:
+        if AllegroAPI.calculate_hours_to_token_expire(token_expiration) < HOURS_BEFORE_WE_REFRESH_TOKEN:
+            access_token, refresh_token, expires_in = AllegroAPI(
+                'expiredToken', config['env']).refresh_token(
+                    config['refresh_token'],
+                    config['client_id'],
+                    config['client_secret'],
+                    config['saleor_redirect_url'],
+                    config['auth_env']) or (None, None, None)
+            if access_token and refresh_token and expires_in is not None:
+                AllegroAPI.save_token_in_plugin_configuration(access_token, refresh_token, expires_in)
+
+@app.task()
+def async_product_publish(product_id, offer_type, starting_at, product_images, products_bulk_ids):
+    config = get_plugin_configuration()
+    access_token = config.get('token_value')
+    env = config.get('env')
+    allegro_api_instance = AllegroAPI(access_token, env)
     saleor_product = Product.objects.get(pk=product_id)
     saleor_product.store_value_in_private_metadata(
         {'publish.allegro.status': ProductPublishState.MODERATED.value})
@@ -21,16 +41,11 @@ def async_product_publish(token_allegro, env_allegro, product_id, offer_type, st
         {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
             .strftime('%Y-%m-%d %H:%M:%S')})
     saleor_product.store_value_in_private_metadata({'publish.type': offer_type})
-    saleor_product.is_published = False
-    saleor_product.save(update_fields=["is_published"])
     # New offer
     if saleor_product.get_value_from_private_metadata(
             'publish.allegro.status') == ProductPublishState.MODERATED.value and \
             saleor_product.get_value_from_private_metadata(
-                "publish.allegro.date") is None and saleor_product.is_published is False:
-
-        saleor_product.is_published = True
-        saleor_product.save(update_fields=["is_published"])
+                "publish.allegro.date") is None:
 
         product = allegro_api_instance.prepare_offer(saleor_product, starting_at, offer_type, product_images, 'required')
         offer = allegro_api_instance.publish_to_allegro(allegro_product=product)
@@ -80,8 +95,7 @@ def async_product_publish(token_allegro, env_allegro, product_id, offer_type, st
     if saleor_product.get_value_from_private_metadata('publish.allegro.status') == \
             ProductPublishState.MODERATED.value and \
             saleor_product.get_value_from_private_metadata(
-                'publish.allegro.date') is not None and \
-            saleor_product.is_published is False:
+                'publish.allegro.date') is not None:
 
         offer_id = saleor_product.private_metadata.get('publish.allegro.id')
 

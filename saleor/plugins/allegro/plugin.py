@@ -222,21 +222,6 @@ class AllegroPlugin(BasePlugin):
                                            offer_description_footer=configuration[
                                                "offer_description_footer"])
 
-        HOURS_BEFORE_WE_REFRESH_TOKEN = 6
-
-        if self.config.token_access:
-            if self.calculate_hours_to_token_expire() < HOURS_BEFORE_WE_REFRESH_TOKEN:
-                access_token, refresh_token, expires_in = AllegroAPI(
-                    self.config.token_access, self.config.env).refresh_token(self.config.refresh_token,
-                                                            self.config.client_id,
-                                                            self.config.client_secret,
-                                                            self.config.saleor_redirect_url,
-                                                            self.config.auth_env) or (
-                                                              None, None, None)
-                if access_token and refresh_token and expires_in is not None:
-                    AllegroAuth.save_token_in_plugin_configuration(access_token,
-                                                                   refresh_token,
-                                                                   expires_in)
 
     @classmethod
     def validate_plugin_configuration(cls, plugin_configuration: "PluginConfiguration"):
@@ -306,17 +291,16 @@ class AllegroPlugin(BasePlugin):
         products_bulk_ids = product_with_params.get('products_bulk_ids')
 
         product.delete_value_from_private_metadata('publish.allegro.errors')
+        product.is_published = True
         product.save()
 
         if len(self.product_validate(product)) == 0:
-            async_product_publish.delay(token_allegro=self.config.token_value,
-                                        env_allegro=self.config.env,
-                                        product_id=product.id,
+            async_product_publish.delay(product_id=product.id,
                                         offer_type=product_with_params.get('offer_type'),
                                         starting_at=product_with_params.get('starting_at'),
                                         product_images=product_images,
-                                        products_bulk_ids=products_bulk_ids,
-                                        is_published=product.is_published)
+                                        products_bulk_ids=products_bulk_ids)
+
         else:
             product.store_value_in_private_metadata(
                 {'publish.allegro.status': ProductPublishState.MODERATED.value})
