@@ -123,7 +123,7 @@ class BaseMetadataMutation(BaseMutation):
         for index, product_variant in enumerate(product_variants):
             product = product_variant.product
             if 'bundle.id' not in product.metadata or \
-                    product.metadata['bundle.id'] is "":
+                    not product.metadata['bundle.id']:
                 product.metadata["bundle.id"] = bundle_id
                 product.save()
 
@@ -131,8 +131,8 @@ class BaseMetadataMutation(BaseMutation):
     def assign_photos_from_products_to_megapack(cls, instance, items):
         product_variants = ProductVariant.objects.filter(sku__in=eval(items['skus']))
         for product_variant in product_variants:
-            if 'bundle.id' not in product_variant.product.metadata or product_variant.\
-                    product.metadata['bundle.id'] is "":
+            if 'bundle.id' not in product_variant.product.metadata or not product_variant.\
+                    product.metadata['bundle.id']:
                 photo = ProductImage.objects.get(product=product_variant.product.pk)
                 ProductImage.objects.create(product=instance, ppoi=photo.ppoi,\
                                             alt=photo.alt, image=photo.image)
