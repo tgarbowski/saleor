@@ -1,5 +1,6 @@
 from django.db.models import Sum
 
+from ...account.models import User
 from ...order import OrderStatus
 from ...product import models
 from ..utils import get_database_id, get_user_or_app_from_context
