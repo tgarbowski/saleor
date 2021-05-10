@@ -206,6 +206,8 @@ class AllegroAPI:
                        'Accept': 'application/vnd.allegro.public.v1+json',
                        'Content-Type': 'application/vnd.allegro.public.v1+json'}
 
+            logger.info(f'GET request url: {url}')
+
             response = requests.get(url, headers=headers, params=params)
 
         except TypeError as err:
@@ -226,6 +228,9 @@ class AllegroAPI:
             headers = {'Authorization': 'Bearer ' + self.token,
                        'Accept': 'application/vnd.allegro.public.v1+json',
                        'Content-Type': 'application/vnd.allegro.public.v1+json'}
+
+            logger.info(f'PUT request url: {url}')
+
             response = requests.put(url, data=json.dumps(data), headers=headers)
         except TypeError as err:
             self.errors.append('PUT request error: ' + str(err))
@@ -393,6 +398,7 @@ class AllegroAPI:
             ]
         }
         response = self.put_request(endpoint=endpoint, data=data)
+        logger.info('Offer Activation: ' + str(response.json()))
 
         return json.loads(response.text)
 
@@ -448,8 +454,7 @@ class AllegroAPI:
                     self.errors)
             else:
                 self.errors = []
-                self.offer_publication(
-                    saleor_product.private_metadata.get('publish.allegro.id'))
+                self.offer_publication(offer.get('id'))
                 self.update_status_and_publish_data_in_private_metadata(
                     saleor_product, offer['id'],
                     ProductPublishState.PUBLISHED.value,
