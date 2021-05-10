@@ -48,6 +48,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
                 "publish.allegro.date") is None:
 
         product = allegro_api_instance.prepare_offer(saleor_product, starting_at, offer_type, product_images, 'required')
+        logger.info('New offer: ' + str(product.get('external').get('id')))
         offer = allegro_api_instance.publish_to_allegro(allegro_product=product)
         description = offer.get('description')
 
@@ -106,7 +107,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
                                                                      allegro_id=offer_id)
 
             description = offer_update.get('description')
-            logger.info('Offer update: ' + str(offer_update))
+            logger.info('Offer update: ' + str(product.get('external').get('id')) + str(offer_update))
             offer = allegro_api_instance.valid_offer(offer_id)
             err_handling_response = allegro_api_instance.error_handling(offer, saleor_product, ProductPublishState)
             # If must_assign_offer_to_product create new product and assign to offer
