@@ -123,6 +123,7 @@ class MenuError(Error):
 
 class MetadataError(Error):
     code = MetadataErrorCode(description="The error code.", required=True)
+    params = graphene.JSONString(description="list of errors", required=False)
 
 
 class OrderError(Error):

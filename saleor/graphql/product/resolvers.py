@@ -1,5 +1,6 @@
 from django.db.models import Sum
 
+from ...account.models import User
 from ...order import OrderStatus
 from ...product import models
 from ..utils import get_database_id, get_user_or_app_from_context
@@ -104,3 +105,7 @@ def resolve_report_product_sales(period):
     qs = qs.annotate(quantity_ordered=Sum("order_lines__quantity"))
     qs = qs.filter(quantity_ordered__isnull=False)
     return qs.order_by("-quantity_ordered")
+
+
+def resolve_product_variants_skus(info, sku):
+    return models.ProductVariant.objects.filter(sku__startswith=sku)

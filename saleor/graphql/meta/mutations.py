@@ -1,7 +1,8 @@
+import json
 from typing import List
 
 import graphene
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError, ObjectDoesNotExist
 
 from ...core import models
 from ...core.error_codes import MetadataErrorCode
@@ -11,7 +12,7 @@ from ..core.types.common import MetadataError
 from .extra_methods import MODEL_EXTRA_METHODS
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from .types import ObjectWithMetadata
-from ...product.models import ProductVariant, Product, ProductImage
+from ...product.models import ProductVariant, ProductImage
 
 
 class MetadataPermissionOptions(graphene.types.mutation.MutationOptions):
@@ -116,9 +117,24 @@ class BaseMetadataMutation(BaseMutation):
         return cls(**{"item": instance, "errors": []})
 
     @classmethod
+    def clear_bundle_id_for_removed_products(cls, instance, data):
+        data_skus = json.loads(data['skus'].replace("'", '"'))
+        if "skus" in instance.private_metadata:
+            previous_products = json.loads(instance.private_metadata["skus"]
+                                           .replace("'", '"'))
+            for previous_product in enumerate(previous_products):
+                if previous_product[1] not in data_skus:
+                    try:
+                        product_variant = ProductVariant.objects\
+                            .get(sku=previous_product[1])
+                        product_variant.product.metadata['bundle.id'] = ""
+                        product_variant.product.save()
+                    except ObjectDoesNotExist as e:
+                        continue
+
+    @classmethod
     def assign_sku_to_metadata_bundle_id(cls, instance, data):
         bundle_id = ProductVariant.objects.get(product=instance.pk).sku
-        print(instance.private_metadata)
         product_variants = ProductVariant.objects.filter(sku__in=eval(data['skus']))
         for index, product_variant in enumerate(product_variants):
             product = product_variant.product
@@ -133,10 +149,52 @@ class BaseMetadataMutation(BaseMutation):
         for product_variant in product_variants:
             if 'bundle.id' not in product_variant.product.metadata or not product_variant.\
                     product.metadata['bundle.id']:
-                photo = ProductImage.objects.get(product=product_variant.product.pk)
+                photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
                 ProductImage.objects.create(product=instance, ppoi=photo.ppoi,\
                                             alt=photo.alt, image=photo.image)
 
+    @classmethod
+    def validate_mega_pack(cls, instance,  data):
+        data_skus = json.loads(data['skus'].replace("'", '"'))
+        bundle_id = ProductVariant.objects.get(product=instance.pk).sku
+        product_variants = ProductVariant.objects.filter(sku__in=eval(data['skus']))
+        validation_message = ""
+        products_published = []
+        products_already_assigned = []
+        products_not_exist = []
+        product_variants_skus = []
+        for product_variant in product_variants:
+            product_variants_skus.append(product_variant.sku)
+
+        if len(data_skus) > len(product_variants):
+            for product in data_skus:
+                if product not in product_variants_skus:
+                    products_not_exist.append(product)
+        for product_variant in product_variants:
+            if 'bundle.id' in product_variant.product.metadata:
+                if product_variant.product.metadata['bundle.id'] != bundle_id:
+                    products_already_assigned.append(product_variant.sku)
+            if 'publish.allegro.status' in product_variant.product.private_metadata:
+                if product_variant.product.private_metadata['publish.allegro.status']\
+                 == "published":
+                    products_published.append(product_variant.sku)
+
+        if products_not_exist or products_already_assigned or products_published:
+            if products_not_exist:
+                products_not_exist_str = " ".join(products_not_exist)
+                validation_message += f'Produkty nie istnieją:  {products_not_exist_str}\n'
+            if products_published:
+                products_published_str = " ".join(products_published)
+                validation_message += f'Produkty wystawione na aukcje:  {products_published_str}\n'
+            if products_already_assigned:
+                products_already_assigned_str = " ".join(products_already_assigned)
+                validation_message += f'Produkty już przypisane do megapaki:  {products_already_assigned_str}\n'
+            raise ValidationError({
+                "megapack": ValidationError(
+                    message=validation_message,
+                    code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
+                )
+            })
 
 class MetadataInput(graphene.InputObjectType):
     key = graphene.String(required=True, description="Key of a metadata item.")
@@ -219,8 +277,10 @@ class UpdatePrivateMetadata(BaseMetadataMutation):
             cls.validate_metadata_keys(metadata_list)
             items = {data.key: data.value for data in metadata_list}
             if 'skus' in items:
-                cls.assign_sku_to_metadata_bundle_id(instance, items)
+                cls.clear_bundle_id_for_removed_products(instance, items)
                 cls.assign_photos_from_products_to_megapack(instance, items)
+                cls.assign_sku_to_metadata_bundle_id(instance, items)
+                cls.validate_mega_pack(instance, items)
             instance.store_value_in_private_metadata(items=items)
             instance.save(update_fields=["private_metadata"])
         return cls.success_response(instance)
