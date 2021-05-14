@@ -173,3 +173,22 @@ def create_stocks(
     except IntegrityError:
         msg = "Stock for one of warehouses already exists for this product variant."
         raise ValidationError(msg)
+
+
+def can_exclude_distinct(parameters):
+    join_filters = ['collections', 'attributes', 'stock_availability', 'allegro_status',
+                    'price', 'stock_availability']
+    join_sort_by = 'min_variants_price_amount'
+
+    for filter in join_filters:
+        if parameters.get('filter').get(filter):
+            return False
+
+    try:
+        sort_by_fields = parameters['sort_by']['field']
+        if join_sort_by in sort_by_fields:
+            return False
+    except (KeyError, TypeError):
+        return True
+
+    return True

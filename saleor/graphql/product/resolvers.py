@@ -6,6 +6,7 @@ from ...product import models
 from ..utils import get_database_id, get_user_or_app_from_context
 from ..utils.filters import filter_by_period
 from .filters import filter_products_by_stock_availability
+from .utils import can_exclude_distinct
 
 
 def resolve_attributes(info, qs=None, **_kwargs):
@@ -55,6 +56,13 @@ def resolve_products(info, stock_availability=None, **_kwargs):
 
     if not qs.user_has_access_to_all(user):
         qs = qs.exclude(visible_in_listings=False)
+
+    if not _kwargs and not stock_availability:
+        return qs
+    elif stock_availability:
+        return qs.distinct()
+    elif can_exclude_distinct(_kwargs):
+        return qs
 
     return qs.distinct()
 
