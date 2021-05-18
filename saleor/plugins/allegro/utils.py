@@ -1,10 +1,12 @@
 import json
 import logging
 import re
+import urllib
 import uuid
 
 from collections import defaultdict
 from datetime import datetime, timedelta
+from math import ceil
 
 import pytz
 import requests
@@ -207,6 +209,7 @@ class AllegroAPI:
                        'Content-Type': 'application/vnd.allegro.public.v1+json'}
 
             logger.info(f'GET request url: {url}')
+            #logger.info(self.token)
 
             response = requests.get(url, headers=headers, params=params)
 
@@ -378,6 +381,146 @@ class AllegroAPI:
         response = self.get_request(endpoint=endpoint)
 
         return json.loads(response.text)
+
+    def bulk_offer_unpublish(self, skus):
+        # Get offers by sku codes
+        offers = self.get_offers_by_skus(skus)
+        # Check if someone doesnt bid or purchased any offer
+        offers_bid_or_purchased = self.offers_bid_or_purchased(offers)
+        print(offers_bid_or_purchased)
+        # Return SKU/OFFER error list if some offer is bid or purchased
+        if offers_bid_or_purchased:
+            return {'status': 'ERROR', 'errors': offers_bid_or_purchased}
+        # Bulk offers unpublish
+        offers = [{'id': offer['id']} for offer in offers if offer['publication']['status'] != 'ENDED']
+        unique_id = str(uuid.uuid1())
+        endpoint = f'sale/offer-publication-commands/{unique_id}'
+        data = {
+            "publication": {
+                "action": "END",
+                "republish": False
+            },
+            "offerCriteria": [
+                {
+                    "offers": offers,
+                    "type": "CONTAINS_OFFERS"
+                }
+            ]
+        }
+        response = self.put_request(endpoint=endpoint, data=data)
+        logger.info('Offer Ending: ' + str(response.json()))
+
+        if response.status_code != 201:
+            return {'status': 'ERROR', 'uuid': unique_id, 'errors': response.json()}
+
+        return {'status': 'OK', 'uuid': unique_id, 'errors': []}
+
+    def offers_bid_or_purchased(self, offers):
+        offers_bid_or_purchased = [
+            {'sku': offer['external']['id'], 'offer': offer['id'],
+             'available': offer['stock']['available'], 'sold': offer['stock']['sold'],
+             'error_message': 'Sold or not available'}
+             for offer in offers
+             if offer['saleInfo']['biddersCount'] or offer['stock']['sold'] or not offer['stock']['available']]
+        # Remove canceled allegro offers
+        if offers_bid_or_purchased:
+            skus = [offer['sku'] for offer in offers_bid_or_purchased]
+            product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
+
+            for product_variant in product_variants:
+                if product_variant.product.private_metadata['publish.allegro.status'] == 'canceled':
+                    for i, offer in enumerate(offers_bid_or_purchased):
+                        if offer['sku'] == product_variant.sku:
+                            del offers_bid_or_purchased[i]
+                            break
+
+        return offers_bid_or_purchased
+
+    def get_offers_by_skus(self, skus):
+        def get_offers_by_max_100_skus(sku_params):
+            endpoint = (f'sale/offers?publication.status=ACTIVE&publication.status=ACTIVATING'
+                        f'&publication.status=ENDED&limit=1000&{sku_params}')
+            response = self.get_request(endpoint=endpoint).json()
+            offers_max_100_skus = []
+            offset = 0
+            counter = 0
+            count = response['count']
+            offers_max_100_skus += response['offers']
+            # Get max 1000 offers each request for given 100 sku codes
+            while count < response['totalCount']:
+                counter += 1
+                offset += response['count']
+                endpoint = (f'sale/offers?publication.status=ACTIVE&publication.status=ACTIVATING'
+                            f'&publication.status=ENDED&limit=1000&offset={offset}&{sku_params}')
+                response = self.get_request(endpoint=endpoint).json()
+                offers_max_100_skus += response['offers']
+                count += response['count']
+                if counter == 20:
+                    return False
+            return offers_max_100_skus
+        # Get offers by max 100 sku codes
+        skus_amount = len(skus)
+        request_count = ceil(skus_amount / 100)
+        offers = []
+        start = 0
+        end = 100 if skus_amount >= 100 else skus_amount
+        for chunk in range(request_count):
+            offers_list_of_tuples = [('external.id', sku) for sku in skus[start:end]]
+            sku_params = urllib.parse.urlencode(offers_list_of_tuples)
+            offers += get_offers_by_max_100_skus(sku_params)
+            start += 100
+            if skus_amount - start >= 100:
+                end += 100
+            else:
+                end += skus_amount - start
+
+        return offers
+
+    def check_unpublish_status(self, unique_id):
+        endpoint = f'sale/offer-publication-commands/{unique_id}'
+        response = self.get_request(endpoint=endpoint).json()
+
+        try:
+            total = response['taskCount']['total']
+            success = response['taskCount']['success']
+            failed = response['taskCount']['failed']
+            if total != success + failed:
+                return {
+                    'status': 'PROCEEDING',
+                    'taskCount': response['taskCount'],
+                    'errors': []
+                }
+            if failed:
+                return self.check_unpublish_errors(unique_id)
+        except KeyError:
+            return {
+                'status': 'ERROR',
+                'errors': [response]
+            }
+
+        return {
+            'status': 'OK',
+            'taskCount': response['taskCount'],
+            'errors': []
+        }
+
+    def check_unpublish_errors(self, unique_id):
+        endpoint = f'sale/offer-publication-commands/{unique_id}/tasks'
+        response = self.get_request(endpoint=endpoint).json()
+
+        try:
+            tasks_failed = [task for task in response['tasks'] if task['status'] != 'SUCCESS']
+        except KeyError:
+            logger.error('Offers unpublish check errors: ' + str(response))
+            return {
+                'status': 'ERROR',
+                'errors': ['Something wrong happened']
+            }
+
+        return {
+            'status': 'ERROR',
+            'errors': tasks_failed
+        }
 
     def offer_publication(self, offer_id):
 
