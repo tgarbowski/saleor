@@ -120,16 +120,8 @@ class BaseMetadataMutation(BaseMutation):
         return cls(**{"item": instance, "errors": []})
 
     @classmethod
-    def product_can_be_assigned(cls, product):
-        if 'publish.allegro.status' in product.private_metadata:
-            if product.private_metadata['publish.allegro.status'] \
-                    == "published":
-                return False
-        return True
+    def clear_bundle_id_for_removed_products(cls, instance, data_skus):
 
-    @classmethod
-    def clear_bundle_id_for_removed_products(cls, instance, data):
-        data_skus = json.loads(data['skus'].replace("'", '"'))
         if "skus" in instance.private_metadata and instance.private_metadata["skus"]:
             try:
                 previous_products = json.loads(instance.private_metadata["skus"]
@@ -150,46 +142,35 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def assign_sku_to_metadata_bundle_id(cls, instance, data):
         bundle_id = ProductVariant.objects.get(product=instance.pk).sku
-        product_variants = ProductVariant.objects.filter(sku__in=eval(data['skus']))
+        product_variants = ProductVariant.objects.filter(sku__in=data)
         for index, product_variant in enumerate(product_variants):
             product = product_variant.product
-            if cls.product_can_be_assigned(product):
-                if 'bundle.id' not in product.metadata or \
-                        not product.metadata['bundle.id']:
-                    product.metadata["bundle.id"] = bundle_id
-                    product.save()
+            if 'bundle.id' not in product.metadata or \
+                    not product.metadata['bundle.id']:
+                product.metadata["bundle.id"] = bundle_id
+                product.save()
 
     @classmethod
     def assign_photos_from_products_to_megapack(cls, instance, items):
-        product_variants = ProductVariant.objects.filter(sku__in=eval(items['skus']))
+        product_variants = ProductVariant.objects.filter(sku__in=items)
         for product_variant in product_variants:
-            if cls.product_can_be_assigned(product_variant.product):
-                if 'bundle.id' not in product_variant.product.metadata or not product_variant.\
-                        product.metadata['bundle.id']:
-                    photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
-                    ProductImage.objects.create(product=instance, ppoi=photo.ppoi,\
-                                                alt=photo.alt, image=photo.image)
+            if 'bundle.id' not in product_variant.product.metadata or not product_variant.\
+                    product.metadata['bundle.id']:
+                photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
+                ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
+                                            alt=photo.alt, image=photo.image)
 
     @classmethod
-    def validate_mega_pack(cls, instance,  data):
-        config = get_plugin_configuration()
-        access_token = config.get('token_value')
-        env = config.get('env')
-        allegro_api_instance = AllegroAPI(access_token, env)
-        data_skus = json.loads(data['skus'].replace("'", '"'))
+    def validate_mega_pack(cls, instance,  data_skus, products_published):
         bundle_id = ProductVariant.objects.get(product=instance.pk).sku
-        product_variants = ProductVariant.objects.filter(sku__in=eval(data['skus']))
+        product_variants = ProductVariant.objects.filter(sku__in=data_skus)
         validation_message = ""
-        products_published = []
         products_already_assigned = []
         products_not_exist = []
         product_variants_skus = []
 
-        allegro_data = allegro_api_instance.bulk_offer_unpublish(skus=data_skus)
-        print(allegro_data)
         for product_variant in product_variants:
             product_variants_skus.append(product_variant.sku)
-
         if len(data_skus) > len(product_variants):
             for product in data_skus:
                 if product not in product_variants_skus:
@@ -198,10 +179,6 @@ class BaseMetadataMutation(BaseMutation):
             if 'bundle.id' in product_variant.product.metadata:
                 if product_variant.product.metadata['bundle.id'] != bundle_id:
                     products_already_assigned.append(product_variant.sku)
-            if 'publish.allegro.status' in product_variant.product.private_metadata:
-                if product_variant.product.private_metadata['publish.allegro.status']\
-                 == "published":
-                    products_published.append(product_variant.sku)
 
         if products_not_exist or products_already_assigned or products_published:
             if products_not_exist:
@@ -209,7 +186,7 @@ class BaseMetadataMutation(BaseMutation):
                 validation_message += f'Produkty nie istnieją:  {products_not_exist_str}\n'
             if products_published:
                 products_published_str = " ".join(products_published)
-                validation_message += f'Produkty wystawione na aukcje:  {products_published_str}\n'
+                validation_message += f'Produkty sprzedane lub licytowane:  {products_published_str}\n'
             if products_already_assigned:
                 products_already_assigned_str = " ".join(products_already_assigned)
                 validation_message += f'Produkty już przypisane do megapaki:  {products_already_assigned_str}\n'
@@ -219,6 +196,30 @@ class BaseMetadataMutation(BaseMutation):
                     code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
                 )
             })
+
+    @classmethod
+    def bulk_allegro_offers_unpublish(cls, data):
+        config = get_plugin_configuration()
+        access_token = config.get('token_value')
+        env = config.get('env')
+        allegro_api_instance = AllegroAPI(access_token, env)
+        data_skus = json.loads(data['skus'].replace("'", '"'))
+        products_allegro_sold_or_auctioned = []
+
+        allegro_data = allegro_api_instance.bulk_offer_unpublish(skus=data_skus)
+
+        if allegro_data['errors']:
+            for product in enumerate(allegro_data['errors']):
+                if 'sku' in product[1]:
+                    products_allegro_sold_or_auctioned.append(product[1]['sku'])
+
+        return products_allegro_sold_or_auctioned
+
+    @classmethod
+    def delete_products_sold_from_data(cls, data, allegro_sold_products):
+        data_skus = json.loads(data['skus'].replace("'", '"'))
+
+        return [product for product in data_skus if product not in allegro_sold_products]
 
     @classmethod
     def generate_bundle_content(cls, slug):
@@ -239,15 +240,13 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def save_megapack_with_valid_products(cls, instance, data):
         verified_skus = []
-        product_variants = ProductVariant.objects.filter(sku__in=eval(data['skus']))
+        product_variants = ProductVariant.objects.filter(sku__in=data)
         bundle_id = ProductVariant.objects.get(product=instance.pk).sku
         for product_variant in product_variants:
             product = product_variant.product
             if 'bundle.id' in product.metadata:
                 if product.metadata['bundle.id'] != bundle_id:
                     continue
-            if not cls.product_can_be_assigned(product):
-                continue
             verified_skus.append(product_variant.sku)
         instance.private_metadata['skus'] = verified_skus
         instance.save(update_fields=["private_metadata"])
@@ -334,12 +333,14 @@ class UpdatePrivateMetadata(BaseMetadataMutation):
             cls.validate_metadata_keys(metadata_list)
             items = {data.key: data.value for data in metadata_list}
             if 'skus' in items:
-                cls.clear_bundle_id_for_removed_products(instance, items)
-                cls.assign_photos_from_products_to_megapack(instance, items)
-                cls.assign_sku_to_metadata_bundle_id(instance, items)
+                products_sold_in_allegro = cls.bulk_allegro_offers_unpublish(items)
+                data = cls.delete_products_sold_from_data(items, products_sold_in_allegro)
+                cls.clear_bundle_id_for_removed_products(instance, data)
+                cls.assign_photos_from_products_to_megapack(instance, data)
+                cls.assign_sku_to_metadata_bundle_id(instance, data)
                 cls.assign_bundle_content_to_product(instance)
-                cls.save_megapack_with_valid_products(instance, items)
-                cls.validate_mega_pack(instance, items)
+                cls.save_megapack_with_valid_products(instance, data)
+                cls.validate_mega_pack(instance, data, products_sold_in_allegro)
             if 'skus' not in items:
                 instance.store_value_in_private_metadata(items=items)
                 instance.save(update_fields=["private_metadata"])
