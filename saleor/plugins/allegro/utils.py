@@ -1,3 +1,4 @@
+import enum
 import json
 import logging
 import re
@@ -18,6 +19,13 @@ from saleor.product.models import AssignedProductAttribute, \
     AttributeValue, ProductVariant, Product
 
 logger = logging.getLogger(__name__)
+
+
+class AllegroErrors(enum.Enum):
+   ALLEGRO_ERROR = 'allegro_error'
+   NO_OFFERS_FOUND = 'no_offers_found'
+   BID_OR_PURCHASED = 'bid_or_purchased'
+   TASK_FAILED = 'task_failed'
 
 
 class AllegroAPI:
@@ -385,14 +393,20 @@ class AllegroAPI:
     def bulk_offer_unpublish(self, skus):
         # Get offers by sku codes
         offers = self.get_offers_by_skus(skus)
+        if not isinstance(offers, list):
+            return {'status': 'ERROR', 'message': AllegroErrors.ALLEGRO_ERROR, 'errors': ['Error with fetching offers']}
+        if not offers:
+            return {'status': 'OK', 'message': AllegroErrors.NO_OFFERS_FOUND, 'errors': []}
         # Check if someone doesnt bid or purchased any offer
         offers_bid_or_purchased = self.offers_bid_or_purchased(offers)
-        print(offers_bid_or_purchased)
-        # Return SKU/OFFER error list if some offer is bid or purchased
+        # Append SKU/OFFER error list to errors section if some offer is bid or purchased
         if offers_bid_or_purchased:
-            return {'status': 'ERROR', 'errors': offers_bid_or_purchased}
+            offers_to_remove = [offer['offer'] for offer in offers_bid_or_purchased]
+            offers = [offer for offer in offers if not offer['id'] in offers_to_remove]
         # Bulk offers unpublish
         offers = [{'id': offer['id']} for offer in offers if offer['publication']['status'] != 'ENDED']
+        if not offers:
+            return {'status': 'OK', 'message': AllegroErrors.NO_OFFERS_FOUND, 'errors': []}
         unique_id = str(uuid.uuid1())
         endpoint = f'sale/offer-publication-commands/{unique_id}'
         data = {
@@ -411,9 +425,14 @@ class AllegroAPI:
         logger.info('Offer Ending: ' + str(response.json()))
 
         if response.status_code != 201:
-            return {'status': 'ERROR', 'uuid': unique_id, 'errors': response.json()}
+            return {'status': 'ERROR', 'uuid': unique_id, 'message': AllegroErrors.ALLEGRO_ERROR,
+                    'errors': response.json()}
 
-        return {'status': 'OK', 'uuid': unique_id, 'errors': []}
+        if offers_bid_or_purchased:
+            return {'status': 'OK', 'uuid': unique_id, 'message': AllegroErrors.BID_OR_PURCHASED,
+                    'errors': offers_bid_or_purchased}
+        else:
+            return {'status': 'OK', 'uuid': unique_id, 'errors': []}
 
     def offers_bid_or_purchased(self, offers):
         offers_bid_or_purchased = [
@@ -440,7 +459,11 @@ class AllegroAPI:
         def get_offers_by_max_100_skus(sku_params):
             endpoint = (f'sale/offers?publication.status=ACTIVE&publication.status=ACTIVATING'
                         f'&publication.status=ENDED&limit=1000&{sku_params}')
-            response = self.get_request(endpoint=endpoint).json()
+            response = self.get_request(endpoint=endpoint)
+            if response.status_code != 200:
+                logger.error('Error with fetching offers: ' + str(response.json()))
+                return False
+            response = response.json()
             offers_max_100_skus = []
             offset = 0
             counter = 0
@@ -452,7 +475,11 @@ class AllegroAPI:
                 offset += response['count']
                 endpoint = (f'sale/offers?publication.status=ACTIVE&publication.status=ACTIVATING'
                             f'&publication.status=ENDED&limit=1000&offset={offset}&{sku_params}')
-                response = self.get_request(endpoint=endpoint).json()
+                response = self.get_request(endpoint=endpoint)
+                if response.status_code != 200:
+                    logger.error('Error with fetching offers: ' + str(response.json()))
+                    return False
+                response = response.json()
                 offers_max_100_skus += response['offers']
                 count += response['count']
                 if counter == 20:
@@ -467,7 +494,10 @@ class AllegroAPI:
         for chunk in range(request_count):
             offers_list_of_tuples = [('external.id', sku) for sku in skus[start:end]]
             sku_params = urllib.parse.urlencode(offers_list_of_tuples)
-            offers += get_offers_by_max_100_skus(sku_params)
+            fetched_offers = get_offers_by_max_100_skus(sku_params)
+            if not isinstance(fetched_offers, list):
+                return False
+            offers += fetched_offers
             start += 100
             if skus_amount - start >= 100:
                 end += 100
@@ -495,6 +525,7 @@ class AllegroAPI:
         except KeyError:
             return {
                 'status': 'ERROR',
+                'message': AllegroErrors.ALLEGRO_ERROR,
                 'errors': [response]
             }
 
@@ -514,11 +545,13 @@ class AllegroAPI:
             logger.error('Offers unpublish check errors: ' + str(response))
             return {
                 'status': 'ERROR',
+                'message': AllegroErrors.ALLEGRO_ERROR,
                 'errors': ['Something wrong happened']
             }
 
         return {
             'status': 'ERROR',
+            'message': AllegroErrors.TASK_FAILED,
             'errors': tasks_failed
         }
 
