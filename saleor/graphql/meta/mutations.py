@@ -14,6 +14,7 @@ from ..core.types.common import MetadataError
 from .extra_methods import MODEL_EXTRA_METHODS
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from .types import ObjectWithMetadata
+from ...plugins.allegro.utils import get_plugin_configuration, AllegroAPI
 from ...product.models import ProductVariant, ProductImage
 
 
@@ -129,9 +130,13 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def clear_bundle_id_for_removed_products(cls, instance, data):
         data_skus = json.loads(data['skus'].replace("'", '"'))
-        if "skus" in instance.private_metadata:
-            previous_products = json.loads(instance.private_metadata["skus"]
-                                           .replace("'", '"'))
+        if "skus" in instance.private_metadata and instance.private_metadata["skus"]:
+            try:
+                previous_products = json.loads(instance.private_metadata["skus"]
+                                               .replace("'", '"'))
+            except AttributeError:
+                previous_products = instance.private_metadata["skus"]
+
             for previous_product in enumerate(previous_products):
                 if previous_product[1] not in data_skus:
                     try:
@@ -167,6 +172,10 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def validate_mega_pack(cls, instance,  data):
+        config = get_plugin_configuration()
+        access_token = config.get('token_value')
+        env = config.get('env')
+        allegro_api_instance = AllegroAPI(access_token, env)
         data_skus = json.loads(data['skus'].replace("'", '"'))
         bundle_id = ProductVariant.objects.get(product=instance.pk).sku
         product_variants = ProductVariant.objects.filter(sku__in=eval(data['skus']))
@@ -175,6 +184,9 @@ class BaseMetadataMutation(BaseMutation):
         products_already_assigned = []
         products_not_exist = []
         product_variants_skus = []
+
+        allegro_data = allegro_api_instance.bulk_offer_unpublish(skus=data_skus)
+        print(allegro_data)
         for product_variant in product_variants:
             product_variants_skus.append(product_variant.sku)
 
@@ -219,8 +231,10 @@ class BaseMetadataMutation(BaseMutation):
     def assign_bundle_content_to_product(cls, instance):
         slug = ProductVariant.objects.get(product=instance.pk).sku
         bundle_content = cls.generate_bundle_content(slug)
-        instance.private_metadata['bundle.content'] = json.loads(bundle_content[0][0])
-        instance.save()
+        if bundle_content[0][0] is not None:
+            instance.private_metadata['bundle.content'] = json.loads(
+                bundle_content[0][0])
+            instance.save()
 
     @classmethod
     def save_megapack_with_valid_products(cls, instance, data):
