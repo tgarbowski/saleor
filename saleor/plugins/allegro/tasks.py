@@ -1,9 +1,9 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 from ...celeryconf import app
-from .utils import AllegroAPI, email_errors, get_plugin_configuration
+from .utils import AllegroAPI, AllegroErrors, email_errors, get_plugin_configuration, email_bulk_unpublish_message
 from saleor.product.models import Product
 from saleor.plugins.allegro import ProductPublishState
 
@@ -27,6 +27,26 @@ def refresh_token_task():
                     config['auth_env']) or (None, None, None)
             if access_token and refresh_token and expires_in is not None:
                 AllegroAPI.save_token_in_plugin_configuration(access_token, refresh_token, expires_in)
+
+@app.task()
+def check_bulk_unpublish_status_task(unique_id):
+    config = get_plugin_configuration()
+    access_token = config.get('token_value')
+    env = config.get('env')
+    allegro_api_instance = AllegroAPI(access_token, env)
+    unpublish_status = allegro_api_instance.check_unpublish_status(unique_id)
+
+    if unpublish_status.get('status') == 'OK':
+        email_bulk_unpublish_message('OK')
+    if unpublish_status.get('status') == 'PROCEEDING':
+        trigger_time = datetime.now() + timedelta(minutes=10)
+        check_bulk_unpublish_status_task.s(unique_id).apply_async(eta=trigger_time)
+    if unpublish_status.get('status') == 'ERROR':
+        if unpublish_status.get('message') == AllegroErrors.TASK_FAILED:
+            email_bulk_unpublish_message('ERROR', message=AllegroErrors.TASK_FAILED,
+                                         errors=unpublish_status.get('errors'))
+        else:
+            email_bulk_unpublish_message('ERROR', errors=unpublish_status)
 
 @app.task()
 def async_product_publish(product_id, offer_type, starting_at, product_images, products_bulk_ids):
