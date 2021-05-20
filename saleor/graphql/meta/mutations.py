@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import List
 
 import graphene
@@ -16,6 +17,8 @@ from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from .types import ObjectWithMetadata
 from ...plugins.allegro.utils import get_plugin_configuration, AllegroAPI
 from ...product.models import ProductVariant, ProductImage
+
+logger = logging.getLogger(__name__)
 
 
 class MetadataPermissionOptions(graphene.types.mutation.MutationOptions):
@@ -180,19 +183,27 @@ class BaseMetadataMutation(BaseMutation):
                 if product_variant.product.metadata['bundle.id'] != bundle_id:
                     products_already_assigned.append(product_variant.sku)
 
-        if products_not_exist or products_already_assigned or products_published:
-            if products_not_exist:
-                products_not_exist_str = " ".join(products_not_exist)
-                validation_message += f'Produkty nie istnieją:  {products_not_exist_str}\n'
-            if products_published:
-                products_published_str = " ".join(products_published)
-                validation_message += f'Produkty sprzedane lub licytowane:  {products_published_str}\n'
-            if products_already_assigned:
-                products_already_assigned_str = " ".join(products_already_assigned)
-                validation_message += f'Produkty już przypisane do megapaki:  {products_already_assigned_str}\n'
+        if isinstance(products_published, list):
+            if products_not_exist or products_already_assigned or products_published:
+                if products_not_exist:
+                    products_not_exist_str = " ".join(products_not_exist)
+                    validation_message += f'Produkty nie istnieją:  {products_not_exist_str}\n'
+                if products_published:
+                    products_published_str = " ".join(products_published)
+                    validation_message += f'Produkty sprzedane lub licytowane:  {products_published_str}\n'
+                if products_already_assigned:
+                    products_already_assigned_str = " ".join(products_already_assigned)
+                    validation_message += f'Produkty już przypisane do megapaki:  {products_already_assigned_str}\n'
+                raise ValidationError({
+                    "megapack": ValidationError(
+                        message=validation_message,
+                        code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
+                    )
+                })
+        else:
             raise ValidationError({
                 "megapack": ValidationError(
-                    message=validation_message,
+                    message=products_published,
                     code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
                 )
             })
@@ -207,11 +218,14 @@ class BaseMetadataMutation(BaseMutation):
         products_allegro_sold_or_auctioned = []
 
         allegro_data = allegro_api_instance.bulk_offer_unpublish(skus=data_skus)
-
         if allegro_data['errors'] and allegro_data['status'] == "OK":
             for product in enumerate(allegro_data['errors']):
                 if 'sku' in product[1]:
                     products_allegro_sold_or_auctioned.append(product[1]['sku'])
+
+        if allegro_data['status'] == "ERROR":
+            logger.error("Fetch allegro data error" + str(allegro_data['message']))
+            return "Błąd podczas przetwarzania danych na allegro"
 
         return products_allegro_sold_or_auctioned
 
@@ -219,7 +233,10 @@ class BaseMetadataMutation(BaseMutation):
     def delete_products_sold_from_data(cls, data, allegro_sold_products):
         data_skus = json.loads(data['skus'].replace("'", '"'))
 
-        return [product for product in data_skus if product not in allegro_sold_products]
+        if isinstance(allegro_sold_products, list):
+            return [product for product in data_skus if product not in allegro_sold_products]
+
+        return [product for product in data_skus]
 
     @classmethod
     def generate_bundle_content(cls, slug):
