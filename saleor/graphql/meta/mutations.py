@@ -142,7 +142,7 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def assign_sku_to_metadata_bundle_id(cls, instance, data):
         bundle_id = ProductVariant.objects.get(product=instance.pk).sku
-        product_variants = ProductVariant.objects.filter(sku__in=data)
+        product_variants = ProductVariant.objects.select_related('product').filter(sku__in=data)
         for index, product_variant in enumerate(product_variants):
             product = product_variant.product
             if 'bundle.id' not in product.metadata or \
@@ -152,7 +152,7 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def assign_photos_from_products_to_megapack(cls, instance, items):
-        product_variants = ProductVariant.objects.filter(sku__in=items)
+        product_variants = ProductVariant.objects.select_related('product').filter(sku__in=items)
         for product_variant in product_variants:
             if 'bundle.id' not in product_variant.product.metadata or not product_variant.\
                     product.metadata['bundle.id']:
@@ -163,7 +163,7 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def validate_mega_pack(cls, instance,  data_skus, products_published):
         bundle_id = ProductVariant.objects.get(product=instance.pk).sku
-        product_variants = ProductVariant.objects.filter(sku__in=data_skus)
+        product_variants = ProductVariant.objects.select_related('product').filter(sku__in=data_skus)
         validation_message = ""
         products_already_assigned = []
         products_not_exist = []
@@ -208,7 +208,7 @@ class BaseMetadataMutation(BaseMutation):
 
         allegro_data = allegro_api_instance.bulk_offer_unpublish(skus=data_skus)
 
-        if allegro_data['errors']:
+        if allegro_data['errors'] and allegro_data['status'] == "OK":
             for product in enumerate(allegro_data['errors']):
                 if 'sku' in product[1]:
                     products_allegro_sold_or_auctioned.append(product[1]['sku'])
@@ -240,7 +240,7 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def save_megapack_with_valid_products(cls, instance, data):
         verified_skus = []
-        product_variants = ProductVariant.objects.filter(sku__in=data)
+        product_variants = ProductVariant.objects.select_related('product').filter(sku__in=data)
         bundle_id = ProductVariant.objects.get(product=instance.pk).sku
         for product_variant in product_variants:
             product = product_variant.product
