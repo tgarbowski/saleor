@@ -74,11 +74,13 @@ class AllegroSyncPlugin(BasePlugin):
             return
         limit = 1000
         errors = []
+        updated_amount = 0
 
         for i in range(int(int(total_count) / limit) + 1):
             offset = i * limit
             params = {'publication.status': ['ACTIVE'], 'limit': limit, 'offset': offset}
             response = allegro_api.get_request('sale/offers', params)
+            logger.info(f'Fetching 1000 offers status: {response.status_code}, offset: {offset}')
             offers = json.loads(response.text).get('offers')
             if offers:
                 skus = [offer.get('external').get('id') for offer in offers]
@@ -92,30 +94,30 @@ class AllegroSyncPlugin(BasePlugin):
                     if variant:
                         product = variant.product
                         product_errors = AllegroSyncPlugin.valid_product(product)
-                        if not product_errors:
-                            if product.private_metadata.get('publish.allegro.id') != offer_id:
-                                product.private_metadata['publish.allegro.id'] = offer_id
-                                products_to_update.append(product)
+                        if product.private_metadata.get('publish.allegro.id') != offer_id:
+                            product.private_metadata['publish.allegro.id'] = offer_id
+                            products_to_update.append(product)
                     else:
                         product_errors.append('nie znaleziono produktu o podanym SKU')
+
+                    if product_errors:
                         errors.append({'sku': sku, 'errors': product_errors})
 
                 if products_to_update:
                     Product.objects.bulk_update(products_to_update, ['private_metadata'])
+                    updated_amount = len(products_to_update)
 
         html_errors_list = plugin_configs.create_table(errors)
 
-        return self.send_mail(html_errors_list)
+        return self.send_mail(html_errors_list, updated_amount)
 
-    def send_mail(self, html_errors_list):
+    def send_mail(self, html_errors_list, updated_amount):
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login('noreply.salingo@gmail.com', self.password)
 
         msg = MIMEMultipart('alternative')
-
-        html = MIMEText(html_errors_list, 'html')
-
+        html = MIMEText(f'Uaktualniono {updated_amount} ofert.' + html_errors_list, 'html')
         msg.attach(html)
         msg['Subject'] = 'Logi z synchronizacji ofert'
         msg['From'] = 'sync+noreply.salingo@gmail.com'
