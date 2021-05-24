@@ -792,10 +792,10 @@ class AllegroParametersMapper(BaseParametersMapper):
                     del mapped['rangeValue']
                     del mapped['valuesIds']
 
-            if producer_code:
-                product_id = self.product.id
-                self.mapped_parameters.append(
-                    self.producer_code_parameter(product_id, producer_code[0]))
+        if producer_code:
+            product_id = self.product.id
+            self.mapped_parameters.append(
+                self.producer_code_parameter(product_id, producer_code[0]))
 
         return self.mapped_parameters
 
