@@ -1,22 +1,7 @@
-import json
-import logging
-from dataclasses import dataclass
-from email.mime.multipart import MIMEMultipart
-
-from saleor.product.models import ProductVariant, Product
-from saleor.plugins.manager import PluginsManager
-from saleor.plugins.allegro.plugin import AllegroPlugin, AllegroAPI
+from .tasks import synchronize_allegro_offers_task
 from saleor.plugins.base_plugin import BasePlugin
 from saleor.plugins.models import PluginConfiguration
-import smtplib
-from email.mime.text import MIMEText
 
-logger = logging.getLogger(__name__)
-
-
-@dataclass
-class AllegroSyncConfiguration:
-    pass
 
 class AllegroSyncPlugin(BasePlugin):
     PLUGIN_ID = "allegroSync"
@@ -48,80 +33,6 @@ class AllegroSyncPlugin(BasePlugin):
 
         return plugin_configuration
 
-    @staticmethod
-    def valid_product(product):
-        errors = []
-
-        if not product.is_published:
-            errors.append('flaga is_published jest ustawiona na false')
-        if product.private_metadata.get('publish.allegro.status') != 'published':
-            errors.append('publish.allegro.status != published')
-
-        return errors
-
     def synchronize_allegro_offers(self):
-        manage = PluginsManager(plugins=["saleor.plugins.allegro.plugin.AllegroPlugin"])
-        plugin_configs = manage.get_plugin(AllegroPlugin.PLUGIN_ID)
-        conf = {item["name"]: item["value"] for item in plugin_configs.configuration}
-        token = conf.get('token_value')
-        env = conf.get('env')
-        allegro_api = AllegroAPI(token, env)
-        params = {'publication.status': ['ACTIVE'], 'limit': '1', 'offset': 0}
-        response = allegro_api.get_request('sale/offers', params)
-        total_count = json.loads(response.text).get('totalCount')
-
-        if total_count is None:
-            return
-        limit = 1000
-        errors = []
-        updated_amount = 0
-
-        for i in range(int(int(total_count) / limit) + 1):
-            offset = i * limit
-            params = {'publication.status': ['ACTIVE'], 'limit': limit, 'offset': offset}
-            response = allegro_api.get_request('sale/offers', params)
-            logger.info(f'Fetching 1000 offers status: {response.status_code}, offset: {offset}')
-            offers = json.loads(response.text).get('offers')
-            if offers:
-                skus = [offer.get('external').get('id') for offer in offers]
-                product_variants = list(ProductVariant.objects.select_related('product').filter(sku__in=skus))
-                products_to_update = []
-                for offer in offers:
-                    product_errors = []
-                    sku = offer.get('external').get('id')
-                    offer_id = offer.get('id')
-                    variant = next((x for x in product_variants if x.sku == sku), None)
-                    if variant:
-                        product = variant.product
-                        product_errors = AllegroSyncPlugin.valid_product(product)
-                        if product.private_metadata.get('publish.allegro.id') != offer_id:
-                            product.private_metadata['publish.allegro.id'] = offer_id
-                            products_to_update.append(product)
-                    else:
-                        product_errors.append('nie znaleziono produktu o podanym SKU')
-
-                    if product_errors:
-                        errors.append({'sku': sku, 'errors': product_errors})
-
-                if products_to_update:
-                    Product.objects.bulk_update(products_to_update, ['private_metadata'])
-                    updated_amount = len(products_to_update)
-
-        html_errors_list = plugin_configs.create_table(errors)
-
-        return self.send_mail(html_errors_list, updated_amount)
-
-    def send_mail(self, html_errors_list, updated_amount):
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login('noreply.salingo@gmail.com', self.password)
-
-        msg = MIMEMultipart('alternative')
-        html = MIMEText(f'Uaktualniono {updated_amount} ofert.' + html_errors_list, 'html')
-        msg.attach(html)
-        msg['Subject'] = 'Logi z synchronizacji ofert'
-        msg['From'] = 'sync+noreply.salingo@gmail.com'
-        msg['To'] = 'sync+noreply.salingo@gmail.com'
-
-        server.sendmail('noreply.salingo@gmail.com', 'noreply.salingo@gmail.com', msg.as_string())
-
+        password = self.password
+        synchronize_allegro_offers_task.delay(password=password)
