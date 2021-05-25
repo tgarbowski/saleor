@@ -158,12 +158,17 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def assign_photos_from_products_to_megapack(cls, instance, items):
         product_variants = ProductVariant.objects.select_related('product').filter(sku__in=items)
+        count_to_assign_photo = 0
         for product_variant in product_variants:
             if 'bundle.id' not in product_variant.product.metadata or not product_variant.\
                     product.metadata['bundle.id']:
-                photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
-                ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
-                                            alt=photo.alt, image=photo.image)
+                if count_to_assign_photo == 3:
+                    count_to_assign_photo = 0
+                    photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
+                    ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
+                                                alt=product_variant.product.name, image=photo.image)
+                else:
+                    count_to_assign_photo += 1
 
     @classmethod
     def validate_mega_pack(cls, instance,  data_skus, products_published):
@@ -196,6 +201,8 @@ class BaseMetadataMutation(BaseMutation):
                 if products_already_assigned:
                     products_already_assigned_str = " ".join(products_already_assigned)
                     validation_message += f'Produkty już przypisane do megapaki:  {products_already_assigned_str}\n'
+                instance.private_metadata["publish.allegro.errors"] = [validation_message]
+                instance.save()
                 raise ValidationError({
                     "megapack": ValidationError(
                         message=validation_message,
@@ -203,6 +210,7 @@ class BaseMetadataMutation(BaseMutation):
                     )
                 })
         else:
+            instance.private_metadata["publish.allegro.errors"] = [products_published]
             raise ValidationError({
                 "megapack": ValidationError(
                     message=products_published,
