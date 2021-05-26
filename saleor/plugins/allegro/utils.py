@@ -447,14 +447,18 @@ class AllegroAPI:
         # Remove canceled allegro offers
         if offers_bid_or_purchased:
             skus = [offer['sku'] for offer in offers_bid_or_purchased]
+            skus_to_pass = []
             product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
 
             for product_variant in product_variants:
-                if product_variant.product.private_metadata['publish.allegro.status'] == 'canceled':
-                    for i, offer in enumerate(offers_bid_or_purchased):
-                        if offer['sku'] == product_variant.sku:
-                            del offers_bid_or_purchased[i]
-                            break
+                if 'reserved' in product_variant.metadata and product_variant.metadata['reserved'] is False:
+                    skus_to_pass.append(product_variant.sku)
+                if 'publish.allegro.status' in product_variant.product.private_metadata and \
+                        product_variant.product.private_metadata['publish.allegro.status'] == 'moderated':
+                    skus_to_pass.append(product_variant.sku)
+
+            offers_bid_or_purchased = [offer for offer in offers_bid_or_purchased
+                                       if offer['sku'] not in skus_to_pass]
 
         return offers_bid_or_purchased
 
