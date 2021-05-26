@@ -28,6 +28,7 @@ class AllegroErrors(enum.Enum):
    NO_OFFERS_FOUND = 'no_offers_found'
    BID_OR_PURCHASED = 'bid_or_purchased'
    TASK_FAILED = 'task_failed'
+   NO_OFFER_NEEDS_ENDING = 'no_offer_needs_ending'
 
 
 class AllegroAPI:
@@ -396,8 +397,10 @@ class AllegroAPI:
         # Get offers by sku codes
         offers = self.get_offers_by_skus(skus)
         if not isinstance(offers, list):
+            logger.error('Error with fetching offers')
             return {'status': 'ERROR', 'message': AllegroErrors.ALLEGRO_ERROR, 'errors': ['Error with fetching offers']}
         if not offers:
+            logger.info('No offers found')
             return {'status': 'OK', 'message': AllegroErrors.NO_OFFERS_FOUND, 'errors': []}
         # Check if someone doesnt bid or purchased any offer
         offers_bid_or_purchased = self.offers_bid_or_purchased(offers)
@@ -407,8 +410,14 @@ class AllegroAPI:
             offers = [offer for offer in offers if not offer['id'] in offers_to_remove]
         # Bulk offers unpublish
         offers = [{'id': offer['id']} for offer in offers if offer['publication']['status'] != 'ENDED']
-        if not offers:
-            return {'status': 'OK', 'message': AllegroErrors.NO_OFFERS_FOUND, 'errors': []}
+
+        if not offers and not offers_bid_or_purchased:
+            logger.info('No active/activating offers to terminate and nothing is purchased or bid')
+            return {'status': 'OK', 'message': AllegroErrors.NO_OFFER_NEEDS_ENDING, 'errors': []}
+        elif not offers and offers_bid_or_purchased:
+            logger.info('No active/activating offers to terminate but some offers are purchased or bid')
+            return {'status': 'OK', 'message': AllegroErrors.NO_OFFER_NEEDS_ENDING, 'errors': offers_bid_or_purchased}
+
         unique_id = str(uuid.uuid1())
         endpoint = f'sale/offer-publication-commands/{unique_id}'
         data = {
@@ -432,9 +441,11 @@ class AllegroAPI:
                     'errors': response.json()}
 
         if offers_bid_or_purchased:
+            logger.info('Some offers were terminated and some offers are purchased or bid')
             return {'status': 'OK', 'uuid': unique_id, 'message': AllegroErrors.BID_OR_PURCHASED,
                     'errors': offers_bid_or_purchased}
         else:
+            logger.info('Some offers were terminated and no offers are purchased or bid')
             return {'status': 'OK', 'uuid': unique_id, 'errors': []}
 
     def offers_bid_or_purchased(self, offers):
