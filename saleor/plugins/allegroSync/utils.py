@@ -2,6 +2,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+from django.conf import settings
+
 
 def valid_product(product):
     errors = []
@@ -14,7 +16,8 @@ def valid_product(product):
     return errors
 
 
-def send_mail(html_errors_list, updated_amount, password):
+def send_mail(html_errors_list, updated_amount):
+    password = settings.EMAIL_HOST_PASSWORD
     server = smtplib.SMTP('smtp.gmail.com', 587)
     server.starttls()
     server.login('noreply.salingo@gmail.com', password)

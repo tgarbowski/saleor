@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 @app.task()
-def synchronize_allegro_offers_task(password):
+def synchronize_allegro_offers_task():
     manage = PluginsManager(plugins=["saleor.plugins.allegro.plugin.AllegroPlugin"])
     plugin_configs = manage.get_plugin(AllegroPlugin.PLUGIN_ID)
     conf = {item["name"]: item["value"] for item in plugin_configs.configuration}
@@ -63,4 +63,4 @@ def synchronize_allegro_offers_task(password):
 
     html_errors_list = plugin_configs.create_table(errors)
 
-    send_mail(html_errors_list, updated_amount, password)
+    send_mail(html_errors_list, updated_amount)
