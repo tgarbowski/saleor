@@ -451,10 +451,9 @@ class AllegroAPI:
             product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
 
             for product_variant in product_variants:
-                if 'reserved' not in product_variant.metadata or product_variant.metadata['reserved'] is False:
-                    skus_to_pass.append(product_variant.sku)
-                elif 'publish.allegro.status' in product_variant.product.private_metadata and \
-                        product_variant.product.private_metadata['publish.allegro.status'] == 'moderated':
+                if 'publish.allegro.status' in product_variant.product.private_metadata and \
+                        product_variant.product.private_metadata['publish.allegro.status'] == 'moderated' and \
+                        ('reserved' not in product_variant.metadata or product_variant.metadata['reserved'] is False):
                     skus_to_pass.append(product_variant.sku)
 
             offers_bid_or_purchased = [offer for offer in offers_bid_or_purchased
