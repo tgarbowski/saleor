@@ -32,6 +32,8 @@ def get_bool_from_env(name, default_value):
     return default_value
 
 
+APP_ENVIRONMENT = os.environ.get("APP_ENVIRONMENT")
+
 DEBUG = get_bool_from_env("DEBUG", True)
 
 SITE_ID = 1
@@ -477,16 +479,17 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", None)
-CELERY_BEAT_SCHEDULE = {
-    'refresh_token_task': {
-        'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
-        'schedule': 1800.0
-    },
-    'synchronize_allegro_offers_task': {
-        'task': 'saleor.plugins.allegroSync.tasks.synchronize_allegro_offers_task',
-        'schedule': crontab(minute=0, hour=23)
+if APP_ENVIRONMENT in ['production', 'development']:
+    CELERY_BEAT_SCHEDULE = {
+        'refresh_token_task': {
+            'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
+            'schedule': 1800.0
+        },
+        'synchronize_allegro_offers_task': {
+            'task': 'saleor.plugins.allegroSync.tasks.synchronize_allegro_offers_task',
+            'schedule': crontab(minute=0, hour=23)
+        }
     }
-}
 # Change this value if your application is running behind a proxy,
 # e.g. HTTP_CF_Connecting_IP for Cloudflare or X_FORWARDED_FOR
 REAL_IP_ENVIRON = os.environ.get("REAL_IP_ENVIRON", "REMOTE_ADDR")
