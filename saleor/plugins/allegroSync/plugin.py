@@ -34,5 +34,4 @@ class AllegroSyncPlugin(BasePlugin):
         return plugin_configuration
 
     def synchronize_allegro_offers(self):
-        password = self.password
-        synchronize_allegro_offers_task.delay(password=password)
+        synchronize_allegro_offers_task.delay()

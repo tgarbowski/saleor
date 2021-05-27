@@ -10,6 +10,7 @@ import jaeger_client
 import jaeger_client.config
 import pkg_resources
 import sentry_sdk
+from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.utils import get_random_secret_key
 from pytimeparse import parse
@@ -481,6 +482,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
         'schedule': 1800.0
     },
+    'synchronize_allegro_offers_task': {
+        'task': 'saleor.plugins.allegroSync.tasks.synchronize_allegro_offers_task',
+        'schedule': crontab(minute=0, hour=23)
+    }
 }
 # Change this value if your application is running behind a proxy,
 # e.g. HTTP_CF_Connecting_IP for Cloudflare or X_FORWARDED_FOR
