@@ -16,7 +16,8 @@ from ..core.types.common import MetadataError
 from .extra_methods import MODEL_EXTRA_METHODS
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from .types import ObjectWithMetadata
-from ...plugins.allegro.utils import get_plugin_configuration, AllegroAPI
+from ...plugins.allegro.api import AllegroAPI
+from ...plugins.allegro.utils import get_plugin_configuration
 from ...plugins.allegro.tasks import check_bulk_unpublish_status_task
 from ...product.models import ProductVariant, ProductImage
 
