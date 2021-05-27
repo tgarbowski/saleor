@@ -19,7 +19,7 @@ from . import ProductPublishState
 logger = logging.getLogger(__name__)
 
 from .tasks import async_product_publish
-from .utils import AllegroAPI
+from .api import AllegroAPI
 
 @dataclass
 class AllegroConfiguration:

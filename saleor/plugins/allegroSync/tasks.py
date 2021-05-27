@@ -4,7 +4,8 @@ import logging
 from ...celeryconf import app
 from saleor.product.models import ProductVariant, Product
 from saleor.plugins.manager import PluginsManager
-from saleor.plugins.allegro.plugin import AllegroPlugin, AllegroAPI
+from saleor.plugins.allegro.api import AllegroAPI
+from saleor.plugins.allegro.plugin import AllegroPlugin
 from .utils import valid_product, send_mail
 
 logger = logging.getLogger(__name__)

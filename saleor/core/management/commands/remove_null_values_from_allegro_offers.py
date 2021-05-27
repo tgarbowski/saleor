@@ -5,8 +5,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from django.core.management.base import BaseCommand
 from saleor.product.models import ProductVariant
-from saleor.plugins.allegro.plugin import AllegroPlugin, AllegroAPI, \
-    ProductMapperFactory, ParametersMapperFactory
+from saleor.plugins.allegro.api import AllegroAPI
+from saleor.plugins.allegro.parameters_mapper import ParametersMapperFactory
+from saleor.plugins.allegro.plugin import AllegroPlugin
+from saleor.plugins.allegro.products_mapper import ProductMapperFactory
 from saleor.plugins.manager import PluginsManager
 
 
