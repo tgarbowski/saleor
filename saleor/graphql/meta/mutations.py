@@ -123,6 +123,11 @@ class BaseMetadataMutation(BaseMutation):
         return cls(**{"item": instance, "errors": []})
 
     @classmethod
+    def delete_duplicated_skus(cls, data):
+        data_skus = json.loads(data['skus'].replace("'", '"'))
+        data['skus'] = list(dict.fromkeys(data_skus))
+
+    @classmethod
     def clear_bundle_id_for_removed_products(cls, instance, data_skus):
 
         if "skus" in instance.private_metadata and instance.private_metadata["skus"]:
@@ -209,6 +214,7 @@ class BaseMetadataMutation(BaseMutation):
                 })
         else:
             instance.private_metadata["publish.allegro.errors"] = [products_published]
+            instance.save()
             raise ValidationError({
                 "megapack": ValidationError(
                     message=products_published,
@@ -216,13 +222,16 @@ class BaseMetadataMutation(BaseMutation):
                 )
             })
 
+        instance.private_metadata["publish.allegro.errors"] = ""
+        instance.save()
+
     @classmethod
     def bulk_allegro_offers_unpublish(cls, data):
         config = get_plugin_configuration()
         access_token = config.get('token_value')
         env = config.get('env')
         allegro_api_instance = AllegroAPI(access_token, env)
-        data_skus = json.loads(data['skus'].replace("'", '"'))
+        data_skus = data['skus']
         products_allegro_sold_or_auctioned = []
 
         allegro_data = allegro_api_instance.bulk_offer_unpublish(skus=data_skus)
@@ -239,7 +248,7 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def delete_products_sold_from_data(cls, data, allegro_sold_products):
-        data_skus = json.loads(data['skus'].replace("'", '"'))
+        data_skus = data['skus']
 
         if isinstance(allegro_sold_products, list):
             return [product for product in data_skus if product not in allegro_sold_products]
@@ -358,6 +367,7 @@ class UpdatePrivateMetadata(BaseMetadataMutation):
             cls.validate_metadata_keys(metadata_list)
             items = {data.key: data.value for data in metadata_list}
             if 'skus' in items:
+                cls.delete_duplicated_skus(items)
                 products_sold_in_allegro = cls.bulk_allegro_offers_unpublish(items)
                 data = cls.delete_products_sold_from_data(items, products_sold_in_allegro)
                 cls.clear_bundle_id_for_removed_products(instance, data)
