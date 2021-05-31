@@ -270,6 +270,11 @@ class PriceRangeInput(graphene.InputObjectType):
     lte = graphene.Float(description="Price less than or equal to.", required=False)
 
 
+class WarehouseLocationRangeInput(graphene.InputObjectType):
+    gte = graphene.String(description="First search location.", required=False)
+    lte = graphene.String(description="Second search location.", required=False)
+
+
 class DateRangeInput(graphene.InputObjectType):
     gte = graphene.Date(description="Start date.", required=False)
     lte = graphene.Date(description="End date.", required=False)
