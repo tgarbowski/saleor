@@ -133,8 +133,8 @@ def filter_products_by_stock_availability(qs, stock_availability):
 
 def filter_by_warehouse_locations(qs, warehouse_from=None, warehouse_to=None):
     locations_matrix = create_warehouse_locations_matrix(warehouse_from, warehouse_to)
-    flatten_locations = [value for row in locations_matrix for value in row]
-    qs = qs.filter(variants__private_metadata__location__in=flatten_locations)
+
+    qs = qs.filter(variants__private_metadata__location__in=locations_matrix)
     return qs
 
 

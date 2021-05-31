@@ -202,7 +202,7 @@ def create_warehouse_locations_matrix(warehouse_from, warehouse_to):
     if len(warehouse_from_location) == 2 and len(warehouse_to_location) == 2 and (warehouse_from[0].upper() == warehouse_to[0].upper()):
         rows_numbers = range(int(warehouse_from_location[0]), int(warehouse_to_location[0]) + 1)
         columns_numbers = range(int(warehouse_from_location[1]), int(warehouse_to_location[1]) + 1)
-        first_letter = warehouse_from[0].upper()
+        first_letter = warehouse_from[1].upper()
         warehouse_locations = [[f'#{first_letter}{x}K{y}' for y in columns_numbers] for x in rows_numbers]
-
-    return warehouse_locations
+    flatten_locations = [value for row in warehouse_locations for value in row]
+    return flatten_locations

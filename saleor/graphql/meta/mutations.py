@@ -194,12 +194,18 @@ class BaseMetadataMutation(BaseMutation):
                     products_already_assigned.append(product_variant.sku)
 
         if isinstance(products_published, list):
+            allegro_products = []
+            allegro_sold_or_bid_product_variants = ProductVariant.objects.select_related('product').filter(
+                sku__in=products_published)
+            for removed_product_variant in allegro_sold_or_bid_product_variants:
+                location = removed_product_variant.private_metadata["location"] if removed_product_variant.private_metadata["location"] else ""
+                allegro_products.append(f'{removed_product_variant.sku}: {location}')
             if products_not_exist or products_already_assigned or products_published:
                 if products_not_exist:
                     products_not_exist_str = " ".join(products_not_exist)
                     validation_message += f'Produkty nie istnieją:  {products_not_exist_str}\n'
                 if products_published:
-                    products_published_str = " ".join(products_published)
+                    products_published_str = " ".join(allegro_products)
                     validation_message += f'Produkty sprzedane lub licytowane:  {products_published_str}\n'
                 if products_already_assigned:
                     products_already_assigned_str = " ".join(products_already_assigned)
