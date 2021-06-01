@@ -7,6 +7,7 @@ from django.db.models import F, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
 from graphene_django.filter import GlobalIDFilter, GlobalIDMultipleChoiceFilter
 
+from .utils import create_warehouse_locations_matrix
 from ...product.filters import filter_products_by_attributes_values
 from ...product.models import (
     Attribute,
@@ -19,7 +20,8 @@ from ...product.models import (
 from ...warehouse.models import Stock
 from ..core.filters import EnumFilter, ListObjectTypeFilter, ObjectTypeFilter
 from ..core.types import FilterInputObjectType
-from ..core.types.common import IntRangeInput, PriceRangeInput, DateRangeInput
+from ..core.types.common import IntRangeInput, PriceRangeInput, DateRangeInput, \
+    WarehouseLocationRangeInput
 from ..core.utils import from_global_id_strict_type
 from ..utils import (
     get_nodes,
@@ -126,6 +128,13 @@ def filter_products_by_stock_availability(qs, stock_availability):
         qs = qs.exclude(id__in=Subquery(total_stock))
     elif stock_availability == StockAvailability.OUT_OF_STOCK:
         qs = qs.filter(id__in=Subquery(total_stock))
+    return qs
+
+
+def filter_by_warehouse_locations(qs, warehouse_from=None, warehouse_to=None):
+    locations_matrix = create_warehouse_locations_matrix(warehouse_from, warehouse_to)
+
+    qs = qs.filter(variants__private_metadata__location__in=locations_matrix)
     return qs
 
 
@@ -325,6 +334,10 @@ def filter_updated_at_range(qs, _, value):
     return filter_range_field(qs, "updated_at__date", value)
 
 
+def filter_warehouse_location(qs, _, value):
+    return filter_by_warehouse_locations(qs, warehouse_from=value.get("lte"), warehouse_to=value.get("gte"))
+
+
 class ProductStockFilterInput(graphene.InputObjectType):
     warehouse_ids = graphene.List(graphene.NonNull(graphene.ID), required=False)
     quantity = graphene.Field(IntRangeInput, required=False)
@@ -356,6 +369,7 @@ class ProductFilter(django_filters.FilterSet):
     allegro_status = django_filters.CharFilter(method=filter_allegro_status)
     updated_at = ObjectTypeFilter(input_class=DateRangeInput,
                                   method=filter_updated_at_range)
+    warehouse_location = ObjectTypeFilter(input_class=WarehouseLocationRangeInput, method=filter_warehouse_location)
 
     class Meta:
         model = Product
@@ -371,6 +385,7 @@ class ProductFilter(django_filters.FilterSet):
             "search",
             "allegro_status",
             "updated_at",
+            "warehouse_location",
         ]
 
 
