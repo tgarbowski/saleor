@@ -2,10 +2,13 @@ import re
 from collections import defaultdict
 from typing import TYPE_CHECKING, Dict, List, Tuple
 
+import boto3
 import graphene
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.utils import IntegrityError
+from io import BytesIO
+from PIL import Image
 
 from ...product import AttributeInputType
 from ...product.error_codes import ProductErrorCode
@@ -193,6 +196,38 @@ def can_exclude_distinct(parameters):
         return True
 
     return True
+
+
+def create_collage(images, product_name):
+    collage = Image.new("RGBA", (951, 1344), color=(255, 255, 255, 255))
+
+    s3 = boto3.resource('s3')
+    bucket = s3.Bucket('saleor-test-media')
+
+    i = 0
+
+    for x in range(0, 951, 317):
+        for y in range(0, 1344, 336):
+            img_component = bucket.Object(images[i].image.name)
+            img_data = img_component.get().get('Body').read()
+            image = Image.open(BytesIO(img_data))
+
+            length = 951
+            resized_image = image.resize((length, int(image.size[1] * (length / image.size[0]))))
+            required_loss = (resized_image.size[1] - length)
+            resized_image = resized_image.crop(
+                box=(0, required_loss / 2, length,
+                     resized_image.size[1] - required_loss / 2))
+            resized_image = resized_image.resize((317, 336))
+            collage.paste(resized_image, (x, y))
+            i += 1
+
+    collage_io = BytesIO()
+    collage.save(collage_io, format='PNG')
+
+    photo = images[0]
+    photo_name = f'{product_name}.png'
+    photo.image.save(photo_name, collage_io)
 
 
 def create_warehouse_locations_matrix(warehouse_from, warehouse_to):
