@@ -7,7 +7,6 @@ import graphene
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
 from django.db import connection
 
-
 from ...core import models
 from ...core.error_codes import MetadataErrorCode
 from ...core.exceptions import PermissionDenied
@@ -15,11 +14,12 @@ from ..core.mutations import BaseMutation
 from ..core.types.common import MetadataError
 from .extra_methods import MODEL_EXTRA_METHODS
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
-from .types import ObjectWithMetadata
+from ..product.utils import create_collage
 from ...plugins.allegro.api import AllegroAPI
 from ...plugins.allegro.utils import get_plugin_configuration
 from ...plugins.allegro.tasks import check_bulk_unpublish_status_task
 from ...product.models import ProductVariant, ProductImage
+from .types import ObjectWithMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -160,16 +160,20 @@ class BaseMetadataMutation(BaseMutation):
     def assign_photos_from_products_to_megapack(cls, instance, items):
         product_variants = ProductVariant.objects.select_related('product').filter(sku__in=items)
         count_to_assign_photo = 0
+        collage_images = []
+        product_name = instance.name
         for product_variant in product_variants:
             if 'bundle.id' not in product_variant.product.metadata or not product_variant.\
                     product.metadata['bundle.id']:
                 if count_to_assign_photo == 3:
                     count_to_assign_photo = 0
                     photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
-                    ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
-                                                alt=product_variant.product.name, image=photo.image)
+                    new_image = ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
+                                                            alt=product_variant.product.name, image=photo.image)
+                    collage_images.append(new_image)
                 else:
                     count_to_assign_photo += 1
+        create_collage(collage_images[:12], product_name)
 
     @classmethod
     def validate_mega_pack(cls, instance,  data_skus, products_published):
