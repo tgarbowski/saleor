@@ -164,21 +164,26 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def assign_photos_from_products_to_megapack(cls, instance, items):
         product_variants = ProductVariant.objects.select_related('product').filter(sku__in=items)
-        count_to_assign_photo = 0
         collage_images = []
         product_name = instance.name
-        for product_variant in product_variants:
-            if 'bundle.id' not in product_variant.product.metadata or not product_variant.\
-                    product.metadata['bundle.id']:
-                if count_to_assign_photo == 3:
-                    count_to_assign_photo = 0
-                    photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
-                    new_image = ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
-                                                            alt=product_variant.product.name, image=photo.image)
-                    collage_images.append(new_image)
-                else:
-                    count_to_assign_photo += 1
-        create_collage(collage_images[:12], product_name)
+        # Remove existing megapack images
+        ProductImage.objects.filter(product=instance.pk).delete()
+        # Filter products without bundle.id
+        product_variants = [product_variant for product_variant in product_variants
+                            if 'bundle.id' not in product_variant.product.metadata
+                            or not product_variant.product.metadata['bundle.id']]
+        # Create images
+        step = int(len(product_variants) / 12)
+        if step == 0: step = 1
+
+        for product_variant in product_variants[::step]:
+            photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
+            new_image = ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
+                                                    alt=product_variant.product.name, image=photo.image)
+            collage_images.append(new_image)
+        # Create collage image from images
+        if len(collage_images) >= 4:
+            create_collage(collage_images[:12], product_name)
 
     @classmethod
     def validate_mega_pack(cls, instance,  data_skus, products_published):
