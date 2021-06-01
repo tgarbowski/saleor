@@ -199,26 +199,47 @@ def can_exclude_distinct(parameters):
 
 
 def create_collage(images, product_name):
-    collage = Image.new("RGBA", (951, 1344), color=(255, 255, 255, 255))
-
     s3 = boto3.resource('s3')
     bucket = s3.Bucket('saleor-test-media')
 
+    if len(images) == 12:
+        images_amount = 12
+        cols = 3
+        rows = 4
+    elif len(images) > 8 and len(images) < 12:
+        images_amount = 9
+        cols = 3
+        rows = 3
+    elif len(images) % 2 != 0:
+        images_amount = len(images) - 1
+    else:
+        images_amount = len(images)
+
+    images = images[:images_amount]
+
+    if images_amount < 9:
+        cols = 2
+        rows = int(images_amount / 2)
+
     i = 0
 
-    for x in range(0, 951, 317):
-        for y in range(0, 1344, 336):
+    width = 318 * cols
+    height = 336 * rows
+    collage = Image.new("RGBA", (width, height), color=(255, 255, 255, 255))
+
+    for x in range(0, width, int(width / cols)):
+        for y in range(0, height, int(height / rows)):
             img_component = bucket.Object(images[i].image.name)
             img_data = img_component.get().get('Body').read()
             image = Image.open(BytesIO(img_data))
 
-            length = 951
-            resized_image = image.resize((length, int(image.size[1] * (length / image.size[0]))))
-            required_loss = (resized_image.size[1] - length)
+            resized_image = image.resize((width, int(image.size[1] * (width / image.size[0]))))
+            required_loss = (resized_image.size[1] - width)
             resized_image = resized_image.crop(
-                box=(0, required_loss / 2, length,
+                box=(0, required_loss / 2, width,
                      resized_image.size[1] - required_loss / 2))
-            resized_image = resized_image.resize((317, 336))
+
+            resized_image = resized_image.resize((int(width/cols), int(height/rows)))
             collage.paste(resized_image, (x, y))
             i += 1
 
