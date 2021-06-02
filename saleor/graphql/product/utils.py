@@ -1,6 +1,9 @@
+import json
 import re
 from collections import defaultdict
 from typing import TYPE_CHECKING, Dict, List, Tuple
+import string
+import random
 
 import graphene
 from django.core.exceptions import ValidationError
@@ -10,10 +13,9 @@ from django.db.utils import IntegrityError
 from ...product import AttributeInputType
 from ...product.error_codes import ProductErrorCode
 from ...warehouse.models import Stock
-
+from ...product.models import Attribute, ProductVariant
 if TYPE_CHECKING:
     from django.db.models import QuerySet
-    from ...product.models import Attribute, ProductVariant
 
 
 def parse_draftjs_content_to_string(definitions: dict):
@@ -206,3 +208,40 @@ def create_warehouse_locations_matrix(warehouse_from, warehouse_to):
         warehouse_locations = [[f'#{first_letter}{x}K{y}' for y in columns_numbers] for x in rows_numbers]
     flatten_locations = [value for row in warehouse_locations for value in row]
     return flatten_locations
+
+
+def generate_key_id():
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
+
+
+def generate_description_json_for_megapack(bundle_content):
+    description_json = {}
+    blocks = []
+    description_values = {"key": generate_key_id(), "data": {},
+                          "text": "Zawartość megapaki: ", "type": "header-two",
+                          'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
+    blocks.append(description_values)
+    for section in bundle_content:
+        list_fragment = {"key": generate_key_id(), "data": {},
+                        "type": "unordered-list-item",
+                          'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
+        print(section[0])
+        if section[0] == "Mężczyzna":
+            list_fragment["text"] = f'  ubrania męskie: {section[1]} sztuk'
+        elif section[0] == "Dziecko":
+            list_fragment["text"] = f'  ubrania dziecięce: {section[1]} sztuk'
+        else:
+            list_fragment["text"] = f'  ubrania damskie: {section[1]} sztuk'
+        blocks.append(list_fragment)
+    description_json["blocks"] = blocks
+    description_json["entityMap"] = {}
+    return description_json
+
+
+def remove_location_from_product_variants(skus):
+    product_variants = ProductVariant.objects.select_related('product').filter(
+        sku__in=skus)
+    for product_variant in product_variants:
+        if "location" in product_variant.private_metadata:
+            del product_variant.private_metadata["location"]
+        product_variant.save()
