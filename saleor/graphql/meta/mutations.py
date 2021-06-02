@@ -192,7 +192,6 @@ class BaseMetadataMutation(BaseMutation):
             if 'bundle.id' in product_variant.product.metadata:
                 if product_variant.product.metadata['bundle.id'] != bundle_id:
                     products_already_assigned.append(product_variant.sku)
-        print(products_not_exist)
         if isinstance(products_published, list):
             allegro_products = []
             allegro_sold_or_bid_product_variants = ProductVariant.objects.select_related('product').filter(
