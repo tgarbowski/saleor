@@ -1,6 +1,7 @@
 import json
 import logging
 from typing import List
+from datetime import datetime, timedelta
 
 import graphene
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
@@ -14,9 +15,12 @@ from ..core.mutations import BaseMutation
 from ..core.types.common import MetadataError
 from .extra_methods import MODEL_EXTRA_METHODS
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
-from .types import ObjectWithMetadata
-from ...plugins.allegro.utils import get_plugin_configuration, AllegroAPI
+from ..product.utils import create_collage
+from ...plugins.allegro.api import AllegroAPI
+from ...plugins.allegro.utils import get_plugin_configuration
+from ...plugins.allegro.tasks import check_bulk_unpublish_status_task
 from ...product.models import ProductVariant, ProductImage
+from .types import ObjectWithMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -161,17 +165,26 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def assign_photos_from_products_to_megapack(cls, instance, items):
         product_variants = ProductVariant.objects.select_related('product').filter(sku__in=items)
-        count_to_assign_photo = 0
-        for product_variant in product_variants:
-            if 'bundle.id' not in product_variant.product.metadata or not product_variant.\
-                    product.metadata['bundle.id']:
-                if count_to_assign_photo == 3:
-                    count_to_assign_photo = 0
-                    photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
-                    ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
-                                                alt=product_variant.product.name, image=photo.image)
-                else:
-                    count_to_assign_photo += 1
+        collage_images = []
+        product_name = instance.name
+        # Remove existing megapack images
+        ProductImage.objects.filter(product=instance.pk).delete()
+        # Filter products without bundle.id
+        product_variants = [product_variant for product_variant in product_variants
+                            if 'bundle.id' not in product_variant.product.metadata
+                            or not product_variant.product.metadata['bundle.id']]
+        # Create images
+        step = int(len(product_variants) / 12)
+        if step == 0: step = 1
+
+        for product_variant in product_variants[::step]:
+            photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
+            new_image = ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
+                                                    alt=product_variant.product.name, image=photo.image)
+            collage_images.append(new_image)
+        # Create collage image from images
+        if len(collage_images) >= 4:
+            create_collage(collage_images[:12], product_name)
 
     @classmethod
     def validate_mega_pack(cls, instance,  data_skus, products_published):
@@ -192,6 +205,7 @@ class BaseMetadataMutation(BaseMutation):
             if 'bundle.id' in product_variant.product.metadata:
                 if product_variant.product.metadata['bundle.id'] != bundle_id:
                     products_already_assigned.append(product_variant.sku)
+
         if isinstance(products_published, list):
             allegro_products = []
             allegro_sold_or_bid_product_variants = ProductVariant.objects.select_related('product').filter(
@@ -244,6 +258,11 @@ class BaseMetadataMutation(BaseMutation):
             for product in enumerate(allegro_data['errors']):
                 if 'sku' in product[1]:
                     products_allegro_sold_or_auctioned.append(product[1]['sku'])
+
+        unique_id = allegro_data.get('uuid')
+        if unique_id:
+            trigger_time = datetime.now() + timedelta(minutes=10)
+            check_bulk_unpublish_status_task.s(unique_id).apply_async(eta=trigger_time)
 
         if allegro_data['status'] == "ERROR":
             logger.error("Fetch allegro data error" + str(allegro_data['message']))

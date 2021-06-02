@@ -3,7 +3,9 @@ from datetime import datetime, timedelta
 import pytz
 
 from ...celeryconf import app
-from .utils import AllegroAPI, AllegroErrors, email_errors, get_plugin_configuration, email_bulk_unpublish_message
+from .api import AllegroAPI
+from .enums import AllegroErrors
+from .utils import email_errors, get_plugin_configuration, email_bulk_unpublish_message
 from saleor.product.models import Product
 from saleor.plugins.allegro import ProductPublishState
 
@@ -28,6 +30,7 @@ def refresh_token_task():
             if access_token and refresh_token and expires_in is not None:
                 AllegroAPI.save_token_in_plugin_configuration(access_token, refresh_token, expires_in)
 
+
 @app.task()
 def check_bulk_unpublish_status_task(unique_id):
     config = get_plugin_configuration()
@@ -47,6 +50,7 @@ def check_bulk_unpublish_status_task(unique_id):
                                          errors=unpublish_status.get('errors'))
         else:
             email_bulk_unpublish_message('ERROR', errors=unpublish_status)
+
 
 @app.task()
 def async_product_publish(product_id, offer_type, starting_at, product_images, products_bulk_ids):

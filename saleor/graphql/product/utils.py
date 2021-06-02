@@ -5,10 +5,13 @@ from typing import TYPE_CHECKING, Dict, List, Tuple
 import string
 import random
 
+import boto3
 import graphene
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.utils import IntegrityError
+from io import BytesIO
+from PIL import Image
 
 from ...product import AttributeInputType
 from ...product.error_codes import ProductErrorCode
@@ -195,6 +198,59 @@ def can_exclude_distinct(parameters):
         return True
 
     return True
+
+
+def create_collage(images, product_name):
+    s3 = boto3.resource('s3')
+    bucket = s3.Bucket('saleor-test-media')
+
+    if len(images) == 12:
+        images_amount = 12
+        cols = 3
+        rows = 4
+    elif len(images) > 8 and len(images) < 12:
+        images_amount = 9
+        cols = 3
+        rows = 3
+    elif len(images) % 2 != 0:
+        images_amount = len(images) - 1
+    else:
+        images_amount = len(images)
+
+    images = images[:images_amount]
+
+    if images_amount < 9:
+        cols = 2
+        rows = int(images_amount / 2)
+
+    i = 0
+
+    width = 318 * cols
+    height = 336 * rows
+    collage = Image.new("RGBA", (width, height), color=(255, 255, 255, 255))
+
+    for x in range(0, width, int(width / cols)):
+        for y in range(0, height, int(height / rows)):
+            img_component = bucket.Object(images[i].image.name)
+            img_data = img_component.get().get('Body').read()
+            image = Image.open(BytesIO(img_data))
+
+            resized_image = image.resize((width, int(image.size[1] * (width / image.size[0]))))
+            required_loss = (resized_image.size[1] - width)
+            resized_image = resized_image.crop(
+                box=(0, required_loss / 2, width,
+                     resized_image.size[1] - required_loss / 2))
+
+            resized_image = resized_image.resize((int(width/cols), int(height/rows)))
+            collage.paste(resized_image, (x, y))
+            i += 1
+
+    collage_io = BytesIO()
+    collage.save(collage_io, format='PNG')
+
+    photo = images[0]
+    photo_name = f'{product_name}.png'
+    photo.image.save(photo_name, collage_io)
 
 
 def create_warehouse_locations_matrix(warehouse_from, warehouse_to):
