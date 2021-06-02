@@ -281,7 +281,6 @@ def generate_description_json_for_megapack(bundle_content):
         list_fragment = {"key": generate_key_id(), "data": {},
                         "type": "unordered-list-item",
                           'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
-        print(section[0])
         if section[0] == "Mężczyzna":
             list_fragment["text"] = f'  ubrania męskie: {section[1]} sztuk'
         elif section[0] == "Dziecko":
