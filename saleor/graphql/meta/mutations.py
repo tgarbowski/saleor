@@ -165,7 +165,6 @@ class BaseMetadataMutation(BaseMutation):
     def assign_photos_from_products_to_megapack(cls, instance, items):
         product_variants = ProductVariant.objects.select_related('product').filter(sku__in=items)
         collage_images = []
-        product_name = instance.name
         # Remove existing megapack images
         ProductImage.objects.filter(product=instance.pk).delete()
         # Filter products without bundle.id
@@ -183,7 +182,7 @@ class BaseMetadataMutation(BaseMutation):
             collage_images.append(new_image)
         # Create collage image from images
         if len(collage_images) >= 4:
-            create_collage(collage_images[:12], product_name)
+            create_collage(collage_images[:12], instance)
 
     @classmethod
     def validate_mega_pack(cls, instance,  data_skus, products_published):
