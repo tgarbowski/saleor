@@ -7,6 +7,7 @@ import graphene
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
 from django.db import connection
 
+from ..product.utils import generate_description_json_for_megapack
 from ...core import models
 from ...core.error_codes import MetadataErrorCode
 from ...core.exceptions import PermissionDenied
@@ -212,7 +213,7 @@ class BaseMetadataMutation(BaseMutation):
             for removed_product_variant in allegro_sold_or_bid_product_variants:
                 location = removed_product_variant.private_metadata["location"] if removed_product_variant.private_metadata["location"] else ""
                 allegro_products.append(f'{removed_product_variant.sku}: {location}')
-            if products_not_exist or products_already_assigned or products_published:
+            if (products_not_exist and products_not_exist != [""]) or products_already_assigned or products_published:
                 if products_not_exist:
                     products_not_exist_str = " ".join(products_not_exist)
                     validation_message += f'Produkty nie istnieją:  {products_not_exist_str}\n'
@@ -292,6 +293,8 @@ class BaseMetadataMutation(BaseMutation):
         if bundle_content[0][0] is not None:
             instance.private_metadata['bundle.content'] = json.loads(
                 bundle_content[0][0])
+        else:
+            del instance.private_metadata['bundle.content']
             instance.save()
 
     @classmethod
@@ -307,6 +310,12 @@ class BaseMetadataMutation(BaseMutation):
             verified_skus.append(product_variant.sku)
         instance.private_metadata['skus'] = verified_skus
         instance.save(update_fields=["private_metadata"])
+
+
+    @classmethod
+    def create_description_json_for_megapack(cls, instance):
+        description_json = generate_description_json_for_megapack(instance.private_metadata["bundle.content"])
+        instance.description_json = description_json
 
 
 class MetadataInput(graphene.InputObjectType):
@@ -397,6 +406,7 @@ class UpdatePrivateMetadata(BaseMetadataMutation):
                 cls.assign_photos_from_products_to_megapack(instance, data)
                 cls.assign_sku_to_metadata_bundle_id(instance, data)
                 cls.assign_bundle_content_to_product(instance)
+                cls.create_description_json_for_megapack(instance)
                 cls.save_megapack_with_valid_products(instance, data)
                 cls.validate_mega_pack(instance, data, products_sold_in_allegro)
             if 'skus' not in items:
