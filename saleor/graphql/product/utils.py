@@ -313,5 +313,5 @@ def remove_location_from_product_variants(skus):
         sku__in=skus)
     for product_variant in product_variants:
         if "location" in product_variant.private_metadata:
-            del product_variant.private_metadata["location"]
+            product_variant.private_metadata["location"] = ""
         product_variant.save()
