@@ -293,7 +293,8 @@ class BaseMetadataMutation(BaseMutation):
             instance.private_metadata['bundle.content'] = json.loads(
                 bundle_content[0][0])
         else:
-            del instance.private_metadata['bundle.content']
+            if 'bundle.content' in instance.private_metadata:
+                del instance.private_metadata['bundle.content']
             instance.save()
 
     @classmethod
@@ -313,8 +314,9 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def create_description_json_for_megapack(cls, instance):
-        description_json = generate_description_json_for_megapack(instance.private_metadata["bundle.content"])
-        instance.description_json = description_json
+        if 'bundle.content' in instance.private_metadata:
+            description_json = generate_description_json_for_megapack(instance.private_metadata["bundle.content"])
+            instance.description_json = description_json
 
 
 class MetadataInput(graphene.InputObjectType):
