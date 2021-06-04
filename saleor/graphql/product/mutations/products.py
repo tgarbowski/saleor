@@ -985,16 +985,16 @@ class ProductCreate(ModelMutation):
 
     @classmethod
     def remove_warehouse_location_from_products(cls, instance, cleaned_input):
-        visible = cleaned_input["visible_in_listings"]
-        published = cleaned_input["is_published"]
-        product_type = instance.product_type
-        if visible and published and product_type.slug == "mega-paka":
+        visible = cleaned_input["visible_in_listings"] if "visible_in_listings" in cleaned_input else None
+        published = cleaned_input["is_published"] if "is_published" in cleaned_input else None
+        if visible and published:
             remove_location_from_product_variants(instance.private_metadata["skus"])
 
     @classmethod
     @transaction.atomic
     def save(cls, info, instance, cleaned_input):
-        cls.remove_warehouse_location_from_products(instance, cleaned_input)
+        if instance.product_type.slug == "mega-paka":
+            cls.remove_warehouse_location_from_products(instance, cleaned_input)
         instance.save()
         if not instance.product_type.has_variants:
             site_settings = info.context.site.settings
@@ -1073,7 +1073,8 @@ class ProductUpdate(ProductCreate):
     @classmethod
     @transaction.atomic
     def save(cls, info, instance, cleaned_input):
-        cls.remove_warehouse_location_from_products(instance, cleaned_input)
+        if instance.product_type.slug == "mega-paka":
+            cls.remove_warehouse_location_from_products(instance, cleaned_input)
         instance.save()
         if not instance.product_type.has_variants:
             variant = instance.variants.first()
