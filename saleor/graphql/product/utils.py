@@ -252,7 +252,8 @@ def create_collage(images, product):
     collage_io = BytesIO()
     collage.save(collage_io, format='PNG')
     # Save new collage image to db
-    photo_name = f'{product.name}.png'
+    rand_int = random.randint(1000000, 9999999)
+    photo_name = f'{product.name}x{rand_int}.png'
     photo_alt = product.name.upper()
     ppoi = images[0].ppoi
     new_image = ProductImage.objects.create(product=product, ppoi=ppoi, alt=photo_alt, image='')
