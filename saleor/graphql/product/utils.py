@@ -1,9 +1,10 @@
-import json
-import re
 from collections import defaultdict
-from typing import TYPE_CHECKING, Dict, List, Tuple
-import string
+import json
+import os
 import random
+import re
+import string
+from typing import TYPE_CHECKING, Dict, List, Tuple
 
 import boto3
 import graphene
@@ -15,6 +16,8 @@ from PIL import Image
 
 from ...product import AttributeInputType
 from ...product.error_codes import ProductErrorCode
+from ...product.models import ProductImage
+from ...product.thumbnails import create_product_thumbnails
 from ...warehouse.models import Stock
 from ...product.models import Attribute, ProductVariant
 if TYPE_CHECKING:
@@ -200,9 +203,10 @@ def can_exclude_distinct(parameters):
     return True
 
 
-def create_collage(images, product_name):
+def create_collage(images, product):
     s3 = boto3.resource('s3')
-    bucket = s3.Bucket('saleor-test-media')
+    bucket_name = os.environ.get("AWS_MEDIA_BUCKET_NAME")
+    bucket = s3.Bucket(bucket_name)
 
     if len(images) == 12:
         images_amount = 12
@@ -247,10 +251,21 @@ def create_collage(images, product_name):
 
     collage_io = BytesIO()
     collage.save(collage_io, format='PNG')
-
-    photo = images[0]
-    photo_name = f'{product_name}.png'
-    photo.image.save(photo_name, collage_io)
+    # Save new collage image to db
+    photo_name = f'{product.name}.png'
+    photo_alt = product.name.upper()
+    ppoi = images[0].ppoi
+    new_image = ProductImage.objects.create(product=product, ppoi=ppoi, alt=photo_alt, image='')
+    new_image.image.save(photo_name, collage_io)
+    # Swap sort order
+    last_photo_sort_order = new_image.sort_order
+    first_photo = ProductImage.objects.filter(product=product.pk).order_by('sort_order').first()
+    first_photo.sort_order = last_photo_sort_order
+    first_photo.save()
+    new_image.sort_order = 0
+    new_image.save()
+    # Create thumbnails
+    create_product_thumbnails.delay(new_image.pk)
 
 
 def create_warehouse_locations_matrix(warehouse_from, warehouse_to):
