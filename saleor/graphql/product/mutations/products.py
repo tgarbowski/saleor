@@ -1010,6 +1010,8 @@ class ProductCreate(ModelMutation):
                 sku=sku,
                 price_amount=variant_price,
             )
+            instance.default_variant = variant
+            instance.save()
             stocks = cleaned_input.get("stocks")
             if stocks:
                 cls.create_variant_stocks(variant, stocks)
