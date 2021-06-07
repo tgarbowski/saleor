@@ -301,17 +301,29 @@ def generate_description_json_for_megapack(bundle_content):
                           "text": "Zawartość megapaki: ", "type": "header-two",
                           'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
     blocks.append(description_values)
-    for section in bundle_content:
-        list_fragment = {"key": generate_key_id(), "data": {},
-                        "type": "unordered-list-item",
-                          'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
-        if section[0] == "Mężczyzna":
-            list_fragment["text"] = f'  ubrania męskie: {section[1]} sztuk'
-        elif section[0] == "Dziecko":
-            list_fragment["text"] = f'  ubrania dziecięce: {section[1]} sztuk'
-        else:
-            list_fragment["text"] = f'  ubrania damskie: {section[1]} sztuk'
-        blocks.append(list_fragment)
+    products_amount = 0
+    products_weight = 0
+    if bundle_content:
+        for section in bundle_content:
+            list_fragment = {"key": generate_key_id(), "data": {},
+                            "type": "unordered-list-item",
+                            'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
+            if section[0] == "Mężczyzna":
+                list_fragment["text"] = f'  ubrania męskie: {section[1]} szt., {section[2]} kg'
+            elif section[0] == "Dziecko":
+                list_fragment["text"] = f'  ubrania dziecięce: {section[1]} szt., {section[2]} kg'
+            else:
+                list_fragment["text"] = f'  ubrania damskie: {section[1]} szt., {section[2]} kg'
+
+            products_amount += section[1]
+            products_weight += section[2]
+            blocks.append(list_fragment)
+
+    list_fragment = {"key": generate_key_id(), "data": {}, "type": "unordered-list-item",
+                     'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
+    list_fragment["text"] = f'  razem: {products_amount} szt., {products_weight} kg'
+    blocks.append(list_fragment)
+
     description_json["blocks"] = blocks
     description_json["entityMap"] = {}
     return description_json
