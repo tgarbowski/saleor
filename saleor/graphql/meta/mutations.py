@@ -286,15 +286,27 @@ class BaseMetadataMutation(BaseMutation):
         return data
 
     @classmethod
+    def calculate_weight(cls, bundle_content):
+        weight = 0
+        try:
+            for content in bundle_content:
+                weight += content[2] * 1000
+        except IndexError:
+            weight = None
+
+        return weight
+
+    @classmethod
     def assign_bundle_content_to_product(cls, instance):
         slug = ProductVariant.objects.get(product=instance.pk).sku
         bundle_content = cls.generate_bundle_content(slug)
         if bundle_content[0][0] is not None:
-            instance.private_metadata['bundle.content'] = json.loads(
-                bundle_content[0][0])
+            instance.private_metadata['bundle.content'] = json.loads(bundle_content[0][0])
+            instance.weight = cls.calculate_weight(json.loads(bundle_content[0][0]))
         else:
             if 'bundle.content' in instance.private_metadata:
                 del instance.private_metadata['bundle.content']
+                instance.weight = None
             instance.save()
 
     @classmethod
@@ -314,9 +326,8 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def create_description_json_for_megapack(cls, instance):
-        if 'bundle.content' in instance.private_metadata:
-            description_json = generate_description_json_for_megapack(instance.private_metadata["bundle.content"])
-            instance.description_json = description_json
+        description_json = generate_description_json_for_megapack(instance.private_metadata.get("bundle.content"))
+        instance.description_json = description_json
 
 
 class MetadataInput(graphene.InputObjectType):
