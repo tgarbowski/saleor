@@ -327,12 +327,3 @@ def generate_description_json_for_megapack(bundle_content):
     description_json["blocks"] = blocks
     description_json["entityMap"] = {}
     return description_json
-
-
-def remove_location_from_product_variants(skus):
-    product_variants = ProductVariant.objects.select_related('product').filter(
-        sku__in=skus)
-    for product_variant in product_variants:
-        if "location" in product_variant.private_metadata:
-            product_variant.private_metadata["location"] = ""
-        product_variant.save()

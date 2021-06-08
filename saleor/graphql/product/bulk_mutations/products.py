@@ -38,6 +38,7 @@ from ..mutations.products import (
 )
 from ..types import Product, ProductVariant
 from ..utils import create_stocks, get_used_variants_attribute_values
+from ....product.models import ProductVariant as ProductVariantModel
 
 
 class CategoryBulkDelete(ModelBulkDeleteMutation):
@@ -599,3 +600,39 @@ class ProductBulkPublish(BaseBulkMutation):
     @classmethod
     def bulk_action(cls, queryset, is_published):
         queryset.update(is_published=is_published)
+
+
+class ProductBulkClearWarehouseLocation(BaseBulkMutation):
+
+    product_variants = graphene.List(
+        graphene.NonNull(ProductVariant),
+        required=True,
+        default_value=[],
+        description="List of products with location deleted",
+    )
+
+    class Arguments:
+        skus = graphene.List(graphene.String, required=True, description="List of products SKUs to remove location")
+
+    class Meta:
+        description = "Remove Warehouse Locations"
+        model = models.ProductVariant
+        permissions = (ProductPermissions.MANAGE_PRODUCTS,)
+        error_type_class = ProductError
+        error_type_field = "product_errors"
+
+    @classmethod
+    def perform_mutation(cls, _root, info, ids=None, **data):
+
+        product_variants = ProductVariantModel.objects.select_related('product').filter(
+            sku__in=data["skus"])
+        for product_variant in product_variants:
+            if "location" in product_variant.private_metadata:
+                product_variant.private_metadata["location"] = ""
+            product_variant.save()
+
+        return len(product_variants), None
+
+    @classmethod
+    def bulk_action(cls, queryset, **kwargs):
+        pass
