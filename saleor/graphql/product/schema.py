@@ -20,6 +20,7 @@ from .bulk_mutations.products import (
     CollectionBulkPublish,
     ProductBulkDelete,
     ProductBulkPublish,
+    ProductBulkClearWarehouseLocation,
     ProductImageBulkDelete,
     ProductTypeBulkDelete,
     ProductVariantBulkCreate,
@@ -434,6 +435,7 @@ class ProductMutations(graphene.ObjectType):
     product_delete = ProductDelete.Field()
     product_bulk_delete = ProductBulkDelete.Field()
     product_bulk_publish = ProductBulkPublish.Field()
+    product_bulk_clear_warehouse_location = ProductBulkClearWarehouseLocation.Field()
     product_update = ProductUpdate.Field()
     product_translate = ProductTranslate.Field()
     product_update_metadata = ProductUpdateMeta.Field(
