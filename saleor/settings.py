@@ -255,6 +255,7 @@ INSTALLED_APPS = [
     "saleor.wishlist",
     "saleor.app",
     "saleor.salingo",
+    "saleor.wms",
     # External apps
     "versatileimagefield",
     "django_measurement",
