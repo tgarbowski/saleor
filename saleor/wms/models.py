@@ -12,6 +12,10 @@ class WMSDocument(models.Model):
         GOODS_RECEIVED_NOTE = "GRN", _("Goods_received_note")
         GOODS_ISSUED_NOTE = "GIN", _("Goods_issued_note")
 
+    class DocumentStatuses(models.TextChoices):
+        APPROVED = "APPROVED", _("APPROVED")
+        DRAFT = "DRAFT", _("DRAFT")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, null=True)
@@ -32,6 +36,7 @@ class WMSDocument(models.Model):
     )
     deliverer = models.JSONField(blank=True, null=True)
     number = models.CharField(max_length=255, blank=False, default=None)
+    status = models.CharField(max_length=20, choices=DocumentStatuses.choices)
 
     def __repr__(self):
         class_ = type(self)
