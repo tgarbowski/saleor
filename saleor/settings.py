@@ -535,6 +535,7 @@ PLUGINS = [
     "saleor.plugins.allegro.plugin.AllegroPlugin",
     "saleor.plugins.sumi.plugin.SumiPlugin",
     "saleor.plugins.allegroSync.plugin.AllegroSyncPlugin",
+    "saleor.plugins.wms.plugin.WMSPlugin"
 ]
 
 # Plugin discovery
