@@ -11,7 +11,7 @@ class WMSDocument(CountableDjangoObjectType):
             "Represents a wms document")
         model = models.WMSDocument
         only_fields = ["created_at", "updated_at", "warehouse", "document_type", "created_by",
-                       "recipient", "deliverer", "number", "status"]
+                       "recipient", "deliverer", "number", "status", "id"]
 
 
 @key(fields="id")
@@ -21,4 +21,4 @@ class WMSDocPosition(CountableDjangoObjectType):
         description = (
             "Represents a wms document")
         model = models.WMSDocPosition
-        only_fields = ["product_variant", "quantity", "weight", "document"]
+        only_fields = ["product_variant", "quantity", "weight", "document", "id"]

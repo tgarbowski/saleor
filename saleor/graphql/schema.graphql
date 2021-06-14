@@ -1544,6 +1544,10 @@ type CreateToken {
   accountErrors: [AccountError!]!
 }
 
+input CreatedByInput {
+  userId: ID
+}
+
 type CreditCard {
   brand: String!
   firstDigits: String
@@ -1756,6 +1760,14 @@ enum DiscountStatusEnum {
 enum DiscountValueTypeEnum {
   FIXED
   PERCENTAGE
+}
+
+input DocumentInput {
+  document: String
+}
+
+input DocumentTypeInput {
+  documentType: String
 }
 
 type Domain {
@@ -2541,6 +2553,7 @@ type MetadataError {
   field: String
   message: String
   code: MetadataErrorCode!
+  params: JSONString
 }
 
 enum MetadataErrorCode {
@@ -2548,6 +2561,7 @@ enum MetadataErrorCode {
   INVALID
   NOT_FOUND
   REQUIRED
+  MEGAPACK_ASSIGNED
 }
 
 input MetadataInput {
@@ -2577,7 +2591,8 @@ input MoveProductInput {
 }
 
 type Mutation {
-
+  wmsDocumentDelete(id: ID!): WMSDocumentDelete
+  wmsDocPositionDelete(id: ID!): WMSDocPositionDelete
   webhookCreate(input: WebhookCreateInput!): WebhookCreate
   webhookDelete(id: ID!): WebhookDelete
   webhookUpdate(id: ID!, input: WebhookUpdateInput!): WebhookUpdate
@@ -3712,6 +3727,13 @@ type Product implements Node & ObjectWithMetadata & ObjectWithJSONMetadata {
   description: String! @deprecated(reason: "Use the `descriptionJson` field instead.")
 }
 
+type ProductBulkClearWarehouseLocation {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  count: Int!
+  productVariants: [ProductVariant!]!
+  productErrors: [ProductError!]!
+}
+
 type ProductBulkDelete {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
   count: Int!
@@ -3723,14 +3745,6 @@ type ProductBulkPublish {
   count: Int!
   productErrors: [ProductError!]!
 }
-
-type ProductBulkClearWarehouseLocation {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  count: Int!
-  productVariants: [ProductVariant!]!
-  bulkProductErrors: [BulkProductError!]!
-}
-
 
 type ProductClearMeta {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
@@ -3843,6 +3857,7 @@ input ProductFilterInput {
   search: String
   allegroStatus: String
   updatedAt: DateRangeInput
+  warehouseLocation: WarehouseLocationRangeInput
   price: PriceRangeInput
   minimalPrice: PriceRangeInput
   productTypes: [ID]
@@ -4317,7 +4332,9 @@ type ProductVariantUpdatePrivateMeta {
 }
 
 type Query {
-  productsCount(user: User): Int
+  wmsDocPositions(filter: WMSDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WMSDocPositionCountableConnection
+  wmsDocuments(filter: WMSDocumentFilterInput, before: String, after: String, first: Int, last: Int): WMSDocumentCountableConnection
+  wmsDocument(id: ID, number: String): WMSDocument
   productTypeWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): ProductType
   productTypesWithMetadata(filter: ProductTypeMetadataFilterInput, before: String, after: String, first: Int, last: Int): ProductTypeCountableConnection
   userWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): User
@@ -4349,6 +4366,7 @@ type Query {
   productType(id: ID!): ProductType
   productTypes(filter: ProductTypeFilterInput, sortBy: ProductTypeSortingInput, before: String, after: String, first: Int, last: Int): ProductTypeCountableConnection
   productVariant(id: ID, sku: String): ProductVariant
+  productVariantsSkus(sku: String, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   productVariants(ids: [ID], filter: ProductVariantFilterInput, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   reportProductSales(period: ReportingPeriod!, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   payment(id: ID!): Payment
@@ -4395,6 +4413,10 @@ type Query {
   user(id: ID!): User
   _entities(representations: [_Any]): [_Entity]
   _service: _Service
+}
+
+input RecipientInput {
+  recipient: String
 }
 
 type ReducedRate {
@@ -5022,6 +5044,10 @@ input StaffUserInput {
   search: String
 }
 
+input StatusInput {
+  status: String
+}
+
 type Stock implements Node {
   warehouse: Warehouse!
   productVariant: ProductVariant!
@@ -5510,6 +5536,88 @@ type VoucherUpdate {
   voucher: Voucher
 }
 
+type WMSDocPosition {
+  id: ID!
+  productVariant: ProductVariant!
+  quantity: Int!
+  weight: Float!
+  document: WMSDocument!
+}
+
+type WMSDocPositionCountableConnection {
+  pageInfo: PageInfo!
+  edges: [WMSDocPositionCountableEdge!]!
+  totalCount: Int
+}
+
+type WMSDocPositionCountableEdge {
+  node: WMSDocPosition!
+  cursor: String!
+}
+
+type WMSDocPositionDelete {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsdocumentErrors: [WMSDocumentError!]!
+  wMSDocPosition: WMSDocPosition
+}
+
+input WMSDocPositionFilterInput {
+  document: DocumentInput
+}
+
+type WMSDocument {
+  id: ID!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  warehouse: Warehouse
+  documentType: WMSDocumentDocumentType!
+  createdBy: User
+  recipient: User
+  deliverer: JSONString
+  number: String!
+  status: WMSDocumentStatus!
+}
+
+type WMSDocumentCountableConnection {
+  pageInfo: PageInfo!
+  edges: [WMSDocumentCountableEdge!]!
+  totalCount: Int
+}
+
+type WMSDocumentCountableEdge {
+  node: WMSDocument!
+  cursor: String!
+}
+
+type WMSDocumentDelete {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsdocumentErrors: [WMSDocumentError!]!
+  wMSDocument: WMSDocument
+}
+
+enum WMSDocumentDocumentType {
+  GRN
+  GIN
+}
+
+type WMSDocumentError {
+  field: String
+  message: String
+  code: ProductErrorCode!
+}
+
+input WMSDocumentFilterInput {
+  createdBy: CreatedByInput
+  documentType: DocumentTypeInput
+  status: StatusInput
+  recipient: RecipientInput
+}
+
+enum WMSDocumentStatus {
+  APPROVED
+  DRAFT
+}
+
 type Warehouse implements Node {
   id: ID!
   name: String!
@@ -5581,6 +5689,11 @@ enum WarehouseErrorCode {
 input WarehouseFilterInput {
   search: String
   ids: [ID]
+}
+
+input WarehouseLocationRangeInput {
+  gte: String
+  lte: String
 }
 
 type WarehouseShippingZoneAssign {
@@ -5767,7 +5880,7 @@ enum WeightUnitsEnum {
 
 scalar _Any
 
-union _Entity = Address | User | Group | ServiceAccount | App | ProductVariant | Product | ProductType | Collection | Category | ProductImage
+union _Entity = Address | User | Group | ServiceAccount | App | ProductVariant | Product | ProductType | Collection | Category | ProductImage | WMSDocument | WMSDocPosition
 
 type _Service {
   sdl: String
