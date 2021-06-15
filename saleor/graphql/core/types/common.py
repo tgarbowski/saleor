@@ -225,6 +225,10 @@ class WishlistError(Error):
     code = WishlistErrorCode(description="The error code.", required=True)
 
 
+class WMSDocumentError(Error):
+    code = ProductErrorCode(description="The error code.", required=True)
+
+
 class TranslationError(Error):
     code = TranslationErrorCode(description="The error code.", required=True)
 

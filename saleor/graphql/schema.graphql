@@ -1544,6 +1544,10 @@ type CreateToken {
   accountErrors: [AccountError!]!
 }
 
+input CreatedByInput {
+  userId: ID
+}
+
 type CreditCard {
   brand: String!
   firstDigits: String
@@ -1756,6 +1760,14 @@ enum DiscountStatusEnum {
 enum DiscountValueTypeEnum {
   FIXED
   PERCENTAGE
+}
+
+input DocumentInput {
+  document: String
+}
+
+input DocumentTypeInput {
+  documentType: String
 }
 
 type Domain {
@@ -2579,10 +2591,12 @@ input MoveProductInput {
 }
 
 type Mutation {
-  wmsdocumentCreate(input: WMSDocumentCreateInput!): WMSDocumentCreate
-  wmsdocumentUpdate(id: ID!, input: WMSInput!): WMSDocumentUpdate
-  wmsdocpositionCreate(input: WMSDocPositionCreateInput!): WMSDocPositionCreate
+  wmsdocumentCreate(input: WMSDocumentInput!): WMSDocumentCreate
+  wmsdocumentUpdate(id: ID!, input: WMSDocumentInput!): WMSDocumentUpdate
+  wmsDocumentDelete(id: ID!): WMSDocumentDelete
+  wmsdocpositionCreate(input: WMSDocPositionInput!): WMSDocPositionCreate
   wmsdocpositionUpdate(id: ID!, input: WMSDocPositionInput!): WMSDocPositionUpdate
+  wmsDocPositionDelete(id: ID!): WMSDocPositionDelete
   webhookCreate(input: WebhookCreateInput!): WebhookCreate
   webhookDelete(id: ID!): WebhookDelete
   webhookUpdate(id: ID!, input: WebhookUpdateInput!): WebhookUpdate
@@ -4322,6 +4336,9 @@ type ProductVariantUpdatePrivateMeta {
 }
 
 type Query {
+  wmsDocPositions(filter: WMSDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WMSDocPositionCountableConnection
+  wmsDocuments(filter: WMSDocumentFilterInput, before: String, after: String, first: Int, last: Int): WMSDocumentCountableConnection
+  wmsDocument(id: ID, number: String): WMSDocument
   productTypeWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): ProductType
   productTypesWithMetadata(filter: ProductTypeMetadataFilterInput, before: String, after: String, first: Int, last: Int): ProductTypeCountableConnection
   userWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): User
@@ -4400,6 +4417,10 @@ type Query {
   user(id: ID!): User
   _entities(representations: [_Any]): [_Entity]
   _service: _Service
+}
+
+input RecipientInput {
+  recipient: String
 }
 
 type ReducedRate {
@@ -5027,6 +5048,10 @@ input StaffUserInput {
   search: String
 }
 
+input StatusInput {
+  status: String
+}
+
 type Stock implements Node {
   warehouse: Warehouse!
   productVariant: ProductVariant!
@@ -5516,23 +5541,38 @@ type VoucherUpdate {
 }
 
 type WMSDocPosition {
+  id: ID!
   productVariant: ProductVariant!
   quantity: Int!
   weight: Float!
   document: WMSDocument!
 }
 
+type WMSDocPositionCountableConnection {
+  pageInfo: PageInfo!
+  edges: [WMSDocPositionCountableEdge!]!
+  totalCount: Int
+}
+
+type WMSDocPositionCountableEdge {
+  node: WMSDocPosition!
+  cursor: String!
+}
+
 type WMSDocPositionCreate {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  productErrors: [ProductError!]!
+  productErrors: [WMSDocumentError!]!
   wMSDocPosition: WMSDocPosition
 }
 
-input WMSDocPositionCreateInput {
-  quantity: Int
-  weight: Float
-  document: ID
-  productVariant: ID
+type WMSDocPositionDelete {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsdocumentErrors: [WMSDocumentError!]!
+  wMSDocPosition: WMSDocPosition
+}
+
+input WMSDocPositionFilterInput {
+  document: DocumentInput
 }
 
 input WMSDocPositionInput {
@@ -5544,7 +5584,7 @@ input WMSDocPositionInput {
 
 type WMSDocPositionUpdate {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  productErrors: [ProductError!]!
+  productErrors: [WMSDocumentError!]!
   wMSDocPosition: WMSDocPosition
 }
 
@@ -5561,13 +5601,48 @@ type WMSDocument {
   status: WMSDocumentStatus!
 }
 
+type WMSDocumentCountableConnection {
+  pageInfo: PageInfo!
+  edges: [WMSDocumentCountableEdge!]!
+  totalCount: Int
+}
+
+type WMSDocumentCountableEdge {
+  node: WMSDocument!
+  cursor: String!
+}
+
 type WMSDocumentCreate {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  productErrors: [ProductError!]!
+  productErrors: [WMSDocumentError!]!
   wMSDocument: WMSDocument
 }
 
-input WMSDocumentCreateInput {
+type WMSDocumentDelete {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsdocumentErrors: [WMSDocumentError!]!
+  wMSDocument: WMSDocument
+}
+
+enum WMSDocumentDocumentType {
+  GRN
+  GIN
+}
+
+type WMSDocumentError {
+  field: String
+  message: String
+  code: ProductErrorCode!
+}
+
+input WMSDocumentFilterInput {
+  createdBy: CreatedByInput
+  documentType: DocumentTypeInput
+  status: StatusInput
+  recipient: RecipientInput
+}
+
+input WMSDocumentInput {
   documentType: String
   deliverer: JSONString
   number: String
@@ -5577,11 +5652,6 @@ input WMSDocumentCreateInput {
   warehouse: ID
 }
 
-enum WMSDocumentDocumentType {
-  GRN
-  GIN
-}
-
 enum WMSDocumentStatus {
   APPROVED
   DRAFT
@@ -5589,17 +5659,8 @@ enum WMSDocumentStatus {
 
 type WMSDocumentUpdate {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  productErrors: [ProductError!]!
+  productErrors: [WMSDocumentError!]!
   wMSDocument: WMSDocument
-}
-
-input WMSInput {
-  documentType: String
-  deliverer: JSONString
-  number: String
-  status: String
-  recipient: Int
-  createdBy: Int
 }
 
 type Warehouse implements Node {

@@ -1,5 +1,5 @@
 MUTATION_CREATE_WMSDOCUMENT = """
-mutation WMSDocumentCreate($input: WMSDocumentCreateInput!) {
+mutation WMSDocumentCreate($input: WMSDocumentInput!) {
     wmsdocumentCreate(input: $input){
         wMSDocument {
             documentType
@@ -14,7 +14,7 @@ mutation WMSDocumentCreate($input: WMSDocumentCreateInput!) {
 """
 
 MUTATION_UPDATE_WMSDOCUMENT = """
-mutation WMSDocumentUpdate($id: ID!, $input: WMSInput!) {
+mutation WMSDocumentUpdate($id: ID!, $input: WMSDocumentInput!) {
     wmsdocumentUpdate(id: $id, input: $input){
         wMSDocument {
             documentType
@@ -29,7 +29,7 @@ mutation WMSDocumentUpdate($id: ID!, $input: WMSInput!) {
 """
 
 MUTATION_CREATE_WMSDOCPOSITION = """
-mutation WMSDocPositionCreate($input: WMSDocPositionCreateInput!) {
+mutation WMSDocPositionCreate($input: WMSDocPositionInput!) {
     wmsdocpositionCreate(input: $input){
         wMSDocPosition {
             quantity
