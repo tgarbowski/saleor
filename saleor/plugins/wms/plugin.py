@@ -1,4 +1,4 @@
-from ..base_plugin import BasePlugin, ConfigurationTypeField
+from ..base_plugin import BasePlugin
 
 
 class WMSPlugin(BasePlugin):
@@ -11,20 +11,6 @@ class WMSPlugin(BasePlugin):
     PLUGIN_DESCRIPTION = (
         "Warehouse management system plugin"
     )
-    CONFIG_STRUCTURE = {
-        "asd": {
-            "type": ConfigurationTypeField.STRING,
-            "label": "asd.",
-        }
-    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-    '''
-    @staticmethod
-    def get_configuration():
-        manager = get_plugins_manager()
-        plugin = manager.get_plugin(WMSPlugin.PLUGIN_ID)
-        configuration = {item["name"]: item["value"] for item in plugin.configuration}
-        return configuration
-    '''
