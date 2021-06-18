@@ -4339,6 +4339,7 @@ type Query {
   wmsDocPositions(filter: WMSDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WMSDocPositionCountableConnection
   wmsDocuments(filter: WMSDocumentFilterInput, before: String, after: String, first: Int, last: Int): WMSDocumentCountableConnection
   wmsDocument(id: ID, number: String): WMSDocument
+  wmsDocumentPdf(id: ID!): String
   productTypeWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): ProductType
   productTypesWithMetadata(filter: ProductTypeMetadataFilterInput, before: String, after: String, first: Int, last: Int): ProductTypeCountableConnection
   userWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): User
@@ -5592,7 +5593,8 @@ type WMSDocument {
   id: ID!
   createdAt: DateTime!
   updatedAt: DateTime!
-  warehouse: Warehouse
+  warehouse: Warehouse!
+  warehouseSecond: Warehouse
   documentType: WMSDocumentDocumentType!
   createdBy: User
   recipient: User
@@ -5627,6 +5629,9 @@ type WMSDocumentDelete {
 enum WMSDocumentDocumentType {
   GRN
   GIN
+  IWM
+  FGTN
+  IO
 }
 
 type WMSDocumentError {
@@ -5645,11 +5650,11 @@ input WMSDocumentFilterInput {
 input WMSDocumentInput {
   documentType: String
   deliverer: JSONString
-  number: String
   status: String
-  recipient: Int
-  createdBy: Int
+  recipient: ID
+  createdBy: ID
   warehouse: ID
+  warehouseSecond: ID
 }
 
 enum WMSDocumentStatus {
