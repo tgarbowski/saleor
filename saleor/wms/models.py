@@ -11,6 +11,10 @@ class WMSDocument(models.Model):
     class DocumentTypes(models.TextChoices):
         GOODS_RECEIVED_NOTE = "GRN", _("Goods_received_note")
         GOODS_ISSUED_NOTE = "GIN", _("Goods_issued_note")
+        INTERNAL_WAREHOUSE_MOVEMENT = "IWM", _("Internal warehouse movement")
+        FINISHED_GOODS_TRANSFER_NOTE = "FGTN", _("Finished goods transfer note")
+        INTERNAL_OUTGOINGS = "IO", _("Internal outgoings")
+
 
     class DocumentStatuses(models.TextChoices):
         APPROVED = "APPROVED", _("APPROVED")
@@ -18,7 +22,14 @@ class WMSDocument(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, null=True)
+    warehouse = models.ForeignKey(Warehouse, related_name='+', on_delete=models.CASCADE)
+    warehouse_second = models.ForeignKey(
+        Warehouse,
+        related_name='+',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
     document_type = models.CharField(max_length=10, choices=DocumentTypes.choices)
     created_by = models.ForeignKey(
         User,
@@ -35,8 +46,8 @@ class WMSDocument(models.Model):
         related_name="wms_recipient"
     )
     deliverer = models.JSONField(blank=True, null=True)
-    number = models.CharField(max_length=255, blank=False, default=None)
-    status = models.CharField(max_length=20, choices=DocumentStatuses.choices)
+    number = models.CharField(max_length=255, unique=True, blank=True)
+    status = models.CharField(max_length=20, choices=DocumentStatuses.choices, default='DRAFT')
 
     def __repr__(self):
         class_ = type(self)
