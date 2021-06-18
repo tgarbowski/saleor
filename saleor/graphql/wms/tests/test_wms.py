@@ -3,9 +3,14 @@ mutation WMSDocumentCreate($input: WMSDocumentInput!) {
     wmsdocumentCreate(input: $input){
         wMSDocument {
             documentType
-            number
             status
             warehouse {
+                id
+            }
+            createdBy{
+                id
+            }
+            recipient{
                 id
             }
         }
@@ -18,7 +23,6 @@ mutation WMSDocumentUpdate($id: ID!, $input: WMSDocumentInput!) {
     wmsdocumentUpdate(id: $id, input: $input){
         wMSDocument {
             documentType
-            number
             status
             warehouse {
                 id

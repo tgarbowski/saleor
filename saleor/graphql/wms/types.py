@@ -7,11 +7,11 @@ from saleor.wms import models
 class WMSDocumentInput(graphene.InputObjectType):
     document_type = graphene.String(description="Document Type")
     deliverer = graphene.JSONString(description="Deliverer")
-    number = graphene.String(description="Document number")
     status = graphene.String(description="Document status")
-    recipient = graphene.Int(description="Recipient ID")
-    created_by = graphene.Int(description="CreatedBy ID")
-    warehouse = graphene.ID(required=False, description="Warehouse")
+    recipient = graphene.ID(description="Recipient ID")
+    created_by = graphene.ID(description="CreatedBy ID")
+    warehouse = graphene.ID(description="Warehouse")
+    warehouse_second = graphene.ID(description="Warehouse")
 
 
 @key(fields="id")
@@ -21,7 +21,7 @@ class WMSDocument(CountableDjangoObjectType):
         description = ("Represents a wms document")
         model = models.WMSDocument
         only_fields = ["created_at", "updated_at", "warehouse", "document_type", "created_by",
-                       "recipient", "deliverer", "number", "status", "id"]
+                       "recipient", "deliverer", "number", "status", "id", "warehouse_second"]
 
 
 @key(fields="id")

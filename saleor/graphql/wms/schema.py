@@ -3,11 +3,11 @@ import graphene
 from .mutations import (WMSDocumentCreate, WMSDocumentUpdate, WMSDocPositionCreate,
                         WMSDocPositionUpdate, WMSDocumentDelete, WMSDocPositionDelete)
 
-from saleor.wms.models import WMSDocument
+from saleor.wms import models
 from saleor.graphql.core.fields import FilterInputConnectionField
 from saleor.graphql.wms.filters import WMSDocumentFilterInput
 from saleor.graphql.wms.resolvers import (resolve_wms_documents, resolve_wms_document,
-                                          resolve_wms_doc_positions)
+                                          resolve_wms_doc_positions, resolve_wms_document_pdf)
 from .types import WMSDocPosition, WMSDocument
 from .filters import WMSDocPositionFilterInput
 
@@ -36,6 +36,10 @@ class WMSDocumentQueries(graphene.ObjectType):
         description="Look up a wms document by id or number.",
     )
 
+    wms_document_pdf = graphene.String(
+        id=graphene.ID(required=True)
+    )
+
     @staticmethod
     def resolve_wms_documents(self, info, **kwargs):
         return resolve_wms_documents(info, **kwargs)
@@ -43,6 +47,10 @@ class WMSDocumentQueries(graphene.ObjectType):
     @staticmethod
     def resolve_wms_document(self, info, **kwargs):
         return resolve_wms_document(info, **kwargs)
+
+    @staticmethod
+    def resolve_wms_document_pdf(self, info, **kwargs):
+        return resolve_wms_document_pdf(info, **kwargs)
 
 
 class WMSDocPositionQueries(graphene.ObjectType):
