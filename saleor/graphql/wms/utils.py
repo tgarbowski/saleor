@@ -1,6 +1,8 @@
 import base64
 
+from django.db.models import Sum, Count, Q, F
 from django.template.loader import get_template
+import graphene
 from weasyprint import HTML
 
 from saleor.wms.models import WMSDocument, WMSDocPosition
@@ -38,3 +40,38 @@ def translate_document_type(document_type):
         'FGTN': 'Przyjęcie wewnętrzne (PW)',
         'IO': 'Rozchód wewnętrzny (RW)'
     }[document_type]
+
+
+def wms_actions_report(start_date, end_date):
+    # Documents amount per document type
+    documents = list(WMSDocument.objects.filter(
+        created_at__gte=start_date, created_at__lte=end_date).values('document_type').annotate(
+        amount=Count('document_type')
+    ))
+    # Quantities of different types document positions
+    document_positions = list(WMSDocPosition.objects.values('document__document_type').annotate(
+        quantity=Sum('quantity')
+    ))
+
+    for document, document_position in zip(documents, document_positions):
+        document['quantity'] = document_position['quantity']
+        document['document_type_translated'] = translate_document_type(document['document_type'])
+
+    return documents
+
+
+def wms_products_report(start_date, end_date):
+    # Quantity of accepted and released goods
+    accepted_and_released = list(WMSDocPosition.objects.filter(
+        document__created_at__gte=start_date, document__created_at__lte=end_date,
+        document__document_type__in=['GRN', 'FGTN', 'GIN', 'IO']).values('product_variant__product').annotate(
+            released_quantity=Sum('quantity', filter=Q(document__document_type__in=['GIN', 'IO'])),
+            accepted_quantity=Sum('quantity', filter=Q(document__document_type__in=['GRN', 'FGTN'])),
+            product_id = F('product_variant__product'),
+            product_name = F('product_variant__product__name')
+    ))
+
+    for product in accepted_and_released:
+        product['product_id'] = graphene.Node.to_global_id('Product', product['product_id'])
+
+    return accepted_and_released

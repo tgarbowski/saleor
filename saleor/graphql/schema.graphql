@@ -4340,6 +4340,8 @@ type Query {
   wmsDocuments(filter: WMSDocumentFilterInput, before: String, after: String, first: Int, last: Int): WMSDocumentCountableConnection
   wmsDocument(id: ID, number: String): WMSDocument
   wmsDocumentPdf(id: ID!): String
+  wmsActionsReport(startDate: Date!, endDate: Date!): GenericScalar
+  wmsProductsReport(startDate: Date!, endDate: Date!): GenericScalar
   productTypeWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): ProductType
   productTypesWithMetadata(filter: ProductTypeMetadataFilterInput, before: String, after: String, first: Int, last: Int): ProductTypeCountableConnection
   userWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): User

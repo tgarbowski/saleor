@@ -7,10 +7,11 @@ from saleor.wms import models
 from saleor.graphql.core.fields import FilterInputConnectionField
 from saleor.graphql.wms.filters import WMSDocumentFilterInput
 from saleor.graphql.wms.resolvers import (resolve_wms_documents, resolve_wms_document,
-                                          resolve_wms_doc_positions, resolve_wms_document_pdf)
+                                          resolve_wms_doc_positions, resolve_wms_document_pdf,
+                                          resolve_wms_actions_report, resolve_wms_products_report)
 from .types import WMSDocPosition, WMSDocument
 from .filters import WMSDocPositionFilterInput
-
+from graphene.types.generic import GenericScalar
 
 class WMSDocumentMutations(graphene.ObjectType):
     # Documents
@@ -40,6 +41,15 @@ class WMSDocumentQueries(graphene.ObjectType):
         id=graphene.ID(required=True)
     )
 
+    wms_actions_report = GenericScalar(
+        startDate=graphene.Argument(graphene.Date, required=True),
+        endDate=graphene.Argument(graphene.Date, required=True)
+    )
+    wms_products_report = GenericScalar(
+        startDate=graphene.Argument(graphene.Date, required=True),
+        endDate=graphene.Argument(graphene.Date, required=True)
+    )
+
     @staticmethod
     def resolve_wms_documents(self, info, **kwargs):
         return resolve_wms_documents(info, **kwargs)
@@ -51,6 +61,14 @@ class WMSDocumentQueries(graphene.ObjectType):
     @staticmethod
     def resolve_wms_document_pdf(self, info, **kwargs):
         return resolve_wms_document_pdf(info, **kwargs)
+
+    @staticmethod
+    def resolve_wms_actions_report(self, info, **kwargs):
+        return resolve_wms_actions_report(info, **kwargs)
+
+    @staticmethod
+    def resolve_wms_products_report(self, info, **kwargs):
+        return resolve_wms_products_report(info, **kwargs)
 
 
 class WMSDocPositionQueries(graphene.ObjectType):

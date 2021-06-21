@@ -1,7 +1,7 @@
 import graphene
 
 from saleor.wms import models
-from .utils import create_pdf_document
+from .utils import create_pdf_document, wms_products_report, wms_actions_report
 
 
 def resolve_wms_documents(info, **_kwargs):
@@ -26,3 +26,15 @@ def resolve_wms_document_pdf(info, **_kwargs):
     file = create_pdf_document(document_id)
 
     return file
+
+
+def resolve_wms_actions_report(info, **_kwargs):
+    report = wms_actions_report(_kwargs['startDate'], _kwargs['endDate'])
+
+    return report
+
+
+def resolve_wms_products_report(info, **_kwargs):
+    report = wms_products_report(_kwargs['startDate'], _kwargs['endDate'])
+
+    return report
