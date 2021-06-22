@@ -20,6 +20,7 @@ class WMSDocument(CountableDjangoObjectType):
     class Meta:
         description = ("Represents a wms document")
         model = models.WMSDocument
+        interfaces = [graphene.relay.Node]
         only_fields = ["created_at", "updated_at", "warehouse", "document_type", "created_by",
                        "recipient", "deliverer", "number", "status", "id", "warehouse_second"]
 
@@ -30,6 +31,7 @@ class WMSDocPosition(CountableDjangoObjectType):
     class Meta:
         description = ("Represents a wms document")
         model = models.WMSDocPosition
+        interfaces = [graphene.relay.Node]
         only_fields = ["product_variant", "quantity", "weight", "document", "id"]
 
 

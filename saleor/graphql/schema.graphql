@@ -4337,6 +4337,7 @@ type ProductVariantUpdatePrivateMeta {
 
 type Query {
   wmsDocPositions(filter: WMSDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WMSDocPositionCountableConnection
+  wmsDocPosition(id: ID): WMSDocPosition
   wmsDocuments(filter: WMSDocumentFilterInput, before: String, after: String, first: Int, last: Int): WMSDocumentCountableConnection
   wmsDocument(id: ID, number: String): WMSDocument
   wmsDocumentPdf(id: ID!): String
@@ -5543,7 +5544,7 @@ type VoucherUpdate {
   voucher: Voucher
 }
 
-type WMSDocPosition {
+type WMSDocPosition implements Node {
   id: ID!
   productVariant: ProductVariant!
   quantity: Int!
@@ -5591,7 +5592,7 @@ type WMSDocPositionUpdate {
   wMSDocPosition: WMSDocPosition
 }
 
-type WMSDocument {
+type WMSDocument implements Node {
   id: ID!
   createdAt: DateTime!
   updatedAt: DateTime!
