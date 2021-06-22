@@ -1766,10 +1766,6 @@ input DocumentInput {
   document: String
 }
 
-input DocumentTypeInput {
-  documentType: String
-}
-
 type Domain {
   host: String!
   sslEnabled: Boolean!
@@ -5052,10 +5048,6 @@ input StaffUserInput {
   search: String
 }
 
-input StatusInput {
-  status: String
-}
-
 type Stock implements Node {
   warehouse: Warehouse!
   productVariant: ProductVariant!
@@ -5646,8 +5638,8 @@ type WMSDocumentError {
 
 input WMSDocumentFilterInput {
   createdBy: CreatedByInput
-  documentType: DocumentTypeInput
-  status: StatusInput
+  documentType: [WMSDocumentTypeFilter]
+  status: [WMSDocumentStatusFilter]
   recipient: RecipientInput
 }
 
@@ -5664,6 +5656,19 @@ input WMSDocumentInput {
 enum WMSDocumentStatus {
   APPROVED
   DRAFT
+}
+
+enum WMSDocumentStatusFilter {
+  APPROVED
+  DRAFT
+}
+
+enum WMSDocumentTypeFilter {
+  GRN
+  GIN
+  IWM
+  FGTN
+  IO
 }
 
 type WMSDocumentUpdate {

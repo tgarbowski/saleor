@@ -1,15 +1,18 @@
 import django_filters
 import graphene
 
-from saleor.wms import models
-
-from saleor.graphql.core.filters import ObjectTypeFilter
-
+from .enums import WMSDocumentStatusFilter, WMSDocumentTypeFilter
+from saleor.graphql.core.filters import ListObjectTypeFilter, ObjectTypeFilter
 from saleor.graphql.core.types import FilterInputObjectType
+from saleor.wms import models
 
 
 def filter_document_type(qs, _, value):
-    return qs.filter(document_type=value.get("document_type"))
+    #return qs.filter(document_type=value.get("document_type"))
+    query_objects = qs.none()
+    if value:
+        query_objects |= qs.filter(document_type__in=value)
+    return query_objects
 
 
 def filter_created_by(qs, _, value):
@@ -17,7 +20,10 @@ def filter_created_by(qs, _, value):
 
 
 def filter_status(qs, _, value):
-    return qs.filter(status=value.get("status"))
+    query_objects = qs.none()
+    if value:
+        query_objects |= qs.filter(status__in=value)
+    return query_objects
 
 
 def filter_recipient(qs, _, value):
@@ -49,9 +55,9 @@ class DocumentInput(graphene.InputObjectType):
 
 
 class WMSDocumentFilter(django_filters.FilterSet):
-    document_type = ObjectTypeFilter(input_class=DocumentTypeInput, method=filter_document_type)
+    document_type = ListObjectTypeFilter(input_class=WMSDocumentTypeFilter, method=filter_document_type)
     created_by = ObjectTypeFilter(input_class=CreatedByInput, method=filter_created_by)
-    status = ObjectTypeFilter(input_class=StatusInput, method=filter_status)
+    status = ListObjectTypeFilter(input_class=WMSDocumentStatusFilter, method=filter_status)
     recipient = ObjectTypeFilter(input_class=RecipientInput, method=filter_recipient)
 
     class Meta:
