@@ -21,7 +21,7 @@ class WMSDocumentCreate(ModelMutation):
         model = models.WMSDocument
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = WMSDocumentError
-        error_type_field = "product_errors"
+        error_type_field = "wms_errors"
 
     @classmethod
     def save(cls, info, instance, cleaned_input):
@@ -63,7 +63,7 @@ class WMSDocumentUpdate(ModelMutation):
         model = models.WMSDocument
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = WMSDocumentError
-        error_type_field = "product_errors"
+        error_type_field = "wms_errors"
 
 
 class WMSDocumentDelete(ModelDeleteMutation):
@@ -77,7 +77,7 @@ class WMSDocumentDelete(ModelDeleteMutation):
         model = models.WMSDocument
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = WMSDocumentError
-        error_type_field = "wmsdocument_errors"
+        error_type_field = "wms_errors"
 
     @classmethod
     def perform_mutation(cls, _root, info, **data):
@@ -106,7 +106,7 @@ class WMSDocPositionCreate(ModelMutation):
         model = models.WMSDocPosition
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = WMSDocumentError
-        error_type_field = "product_errors"
+        error_type_field = "wms_errors"
 
     @classmethod
     def save(cls, info, instance, cleaned_input):
@@ -134,7 +134,7 @@ class WMSDocPositionUpdate(WMSDocPositionCreate):
         model = models.WMSDocPosition
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = WMSDocumentError
-        error_type_field = "product_errors"
+        error_type_field = "wms_errors"
 
 
 class WMSDocPositionDelete(ModelDeleteMutation):
@@ -148,7 +148,7 @@ class WMSDocPositionDelete(ModelDeleteMutation):
         model = models.WMSDocPosition
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = WMSDocumentError
-        error_type_field = "wmsdocument_errors"
+        error_type_field = "wms_errors"
 
     @classmethod
     def perform_mutation(cls, _root, info, **data):

@@ -5564,13 +5564,13 @@ type WMSDocPositionCountableEdge {
 
 type WMSDocPositionCreate {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  productErrors: [WMSDocumentError!]!
+  wmsErrors: [WMSDocumentError!]!
   wMSDocPosition: WMSDocPosition
 }
 
 type WMSDocPositionDelete {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsdocumentErrors: [WMSDocumentError!]!
+  wmsErrors: [WMSDocumentError!]!
   wMSDocPosition: WMSDocPosition
 }
 
@@ -5587,7 +5587,7 @@ input WMSDocPositionInput {
 
 type WMSDocPositionUpdate {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  productErrors: [WMSDocumentError!]!
+  wmsErrors: [WMSDocumentError!]!
   wMSDocPosition: WMSDocPosition
 }
 
@@ -5618,13 +5618,13 @@ type WMSDocumentCountableEdge {
 
 type WMSDocumentCreate {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  productErrors: [WMSDocumentError!]!
+  wmsErrors: [WMSDocumentError!]!
   wMSDocument: WMSDocument
 }
 
 type WMSDocumentDelete {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsdocumentErrors: [WMSDocumentError!]!
+  wmsErrors: [WMSDocumentError!]!
   wMSDocument: WMSDocument
 }
 
@@ -5639,7 +5639,8 @@ enum WMSDocumentDocumentType {
 type WMSDocumentError {
   field: String
   message: String
-  code: ProductErrorCode!
+  code: WMSErrorCode!
+  attributes: [ID!]
 }
 
 input WMSDocumentFilterInput {
@@ -5666,8 +5667,16 @@ enum WMSDocumentStatus {
 
 type WMSDocumentUpdate {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  productErrors: [WMSDocumentError!]!
+  wmsErrors: [WMSDocumentError!]!
   wMSDocument: WMSDocument
+}
+
+enum WMSErrorCode {
+  GRAPHQL_ERROR
+  INVALID
+  NOT_FOUND
+  REQUIRED
+  UNIQUE
 }
 
 type Warehouse implements Node {
