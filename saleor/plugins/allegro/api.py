@@ -293,7 +293,7 @@ class AllegroAPI:
 
         return response
 
-    def valid_offer(self, offer_id):
+    def get_offer(self, offer_id):
         endpoint = 'sale/offers/' + offer_id
 
         response = self.get_request(endpoint)
