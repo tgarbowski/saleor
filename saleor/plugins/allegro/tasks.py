@@ -162,15 +162,21 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
 
 
 @app.task()
-def update_published_offers_parameters(limit, offset):
+def update_published_offers_parameters(category_slugs, limit, offset):
     config = get_plugin_configuration()
     allegro_api = AllegroAPI(config['token_value'], config['env'])
+    category_slugs = category_slugs.split(',')
+
+    if len(category_slugs) == 1:
+        category_slugs = (category_slugs[0],)
+    else:
+        category_slugs = tuple(category_slugs)
 
     products = Category.objects.raw('''
         with recursive categories as (
             select  id, "name", parent_id, "level"
             from product_category
-            where slug in ('dziecko-odziez-niemowleca', 'dziecko-odziez-dziecieca', 'dziecko-bielizna-dziecieca')
+            where slug in %s
             union all
             select pc.id, pc.name, pc.parent_id, pc."level"
             from categories c, product_category pc
@@ -181,14 +187,14 @@ def update_published_offers_parameters(limit, offset):
         order by id
         limit %s
         offset %s
-    ''', [limit, offset])
+    ''', [category_slugs, limit, offset])
 
     products_ids = []
 
     for product in products:
         products_ids.append(product.id)
 
-    products = Product.objects.filter(id__in=products_ids)
+    products = Product.objects.select_related('product_type').filter(id__in=products_ids)
     allowed_statuses = ['ACTIVE', 'ACTIVATING']
 
     for product in products:
