@@ -163,15 +163,12 @@ class BaseMetadataMutation(BaseMutation):
                 product.save()
 
     @classmethod
-    def assign_photos_from_products_to_megapack(cls, instance, items):
-        product_variants = ProductVariant.objects.select_related('product').filter(sku__in=items)
+    def assign_photos_from_products_to_megapack(cls, instance):
+        valid_skus = instance.private_metadata.get('skus')
+        product_variants = ProductVariant.objects.select_related('product').filter(sku__in=valid_skus)
         collage_images = []
         # Remove existing megapack images
         ProductImage.objects.filter(product=instance.pk).delete()
-        # Filter products without bundle.id
-        product_variants = [product_variant for product_variant in product_variants
-                            if 'bundle.id' not in product_variant.product.metadata
-                            or not product_variant.product.metadata['bundle.id']]
         # Create images
         step = int(len(product_variants) / 12)
         if step == 0: step = 1
@@ -415,11 +412,11 @@ class UpdatePrivateMetadata(BaseMetadataMutation):
                 products_sold_in_allegro = cls.bulk_allegro_offers_unpublish(items)
                 data = cls.delete_products_sold_from_data(items, products_sold_in_allegro)
                 cls.clear_bundle_id_for_removed_products(instance, data)
-                cls.assign_photos_from_products_to_megapack(instance, data)
                 cls.assign_sku_to_metadata_bundle_id(instance, data)
                 cls.assign_bundle_content_to_product(instance)
                 cls.create_description_json_for_megapack(instance)
                 cls.save_megapack_with_valid_products(instance, data)
+                cls.assign_photos_from_products_to_megapack(instance)
                 cls.validate_mega_pack(instance, data, products_sold_in_allegro)
             if 'skus' not in items:
                 instance.store_value_in_private_metadata(items=items)
