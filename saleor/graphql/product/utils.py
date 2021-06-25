@@ -321,7 +321,7 @@ def generate_description_json_for_megapack(bundle_content):
 
     list_fragment = {"key": generate_key_id(), "data": {}, "type": "unordered-list-item",
                      'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
-    list_fragment["text"] = f'  razem: {products_amount} szt., {products_weight} kg'
+    list_fragment["text"] = f'  razem: {products_amount} szt., {round(products_weight, 2)} kg'
     blocks.append(list_fragment)
 
     description_json["blocks"] = blocks
