@@ -6,7 +6,7 @@ from ...celeryconf import app
 from .api import AllegroAPI
 from .enums import AllegroErrors
 from .utils import email_errors, get_plugin_configuration, email_bulk_unpublish_message
-from saleor.product.models import Product
+from saleor.product.models import Category, Product
 from saleor.plugins.allegro import ProductPublishState
 
 logger = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
                 # Save offer-product connection errors
                 allegro_api_instance.error_handling_product(allegro_product, saleor_product)
                 # Validate final offer
-                offer = allegro_api_instance.valid_offer(offer_id)
+                offer = allegro_api_instance.get_offer(offer_id)
                 allegro_api_instance.error_handling(offer, saleor_product, ProductPublishState)
             else:
                 allegro_api_instance.error_handling_product(propose_product, saleor_product)
@@ -132,7 +132,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
 
             description = offer_update.get('description')
             logger.info('Offer update: ' + str(product.get('external').get('id')) + str(offer_update))
-            offer = allegro_api_instance.valid_offer(offer_id)
+            offer = allegro_api_instance.get_offer(offer_id)
             err_handling_response = allegro_api_instance.error_handling(offer, saleor_product, ProductPublishState)
             # If must_assign_offer_to_product create new product and assign to offer
             if err_handling_response == 'must_assign_offer_to_product':
@@ -153,9 +153,70 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
                         description=description)
                     allegro_api_instance.error_handling_product(allegro_product, saleor_product)
                     # Validate final offer
-                    offer = allegro_api_instance.valid_offer(offer_id)
+                    offer = allegro_api_instance.get_offer(offer_id)
                     allegro_api_instance.error_handling(offer, saleor_product, ProductPublishState)
                 else:
                     allegro_api_instance.error_handling_product(propose_product, saleor_product)
 
     if products_bulk_ids: email_errors(products_bulk_ids)
+
+
+@app.task()
+def update_published_offers_parameters(category_slugs, limit, offset):
+    config = get_plugin_configuration()
+    allegro_api = AllegroAPI(config['token_value'], config['env'])
+    category_slugs = category_slugs.split(',')
+
+    if len(category_slugs) == 1:
+        category_slugs = (category_slugs[0],)
+    else:
+        category_slugs = tuple(category_slugs)
+
+    products = Category.objects.raw('''
+        with recursive categories as (
+            select  id, "name", parent_id, "level"
+            from product_category
+            where slug in %s
+            union all
+            select pc.id, pc.name, pc.parent_id, pc."level"
+            from categories c, product_category pc
+            where pc.parent_id = c.id
+        )
+        select * from product_product pp where category_id in (select id from categories)
+        and private_metadata->>'publish.allegro.status'='published'
+        order by id
+        limit %s
+        offset %s
+    ''', [category_slugs, limit, offset])
+
+    products_ids = []
+
+    for product in products:
+        products_ids.append(product.id)
+
+    products = Product.objects.select_related('product_type').filter(id__in=products_ids)
+    allowed_statuses = ['ACTIVE', 'ACTIVATING']
+
+    for product in products:
+        offer_id = product.private_metadata.get('publish.allegro.id')
+
+        if offer_id:
+            allegro_offer = allegro_api.get_offer(offer_id)
+            try:
+                allegro_status = allegro_offer.get('publication').get('status')
+            except AttributeError:
+                logger.info(f'No offer found for product {product.id}')
+                continue
+            if allegro_offer.get('errors') is None and allegro_status in allowed_statuses:
+                parameters = allegro_api.prepare_product_parameters(product, 'required')
+                allegro_offer['parameters'] = parameters
+                offer_update = allegro_api.update_allegro_offer(
+                    allegro_product=allegro_offer,
+                    allegro_id=offer_id
+                )
+                if offer_update.get('errors'):
+                    logger.info(f'Offer parameters update errors: {offer_update["errors"]}')
+            else:
+                logger.info(f'No offer found or offer not active/draft for product {product.id}')
+        else:
+            logger.info(f'publish.allegro.id is empty for product {product.id}')
