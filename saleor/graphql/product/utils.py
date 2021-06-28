@@ -270,6 +270,8 @@ def create_collage(images, product):
 
 
 def create_warehouse_locations_matrix(warehouse_from, warehouse_to):
+    warehouse_to = warehouse_to.strip()
+    warehouse_from = warehouse_from.strip()
     warehouse_from_location = re.findall(r'\d+', warehouse_from)
     warehouse_to_location = re.findall(r'\d+', warehouse_to)
     warehouse_locations = [[]]
