@@ -4,6 +4,7 @@ from django.utils.translation import gettext_lazy as _
 from saleor.product.models import ProductVariant
 from saleor.account.models import User
 from saleor.warehouse.models import Warehouse
+from saleor.core.permissions import WMSPermissions
 
 
 class WMSDocument(models.Model):
@@ -48,6 +49,11 @@ class WMSDocument(models.Model):
     deliverer = models.JSONField(blank=True, null=True)
     number = models.CharField(max_length=255, unique=True, blank=True)
     status = models.CharField(max_length=20, choices=DocumentStatuses.choices, default='DRAFT')
+
+    class Meta:
+        permissions = (
+            (WMSPermissions.MANAGE_WMS.codename, "Manage wms."),
+        )
 
     def __repr__(self):
         class_ = type(self)
