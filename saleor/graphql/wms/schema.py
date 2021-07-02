@@ -1,41 +1,41 @@
 import graphene
 
-from ...core.permissions import WMSPermissions
+from ...core.permissions import ProductPermissions
 from ..decorators import permission_required
-from .mutations import (WMSDocumentCreate, WMSDocumentUpdate, WMSDocPositionCreate,
-                        WMSDocPositionUpdate, WMSDocumentDelete, WMSDocPositionDelete)
+from .mutations import (WmsDocumentCreate, WmsDocumentUpdate, WmsDocPositionCreate,
+                        WmsDocPositionUpdate, WmsDocumentDelete, WmsDocPositionDelete)
 
 from saleor.wms import models
 from saleor.graphql.core.fields import FilterInputConnectionField
-from saleor.graphql.wms.filters import WMSDocumentFilterInput
+from saleor.graphql.wms.filters import WmsDocumentFilterInput
 from saleor.graphql.wms.resolvers import (resolve_wms_documents, resolve_wms_document,
                                           resolve_wms_doc_positions, resolve_wms_document_pdf,
                                           resolve_wms_actions_report, resolve_wms_products_report,
                                           resolve_wms_doc_position)
-from .types import WMSDocPosition, WMSDocument
-from .filters import WMSDocPositionFilterInput
+from .types import WmsDocPosition, WmsDocument
+from .filters import WmsDocPositionFilterInput
 from graphene.types.generic import GenericScalar
 
 
-class WMSDocumentMutations(graphene.ObjectType):
+class WmsDocumentMutations(graphene.ObjectType):
     # Documents
-    wmsdocument_create = WMSDocumentCreate.Field()
-    wmsdocument_update = WMSDocumentUpdate.Field()
-    wms_document_delete = WMSDocumentDelete.Field()
+    wms_document_create = WmsDocumentCreate.Field()
+    wms_document_update = WmsDocumentUpdate.Field()
+    wms_document_delete = WmsDocumentDelete.Field()
     # Document positions
-    wmsdocposition_create = WMSDocPositionCreate.Field()
-    wmsdocposition_update = WMSDocPositionUpdate.Field()
-    wms_doc_position_delete = WMSDocPositionDelete.Field()
+    wms_doc_position_create = WmsDocPositionCreate.Field()
+    wms_doc_position_update = WmsDocPositionUpdate.Field()
+    wms_doc_position_delete = WmsDocPositionDelete.Field()
 
 
-class WMSDocumentQueries(graphene.ObjectType):
+class WmsDocumentQueries(graphene.ObjectType):
     wms_documents = FilterInputConnectionField(
-        WMSDocument,
-        filter=WMSDocumentFilterInput(description="Filtering wms documents"),
+        WmsDocument,
+        filter=WmsDocumentFilterInput(description="Filtering wms documents"),
         description="List of wms documents"
     )
     wms_document = graphene.Field(
-        WMSDocument,
+        WmsDocument,
         id=graphene.Argument(graphene.ID, description="ID of the wms document.",),
         number=graphene.Argument(graphene.String, description="Number of the wms document"),
         description="Look up a wms document by id or number.",
@@ -54,45 +54,45 @@ class WMSDocumentQueries(graphene.ObjectType):
         endDate=graphene.Argument(graphene.Date, required=True)
     )
 
-    @permission_required(WMSPermissions.MANAGE_WMS)
+    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
     def resolve_wms_documents(self, info, **kwargs):
         return resolve_wms_documents(info, **kwargs)
 
-    @permission_required(WMSPermissions.MANAGE_WMS)
+    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
     def resolve_wms_document(self, info, **kwargs):
         return resolve_wms_document(info, **kwargs)
 
-    @permission_required(WMSPermissions.MANAGE_WMS)
+    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
     def resolve_wms_document_pdf(self, info, **kwargs):
         return resolve_wms_document_pdf(info, **kwargs)
 
-    @permission_required(WMSPermissions.MANAGE_WMS)
+    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
     def resolve_wms_actions_report(self, info, **kwargs):
         return resolve_wms_actions_report(info, **kwargs)
 
-    @permission_required(WMSPermissions.MANAGE_WMS)
+    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
     def resolve_wms_products_report(self, info, **kwargs):
         return resolve_wms_products_report(info, **kwargs)
 
 
-class WMSDocPositionQueries(graphene.ObjectType):
+class WmsDocPositionQueries(graphene.ObjectType):
     wms_doc_positions = FilterInputConnectionField(
-        WMSDocPosition,
-        filter=WMSDocPositionFilterInput(description="Filtering wms document positions"),
+        WmsDocPosition,
+        filter=WmsDocPositionFilterInput(description="Filtering wms document positions"),
         description="List of wms document positions"
     )
 
     wms_doc_position = graphene.Field(
-        WMSDocPosition,
+        WmsDocPosition,
         id=graphene.Argument(graphene.ID, description="ID of the wms document."),
         description="Look up a wms document position by id",
     )
 
-    @permission_required(WMSPermissions.MANAGE_WMS)
+    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
     def resolve_wms_doc_positions(self, info, **kwargs):
         return resolve_wms_doc_positions(info, **kwargs)
 
-    @permission_required(WMSPermissions.MANAGE_WMS)
+    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
     def resolve_wms_doc_position(self, info, **kwargs):
         return resolve_wms_doc_position(info, **kwargs)
 

@@ -2,39 +2,39 @@ import graphene
 
 from django.core.exceptions import ValidationError
 from saleor.graphql.core.mutations import ModelDeleteMutation, ModelMutation
-from .types import WMSDocumentInput, WMSDocPositionInput
+from .types import WmsDocumentInput, WmsDocPositionInput
 from saleor.wms import models
 from saleor.core.permissions import ProductPermissions
-from saleor.graphql.core.types.common import WMSDocumentError
+from saleor.graphql.core.types.common import WmsDocumentError
 from saleor.core.exceptions import PermissionDenied
 from saleor.plugins.manager import get_plugins_manager
 
 
-class WMSDocumentCreate(ModelMutation):
+class WmsDocumentCreate(ModelMutation):
     class Arguments:
-        input = WMSDocumentInput(
+        input = WmsDocumentInput(
             required=True, description="Fields required to create a WMS document."
         )
 
     class Meta:
         description = "Creates a new WMS document."
-        model = models.WMSDocument
+        model = models.WmsDocument
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
-        error_type_class = WMSDocumentError
+        error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
 
     @classmethod
     def save(cls, info, instance, cleaned_input):
-        document_number = WMSDocumentCreate.create_document_number(instance.document_type)
+        document_number = WmsDocumentCreate.create_document_number(instance.document_type)
         instance.number = document_number
         instance.save()
 
     @staticmethod
     def create_document_number(document_type):
-        configuration = WMSDocumentCreate.get_plugin_config('WMS')
+        configuration = WmsDocumentCreate.get_plugin_config('WMS')
         user_document_type = configuration.get(document_type)
 
-        last_document = models.WMSDocument.objects.filter(document_type=document_type).order_by('id').last()
+        last_document = models.WmsDocument.objects.filter(document_type=document_type).order_by('id').last()
         if not last_document:
             return f'{user_document_type}1'
         last_document_number = last_document.number
@@ -51,22 +51,22 @@ class WMSDocumentCreate(ModelMutation):
         return configuration
 
 
-class WMSDocumentUpdate(ModelMutation):
+class WmsDocumentUpdate(ModelMutation):
     class Arguments:
-        id = graphene.ID(required=True, description="ID of a WMSDocument to update.")
-        input = WMSDocumentInput(
-            required=True, description="Fields required to update a WMSDocument."
+        id = graphene.ID(required=True, description="ID of a WmsDocument to update.")
+        input = WmsDocumentInput(
+            required=True, description="Fields required to update a WmsDocument."
         )
 
     class Meta:
-        description = "Updates an existing WMS document."
-        model = models.WMSDocument
+        description = "Updates an existing Wms document."
+        model = models.WmsDocument
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
-        error_type_class = WMSDocumentError
+        error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
 
 
-class WMSDocumentDelete(ModelDeleteMutation):
+class WmsDocumentDelete(ModelDeleteMutation):
     class Arguments:
         id = graphene.ID(
             required=True, description="ID of a wms document to delete."
@@ -74,23 +74,23 @@ class WMSDocumentDelete(ModelDeleteMutation):
 
     class Meta:
         description = "Deletes a wms document."
-        model = models.WMSDocument
+        model = models.WmsDocument
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
-        error_type_class = WMSDocumentError
+        error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
 
 
-class WMSDocPositionCreate(ModelMutation):
+class WmsDocPositionCreate(ModelMutation):
     class Arguments:
-        input = WMSDocPositionInput(
-            required=True, description="Fields required to create a WMS doc position."
+        input = WmsDocPositionInput(
+            required=True, description="Fields required to create a wms doc position."
         )
 
     class Meta:
-        description = "Creates a new WMS doc position."
-        model = models.WMSDocPosition
+        description = "Creates a new wms doc position."
+        model = models.WmsDocPosition
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
-        error_type_class = WMSDocumentError
+        error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
 
     @classmethod
@@ -107,22 +107,22 @@ class WMSDocPositionCreate(ModelMutation):
         instance.save()
 
 
-class WMSDocPositionUpdate(WMSDocPositionCreate):
+class WmsDocPositionUpdate(WmsDocPositionCreate):
     class Arguments:
-        id = graphene.ID(required=True, description="ID of a WMS doc position to update.")
-        input = WMSDocPositionInput(
-            required=True, description="Fields required to update a WMS doc position."
+        id = graphene.ID(required=True, description="ID of a wms doc position to update.")
+        input = WmsDocPositionInput(
+            required=True, description="Fields required to update a wms doc position."
         )
 
     class Meta:
-        description = "Updates an existing WMS doc position."
-        model = models.WMSDocPosition
+        description = "Updates an existing wms doc position."
+        model = models.WmsDocPosition
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
-        error_type_class = WMSDocumentError
+        error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
 
 
-class WMSDocPositionDelete(ModelDeleteMutation):
+class WmsDocPositionDelete(ModelDeleteMutation):
     class Arguments:
         id = graphene.ID(
             required=True, description="ID of a wms document position to delete."
@@ -130,7 +130,7 @@ class WMSDocPositionDelete(ModelDeleteMutation):
 
     class Meta:
         description = "Deletes a wms document position."
-        model = models.WMSDocPosition
+        model = models.WmsDocPosition
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
-        error_type_class = WMSDocumentError
+        error_type_class = WmsDocumentError
         error_type_field = "wms_errors"

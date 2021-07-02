@@ -2587,12 +2587,12 @@ input MoveProductInput {
 }
 
 type Mutation {
-  wmsdocumentCreate(input: WMSDocumentInput!): WMSDocumentCreate
-  wmsdocumentUpdate(id: ID!, input: WMSDocumentInput!): WMSDocumentUpdate
-  wmsDocumentDelete(id: ID!): WMSDocumentDelete
-  wmsdocpositionCreate(input: WMSDocPositionInput!): WMSDocPositionCreate
-  wmsdocpositionUpdate(id: ID!, input: WMSDocPositionInput!): WMSDocPositionUpdate
-  wmsDocPositionDelete(id: ID!): WMSDocPositionDelete
+  wmsDocumentCreate(input: WmsDocumentInput!): WmsDocumentCreate
+  wmsDocumentUpdate(id: ID!, input: WmsDocumentInput!): WmsDocumentUpdate
+  wmsDocumentDelete(id: ID!): WmsDocumentDelete
+  wmsDocPositionCreate(input: WmsDocPositionInput!): WmsDocPositionCreate
+  wmsDocPositionUpdate(id: ID!, input: WmsDocPositionInput!): WmsDocPositionUpdate
+  wmsDocPositionDelete(id: ID!): WmsDocPositionDelete
   webhookCreate(input: WebhookCreateInput!): WebhookCreate
   webhookDelete(id: ID!): WebhookDelete
   webhookUpdate(id: ID!, input: WebhookUpdateInput!): WebhookUpdate
@@ -4333,10 +4333,10 @@ type ProductVariantUpdatePrivateMeta {
 }
 
 type Query {
-  wmsDocPositions(filter: WMSDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WMSDocPositionCountableConnection
-  wmsDocPosition(id: ID): WMSDocPosition
-  wmsDocuments(filter: WMSDocumentFilterInput, before: String, after: String, first: Int, last: Int): WMSDocumentCountableConnection
-  wmsDocument(id: ID, number: String): WMSDocument
+  wmsDocPositions(filter: WmsDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WmsDocPositionCountableConnection
+  wmsDocPosition(id: ID): WmsDocPosition
+  wmsDocuments(filter: WmsDocumentFilterInput, before: String, after: String, first: Int, last: Int): WmsDocumentCountableConnection
+  wmsDocument(id: ID, number: String): WmsDocument
   wmsDocumentPdf(id: ID!): String
   wmsActionsReport(startDate: Date!, endDate: Date!): GenericScalar
   wmsProductsReport(startDate: Date!, endDate: Date!): GenericScalar
@@ -5537,155 +5537,6 @@ type VoucherUpdate {
   voucher: Voucher
 }
 
-type WMSDocPosition implements Node {
-  id: ID!
-  productVariant: ProductVariant!
-  quantity: Int!
-  weight: Float!
-  document: WMSDocument!
-}
-
-type WMSDocPositionCountableConnection {
-  pageInfo: PageInfo!
-  edges: [WMSDocPositionCountableEdge!]!
-  totalCount: Int
-}
-
-type WMSDocPositionCountableEdge {
-  node: WMSDocPosition!
-  cursor: String!
-}
-
-type WMSDocPositionCreate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WMSDocumentError!]!
-  wMSDocPosition: WMSDocPosition
-}
-
-type WMSDocPositionDelete {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WMSDocumentError!]!
-  wMSDocPosition: WMSDocPosition
-}
-
-input WMSDocPositionFilterInput {
-  document: DocumentInput
-}
-
-input WMSDocPositionInput {
-  quantity: Int
-  weight: Float
-  document: ID
-  productVariant: ID
-}
-
-type WMSDocPositionUpdate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WMSDocumentError!]!
-  wMSDocPosition: WMSDocPosition
-}
-
-type WMSDocument implements Node {
-  id: ID!
-  createdAt: DateTime!
-  updatedAt: DateTime!
-  warehouse: Warehouse!
-  warehouseSecond: Warehouse
-  documentType: WMSDocumentDocumentType!
-  createdBy: User
-  recipient: User
-  deliverer: JSONString
-  number: String!
-  status: WMSDocumentStatus!
-}
-
-type WMSDocumentCountableConnection {
-  pageInfo: PageInfo!
-  edges: [WMSDocumentCountableEdge!]!
-  totalCount: Int
-}
-
-type WMSDocumentCountableEdge {
-  node: WMSDocument!
-  cursor: String!
-}
-
-type WMSDocumentCreate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WMSDocumentError!]!
-  wMSDocument: WMSDocument
-}
-
-type WMSDocumentDelete {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WMSDocumentError!]!
-  wMSDocument: WMSDocument
-}
-
-enum WMSDocumentDocumentType {
-  GRN
-  GIN
-  IWM
-  FGTN
-  IO
-}
-
-type WMSDocumentError {
-  field: String
-  message: String
-  code: WMSErrorCode!
-  attributes: [ID!]
-}
-
-input WMSDocumentFilterInput {
-  createdBy: CreatedByInput
-  documentType: [WMSDocumentTypeFilter]
-  status: [WMSDocumentStatusFilter]
-  recipient: RecipientInput
-}
-
-input WMSDocumentInput {
-  documentType: String
-  deliverer: JSONString
-  status: String
-  recipient: ID
-  createdBy: ID
-  warehouse: ID
-  warehouseSecond: ID
-}
-
-enum WMSDocumentStatus {
-  APPROVED
-  DRAFT
-}
-
-enum WMSDocumentStatusFilter {
-  APPROVED
-  DRAFT
-}
-
-enum WMSDocumentTypeFilter {
-  GRN
-  GIN
-  IWM
-  FGTN
-  IO
-}
-
-type WMSDocumentUpdate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WMSDocumentError!]!
-  wMSDocument: WMSDocument
-}
-
-enum WMSErrorCode {
-  GRAPHQL_ERROR
-  INVALID
-  NOT_FOUND
-  REQUIRED
-  UNIQUE
-}
-
 type Warehouse implements Node {
   id: ID!
   name: String!
@@ -5946,9 +5797,158 @@ enum WeightUnitsEnum {
   G
 }
 
+type WmsDocPosition implements Node {
+  id: ID!
+  productVariant: ProductVariant!
+  quantity: Int!
+  weight: Float!
+  document: WmsDocument!
+}
+
+type WmsDocPositionCountableConnection {
+  pageInfo: PageInfo!
+  edges: [WmsDocPositionCountableEdge!]!
+  totalCount: Int
+}
+
+type WmsDocPositionCountableEdge {
+  node: WmsDocPosition!
+  cursor: String!
+}
+
+type WmsDocPositionCreate {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsErrors: [WmsDocumentError!]!
+  wmsDocPosition: WmsDocPosition
+}
+
+type WmsDocPositionDelete {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsErrors: [WmsDocumentError!]!
+  wmsDocPosition: WmsDocPosition
+}
+
+input WmsDocPositionFilterInput {
+  document: DocumentInput
+}
+
+input WmsDocPositionInput {
+  quantity: Int
+  weight: Float
+  document: ID
+  productVariant: ID
+}
+
+type WmsDocPositionUpdate {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsErrors: [WmsDocumentError!]!
+  wmsDocPosition: WmsDocPosition
+}
+
+type WmsDocument implements Node {
+  id: ID!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  warehouse: Warehouse!
+  warehouseSecond: Warehouse
+  documentType: WmsDocumentDocumentType!
+  createdBy: User
+  recipient: User
+  deliverer: JSONString
+  number: String!
+  status: WmsDocumentStatus!
+}
+
+type WmsDocumentCountableConnection {
+  pageInfo: PageInfo!
+  edges: [WmsDocumentCountableEdge!]!
+  totalCount: Int
+}
+
+type WmsDocumentCountableEdge {
+  node: WmsDocument!
+  cursor: String!
+}
+
+type WmsDocumentCreate {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsErrors: [WmsDocumentError!]!
+  wmsDocument: WmsDocument
+}
+
+type WmsDocumentDelete {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsErrors: [WmsDocumentError!]!
+  wmsDocument: WmsDocument
+}
+
+enum WmsDocumentDocumentType {
+  GRN
+  GIN
+  IWM
+  FGTN
+  IO
+}
+
+type WmsDocumentError {
+  field: String
+  message: String
+  code: WmsErrorCode!
+  attributes: [ID!]
+}
+
+input WmsDocumentFilterInput {
+  createdBy: CreatedByInput
+  documentType: [WmsDocumentTypeFilter]
+  status: [WmsDocumentStatusFilter]
+  recipient: RecipientInput
+}
+
+input WmsDocumentInput {
+  documentType: String
+  deliverer: JSONString
+  status: String
+  recipient: ID
+  createdBy: ID
+  warehouse: ID
+  warehouseSecond: ID
+}
+
+enum WmsDocumentStatus {
+  APPROVED
+  DRAFT
+}
+
+enum WmsDocumentStatusFilter {
+  APPROVED
+  DRAFT
+}
+
+enum WmsDocumentTypeFilter {
+  GRN
+  GIN
+  IWM
+  FGTN
+  IO
+}
+
+type WmsDocumentUpdate {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsErrors: [WmsDocumentError!]!
+  wmsDocument: WmsDocument
+}
+
+enum WmsErrorCode {
+  GRAPHQL_ERROR
+  INVALID
+  NOT_FOUND
+  REQUIRED
+  UNIQUE
+}
+
 scalar _Any
 
-union _Entity = Address | User | Group | ServiceAccount | App | ProductVariant | Product | ProductType | Collection | Category | ProductImage | WMSDocument | WMSDocPosition
+union _Entity = Address | User | Group | ServiceAccount | App | ProductVariant | Product | ProductType | Collection | Category | ProductImage | WmsDocument | WmsDocPosition
 
 type _Service {
   sdl: String

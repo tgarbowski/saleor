@@ -7,7 +7,7 @@ from saleor.warehouse.models import Warehouse
 from saleor.core.permissions import WMSPermissions
 
 
-class WMSDocument(models.Model):
+class WmsDocument(models.Model):
 
     class DocumentTypes(models.TextChoices):
         GOODS_RECEIVED_NOTE = "GRN", _("Goods_received_note")
@@ -68,14 +68,14 @@ class WMSDocument(models.Model):
         return self.number or str(self.pk)
 
 
-class WMSDocPosition(models.Model):
+class WmsDocPosition(models.Model):
     product_variant = models.ForeignKey(
         ProductVariant, related_name="wms_doc_position", on_delete=models.DO_NOTHING
     )
     quantity = models.IntegerField(default=0)
     weight = models.FloatField(default=0)
     document = models.ForeignKey(
-        WMSDocument, related_name="wms_doc_position", on_delete=models.CASCADE
+        WmsDocument, related_name="wms_doc_position", on_delete=models.CASCADE
     )
 
     def __repr__(self):

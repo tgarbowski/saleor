@@ -1,31 +1,31 @@
 import graphene
 
 from saleor.wms import models
-from .types import WMSDocPosition, WMSDocument
+from .types import WmsDocPosition, WmsDocument
 from .utils import create_pdf_document, wms_products_report, wms_actions_report
 
 
 def resolve_wms_documents(info, **_kwargs):
-    qs = models.WMSDocument.objects.all()
+    qs = models.WmsDocument.objects.all()
     return qs
 
 
 def resolve_wms_document(info, **_kwargs):
     if "number" in _kwargs:
-        qs = models.WMSDocument.objects.filter(number=_kwargs.get("number")).first()
+        qs = models.WmsDocument.objects.filter(number=_kwargs.get("number")).first()
     if "id" in _kwargs:
-        qs = graphene.Node.get_node_from_global_id(info, _kwargs['id'], WMSDocument)
+        qs = graphene.Node.get_node_from_global_id(info, _kwargs['id'], WmsDocument)
     return qs
 
 
 def resolve_wms_doc_positions(info, **_kwargs):
-    qs = models.WMSDocPosition.objects.select_related('document').all()
+    qs = models.WmsDocPosition.objects.select_related('document').all()
 
     return qs
 
 
 def resolve_wms_doc_position(info, **_kwargs):
-    return graphene.Node.get_node_from_global_id(info, _kwargs['id'], WMSDocPosition)
+    return graphene.Node.get_node_from_global_id(info, _kwargs['id'], WmsDocPosition)
 
 
 def resolve_wms_document_pdf(info, **_kwargs):

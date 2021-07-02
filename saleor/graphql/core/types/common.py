@@ -28,7 +28,7 @@ from ..enums import (
     WebhookErrorCode,
     WeightUnitsEnum,
     WishlistErrorCode,
-    WMSDocumentErrorCode
+    WmsDocumentErrorCode
 )
 from .money import VAT
 
@@ -226,8 +226,8 @@ class WishlistError(Error):
     code = WishlistErrorCode(description="The error code.", required=True)
 
 
-class WMSDocumentError(Error):
-    code = WMSDocumentErrorCode(description="The error code.", required=True)
+class WmsDocumentError(Error):
+    code = WmsDocumentErrorCode(description="The error code.", required=True)
     attributes = graphene.List(
         graphene.NonNull(graphene.ID),
         description="List of attributes IDs which causes the error.",

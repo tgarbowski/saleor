@@ -3,7 +3,7 @@ import pytest
 
 from saleor.graphql.tests.utils import get_graphql_content
 from saleor.plugins.manager import PluginsManager
-from saleor.wms.models import WMSDocument, WMSDocPosition
+from saleor.wms.models import WmsDocument, WmsDocPosition
 
 QUERY_WMSDOCUMENT = """
     query ($id: ID, $number: String){
@@ -46,7 +46,7 @@ QUERY_FETCH_ALL_WMSDOCUMENTS = """
 """
 
 QUERY_WMSDOCUMENTS_WITH_FILTER = """
-    query ($filter: WMSDocumentFilterInput!, ) {
+    query ($filter: WmsDocumentFilterInput!, ) {
         wmsDocuments(first:5, filter: $filter) {
             totalCount
             edges{
@@ -60,9 +60,9 @@ QUERY_WMSDOCUMENTS_WITH_FILTER = """
 """
 
 MUTATION_CREATE_WMSDOCUMENT = """
-mutation WMSDocumentCreate($input: WMSDocumentInput!)  {
-    wmsdocumentCreate(input: $input) {
-        wMSDocument{
+mutation WmsDocumentCreate($input: WmsDocumentInput!)  {
+    wmsDocumentCreate(input: $input) {
+        wmsDocument{
             createdBy{
                 id
             }
@@ -90,9 +90,9 @@ mutation WMSDocumentCreate($input: WMSDocumentInput!)  {
 """
 
 MUTATION_UPDATE_WMSDOCUMENT = """
-mutation WMSDocumentUpdate($id: ID!, $input: WMSDocumentInput!) {
-    wmsdocumentUpdate(id: $id, input: $input){
-        wMSDocument {
+mutation WmsDocumentUpdate($id: ID!, $input: WmsDocumentInput!) {
+    wmsDocumentUpdate(id: $id, input: $input){
+        wmsDocument {
             documentType
             status
             number
@@ -107,9 +107,9 @@ mutation WMSDocumentUpdate($id: ID!, $input: WMSDocumentInput!) {
 """
 
 DELETE_WMSDOCUMENT_MUTATION = """
-    mutation WMSDocumentDelete($id: ID!) {
+    mutation WmsDocumentDelete($id: ID!) {
         wmsDocumentDelete(id: $id) {
-            wMSDocument {
+            wmsDocument {
                 id
                 number
             }
@@ -153,9 +153,9 @@ QUERY_FETCH_ALL_WMSDOCPOSITIONS = """
 """
 
 MUTATION_CREATE_WMSDOCPOSITION = """
-mutation WMSDocPositionCreate($input: WMSDocPositionInput!) {
-    wmsdocpositionCreate(input: $input){
-        wMSDocPosition {
+mutation WmsDocPositionCreate($input: WmsDocPositionInput!) {
+    wmsDocPositionCreate(input: $input){
+        wmsDocPosition {
             quantity
             weight
             productVariant {
@@ -175,9 +175,9 @@ mutation WMSDocPositionCreate($input: WMSDocPositionInput!) {
 """
 
 MUTATION_UPDATE_WMSDOCPOSITION = """
-mutation WMSDocPositionUpdate($id: ID!, $input: WMSDocPositionInput!) {
-    wmsdocpositionUpdate(id: $id, input: $input){
-        wMSDocPosition {
+mutation WmsDocPositionUpdate($id: ID!, $input: WmsDocPositionInput!) {
+    wmsDocPositionUpdate(id: $id, input: $input){
+        wmsDocPosition {
             quantity
             weight
             productVariant {
@@ -197,9 +197,9 @@ mutation WMSDocPositionUpdate($id: ID!, $input: WMSDocPositionInput!) {
 """
 
 DELETE_WMSDOCPOSITION_MUTATION = """
-    mutation WMSDocumentDelete($id: ID!) {
+    mutation WmsDocumentDelete($id: ID!) {
         wmsDocPositionDelete(id: $id) {
-            wMSDocPosition {
+            wmsDocPosition {
                 id
             }
             wmsErrors {
@@ -213,13 +213,13 @@ DELETE_WMSDOCPOSITION_MUTATION = """
 
 
 def test_wmsdocument_query_by_id(
-    staff_api_client, wms_document, permission_manage_wmsdocument
+    superuser_api_client, wms_document, permission_manage_wmsdocument
 ):
     # given
-    variables = {"id": graphene.Node.to_global_id("WMSDocument", wms_document.pk)}
-    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    variables = {"id": graphene.Node.to_global_id("WmsDocument", wms_document.pk)}
+    #staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
     # when
-    response = staff_api_client.post_graphql(QUERY_WMSDOCUMENT, variables=variables)
+    response = superuser_api_client.post_graphql(QUERY_WMSDOCUMENT, variables=variables)
 
     # then
     content = get_graphql_content(response)
@@ -242,7 +242,7 @@ def test_wmsdocument_query_by_number(
 def test_fetch_all_wmsdocuments(superuser_api_client):
     response = superuser_api_client.post_graphql(QUERY_FETCH_ALL_WMSDOCUMENTS)
     content = get_graphql_content(response)
-    num_wmsdocuments = WMSDocument.objects.count()
+    num_wmsdocuments = WmsDocument.objects.count()
     assert content["data"]["wmsDocuments"]["totalCount"] == num_wmsdocuments
     assert len(content["data"]["wmsDocuments"]["edges"]) == num_wmsdocuments
 
@@ -257,7 +257,7 @@ def test_wmsdocuments_query_with_filter(superuser_api_client, wms_document):
 
     response = superuser_api_client.post_graphql(QUERY_WMSDOCUMENTS_WITH_FILTER, variables)
     content = get_graphql_content(response)
-    first_wmsdocument_id = graphene.Node.to_global_id("WMSDocument", wms_document.pk)
+    first_wmsdocument_id = graphene.Node.to_global_id("WmsDocument", wms_document.pk)
     wmsdocuments = content["data"]["wmsDocuments"]["edges"]
 
     assert len(wmsdocuments) == 1
@@ -296,14 +296,14 @@ def test_create_wmsdocument(
         query, variables
     )
     content = get_graphql_content(response)
-    data = content["data"]["wmsdocumentCreate"]
+    data = content["data"]["wmsDocumentCreate"]
     assert data["wmsErrors"] == []
-    assert data["wMSDocument"]["status"] == "DRAFT"
-    assert data["wMSDocument"]["createdBy"]["id"] == createdby_id
-    assert data["wMSDocument"]["recipient"]["id"] == customer_user_id
-    assert data["wMSDocument"]["documentType"] == "GRN"
-    assert data["wMSDocument"]["warehouse"]["id"] == warehouse_id
-    assert data["wMSDocument"]["deliverer"] == deliverer
+    assert data["wmsDocument"]["status"] == "DRAFT"
+    assert data["wmsDocument"]["createdBy"]["id"] == createdby_id
+    assert data["wmsDocument"]["recipient"]["id"] == customer_user_id
+    assert data["wmsDocument"]["documentType"] == "GRN"
+    assert data["wmsDocument"]["warehouse"]["id"] == warehouse_id
+    assert data["wmsDocument"]["deliverer"] == deliverer
 
 
 def test_update_wmsdocument(
@@ -312,7 +312,7 @@ def test_update_wmsdocument(
 ):
     query = MUTATION_UPDATE_WMSDOCUMENT
 
-    wms_document_id = graphene.Node.to_global_id("WMSDocument", wms_document.pk)
+    wms_document_id = graphene.Node.to_global_id("WmsDocument", wms_document.pk)
     wms_document_type = "GIN"
 
     variables = {
@@ -326,32 +326,32 @@ def test_update_wmsdocument(
         query, variables
     )
     content = get_graphql_content(response)
-    data = content["data"]["wmsdocumentUpdate"]
+    data = content["data"]["wmsDocumentUpdate"]
     assert data["wmsErrors"] == []
-    assert data["wMSDocument"]["number"] == wms_document.number
-    assert data["wMSDocument"]["documentType"] == wms_document_type
+    assert data["wmsDocument"]["number"] == wms_document.number
+    assert data["wmsDocument"]["documentType"] == wms_document_type
 
 
 def test_delete_wmsdocument(superuser_api_client, wms_document):
     query = DELETE_WMSDOCUMENT_MUTATION
-    node_id = graphene.Node.to_global_id("WMSDocument", wms_document.id)
+    node_id = graphene.Node.to_global_id("WmsDocument", wms_document.id)
     variables = {"id": node_id}
     response = superuser_api_client.post_graphql(
         query, variables
     )
     content = get_graphql_content(response)
     data = content["data"]["wmsDocumentDelete"]
-    assert data["wMSDocument"]["number"] == wms_document.number
+    assert data["wmsDocument"]["number"] == wms_document.number
     with pytest.raises(wms_document._meta.model.DoesNotExist):
         wms_document.refresh_from_db()
-    assert node_id == data["wMSDocument"]["id"]
+    assert node_id == data["wmsDocument"]["id"]
 
 
 def test_wmsdocposition_query_by_id(
     superuser_api_client, wms_docposition,
 ):
 
-    wmsdocposition_id = graphene.Node.to_global_id("WMSDocPosition", wms_docposition.pk)
+    wmsdocposition_id = graphene.Node.to_global_id("WmsDocPosition", wms_docposition.pk)
 
     # given
     variables = {"id": wmsdocposition_id}
@@ -369,7 +369,7 @@ def test_wmsdocposition_query_by_id(
 def test_fetch_all_wmsdocpositions(superuser_api_client):
     response = superuser_api_client.post_graphql(QUERY_FETCH_ALL_WMSDOCPOSITIONS)
     content = get_graphql_content(response)
-    num_wmsdocpositions = WMSDocPosition.objects.count()
+    num_wmsdocpositions = WmsDocPosition.objects.count()
     assert content["data"]["wmsDocPositions"]["totalCount"] == num_wmsdocpositions
     assert len(content["data"]["wmsDocPositions"]["edges"]) == num_wmsdocpositions
 
@@ -382,7 +382,7 @@ def test_create_wmsdocposition(
     query = MUTATION_CREATE_WMSDOCPOSITION
     #manager = PluginsManager(plugins=setup_wms.PLUGINS)
 
-    wmsdocument_id = graphene.Node.to_global_id("WMSDocument", wms_document.pk)
+    wmsdocument_id = graphene.Node.to_global_id("WmsDocument", wms_document.pk)
     variant_id = graphene.Node.to_global_id("ProductVariant", variant.pk)
     quantity = 10
     weight = 50
@@ -400,12 +400,12 @@ def test_create_wmsdocposition(
         query, variables
     )
     content = get_graphql_content(response)
-    data = content["data"]["wmsdocpositionCreate"]
+    data = content["data"]["wmsDocPositionCreate"]
     assert data["wmsErrors"] == []
-    assert data["wMSDocPosition"]["quantity"] == quantity
-    assert data["wMSDocPosition"]["weight"] == weight
-    assert data["wMSDocPosition"]["productVariant"]["id"] == variant_id
-    assert data["wMSDocPosition"]["document"]["id"] == wmsdocument_id
+    assert data["wmsDocPosition"]["quantity"] == quantity
+    assert data["wmsDocPosition"]["weight"] == weight
+    assert data["wmsDocPosition"]["productVariant"]["id"] == variant_id
+    assert data["wmsDocPosition"]["document"]["id"] == wmsdocument_id
 
 
 def test_update_wmsdocposition(
@@ -414,7 +414,7 @@ def test_update_wmsdocposition(
 ):
     query = MUTATION_UPDATE_WMSDOCPOSITION
 
-    wms_docposition_id = graphene.Node.to_global_id("WMSDocPosition", wms_docposition.pk)
+    wms_docposition_id = graphene.Node.to_global_id("WmsDocPosition", wms_docposition.pk)
     quantity = 3456
     weight = 45
 
@@ -430,22 +430,22 @@ def test_update_wmsdocposition(
         query, variables
     )
     content = get_graphql_content(response)
-    data = content["data"]["wmsdocpositionUpdate"]
+    data = content["data"]["wmsDocPositionUpdate"]
     assert data["wmsErrors"] == []
-    assert data["wMSDocPosition"]["quantity"] == quantity
-    assert data["wMSDocPosition"]["weight"] == weight
+    assert data["wmsDocPosition"]["quantity"] == quantity
+    assert data["wmsDocPosition"]["weight"] == weight
 
 
 def test_delete_wmsdocposition(superuser_api_client, wms_docposition):
     query = DELETE_WMSDOCPOSITION_MUTATION
-    node_id = graphene.Node.to_global_id("WMSDocPosition", wms_docposition.id)
+    node_id = graphene.Node.to_global_id("WmsDocPosition", wms_docposition.id)
     variables = {"id": node_id}
     response = superuser_api_client.post_graphql(
         query, variables
     )
     content = get_graphql_content(response)
     data = content["data"]["wmsDocPositionDelete"]
-    assert data["wMSDocPosition"]["id"] == node_id
+    assert data["wmsDocPosition"]["id"] == node_id
     with pytest.raises(wms_docposition._meta.model.DoesNotExist):
         wms_docposition.refresh_from_db()
-    assert data["wMSDocPosition"]["id"] == node_id
+    assert data["wmsDocPosition"]["id"] == node_id

@@ -4,12 +4,12 @@ from django.contrib.auth.models import Permission
 
 from saleor.plugins.models import PluginConfiguration
 from saleor.plugins.wms.plugin import WMSPlugin
-from saleor.wms.models import WMSDocument, WMSDocPosition
+from saleor.wms.models import WmsDocument, WmsDocPosition
 
 
 @pytest.fixture
 def wms_document(staff_user, customer_user, warehouse):
-    return WMSDocument.objects.create(
+    return WmsDocument.objects.create(
         document_type='GRN',
         deliverer={"firma": "Google", "miasto": "Warszawa"},
         number='GRN1',
@@ -22,7 +22,7 @@ def wms_document(staff_user, customer_user, warehouse):
 
 @pytest.fixture
 def wms_docposition(wms_document, variant):
-    return WMSDocPosition.objects.create(
+    return WmsDocPosition.objects.create(
         quantity=10,
         product_variant=variant,
         weight=50,

@@ -1,12 +1,12 @@
 import graphene
 
 
-class WMSDocumentStatusFilter(graphene.Enum):
+class WmsDocumentStatusFilter(graphene.Enum):
     APPROVED = "APPROVED"
     DRAFT = "DRAFT"
 
 
-class WMSDocumentTypeFilter(graphene.Enum):
+class WmsDocumentTypeFilter(graphene.Enum):
     GRN = "GRN"
     GIN = "GIN"
     IWM = "IWM"

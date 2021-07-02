@@ -1,7 +1,7 @@
 import django_filters
 import graphene
 
-from .enums import WMSDocumentStatusFilter, WMSDocumentTypeFilter
+from .enums import WmsDocumentStatusFilter, WmsDocumentTypeFilter
 from saleor.graphql.core.filters import ListObjectTypeFilter, ObjectTypeFilter
 from saleor.graphql.core.types import FilterInputObjectType
 from saleor.wms import models
@@ -54,14 +54,14 @@ class DocumentInput(graphene.InputObjectType):
     document = graphene.String(description="Document of warehouse positions", required=False)
 
 
-class WMSDocumentFilter(django_filters.FilterSet):
-    document_type = ListObjectTypeFilter(input_class=WMSDocumentTypeFilter, method=filter_document_type)
+class WmsDocumentFilter(django_filters.FilterSet):
+    document_type = ListObjectTypeFilter(input_class=WmsDocumentTypeFilter, method=filter_document_type)
     created_by = ObjectTypeFilter(input_class=CreatedByInput, method=filter_created_by)
-    status = ListObjectTypeFilter(input_class=WMSDocumentStatusFilter, method=filter_status)
+    status = ListObjectTypeFilter(input_class=WmsDocumentStatusFilter, method=filter_status)
     recipient = ObjectTypeFilter(input_class=RecipientInput, method=filter_recipient)
 
     class Meta:
-        model = models.WMSDocument
+        model = models.WmsDocument
         fields = [
             "created_by",
             "document_type",
@@ -70,22 +70,22 @@ class WMSDocumentFilter(django_filters.FilterSet):
         ]
 
 
-class WMSDocumentFilterInput(FilterInputObjectType):
+class WmsDocumentFilterInput(FilterInputObjectType):
     class Meta:
-        filterset_class = WMSDocumentFilter
+        filterset_class = WmsDocumentFilter
 
 
-class WMSDocPositionFilter(django_filters.FilterSet):
+class WmsDocPositionFilter(django_filters.FilterSet):
     document = ObjectTypeFilter(input_class=DocumentInput, method=filter_document)
 
     class Meta:
-        model = models.WMSDocPosition
+        model = models.WmsDocPosition
         fields = [
             "document"
         ]
 
 
-class WMSDocPositionFilterInput(FilterInputObjectType):
+class WmsDocPositionFilterInput(FilterInputObjectType):
     class Meta:
-        filterset_class = WMSDocPositionFilter
+        filterset_class = WmsDocPositionFilter
 

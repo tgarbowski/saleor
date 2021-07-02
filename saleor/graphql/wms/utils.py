@@ -5,12 +5,12 @@ from django.template.loader import get_template
 import graphene
 from weasyprint import HTML
 
-from saleor.wms.models import WMSDocument, WMSDocPosition
+from saleor.wms.models import WmsDocument, WmsDocPosition
 
 
 def create_pdf_document(document_id):
-    document = WMSDocument.objects.select_related('warehouse', 'created_by', 'recipient').get(pk=document_id)
-    document_positions = WMSDocPosition.objects.select_related(
+    document = WmsDocument.objects.select_related('warehouse', 'created_by', 'recipient').get(pk=document_id)
+    document_positions = WmsDocPosition.objects.select_related(
         'product_variant').filter(document=document_id)
     translated_document_type = translate_document_type(document.document_type)
     deliverer = document.deliverer
@@ -44,12 +44,12 @@ def translate_document_type(document_type):
 
 def wms_actions_report(start_date, end_date):
     # Documents amount per document type
-    documents = list(WMSDocument.objects.filter(
+    documents = list(WmsDocument.objects.filter(
         created_at__gte=start_date, created_at__lte=end_date).values('document_type').annotate(
         amount=Count('document_type')
     ))
     # Quantities of different types document positions
-    document_positions = list(WMSDocPosition.objects.values('document__document_type').annotate(
+    document_positions = list(WmsDocPosition.objects.values('document__document_type').annotate(
         quantity=Sum('quantity')
     ))
 
@@ -62,7 +62,7 @@ def wms_actions_report(start_date, end_date):
 
 def wms_products_report(start_date, end_date):
     # Quantity of accepted and released goods
-    accepted_and_released = list(WMSDocPosition.objects.filter(
+    accepted_and_released = list(WmsDocPosition.objects.filter(
         document__created_at__gte=start_date, document__created_at__lte=end_date,
         document__document_type__in=['GRN', 'FGTN', 'GIN', 'IO']).values('product_variant__product').annotate(
             released_quantity=Sum('quantity', filter=Q(document__document_type__in=['GIN', 'IO'])),

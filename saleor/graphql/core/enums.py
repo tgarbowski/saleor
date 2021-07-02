@@ -110,4 +110,4 @@ WarehouseErrorCode = graphene.Enum.from_enum(warehouse_error_codes.WarehouseErro
 WebhookErrorCode = graphene.Enum.from_enum(webhook_error_codes.WebhookErrorCode)
 WishlistErrorCode = graphene.Enum.from_enum(wishlist_error_codes.WishlistErrorCode)
 TranslationErrorCode = graphene.Enum.from_enum(core_error_codes.TranslationErrorCode)
-WMSDocumentErrorCode = graphene.Enum.from_enum(wms_error_codes.WMSErrorCode)
+WmsDocumentErrorCode = graphene.Enum.from_enum(wms_error_codes.WmsErrorCode)
