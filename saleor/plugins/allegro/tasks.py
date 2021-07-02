@@ -5,8 +5,9 @@ import pytz
 from ...celeryconf import app
 from .api import AllegroAPI
 from .enums import AllegroErrors
-from .utils import email_errors, get_plugin_configuration, email_bulk_unpublish_message
-from saleor.product.models import Category, Product
+from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish_message,
+                    get_products_by_recursive_categories)
+from saleor.product.models import Product
 from saleor.plugins.allegro import ProductPublishState
 
 logger = logging.getLogger(__name__)
@@ -172,23 +173,10 @@ def update_published_offers_parameters(category_slugs, limit, offset):
     else:
         category_slugs = tuple(category_slugs)
 
-    products = Category.objects.raw('''
-        with recursive categories as (
-            select  id, "name", parent_id, "level"
-            from product_category
-            where slug in %s
-            union all
-            select pc.id, pc.name, pc.parent_id, pc."level"
-            from categories c, product_category pc
-            where pc.parent_id = c.id
-        )
-        select * from product_product pp where category_id in (select id from categories)
-        and private_metadata->>'publish.allegro.status'='published'
-        order by id
-        limit %s
-        offset %s
-    ''', [category_slugs, limit, offset])
+    all_products = get_products_by_recursive_categories(category_slugs, None, 0)
+    all_products_amount = len(all_products)
 
+    products = get_products_by_recursive_categories(category_slugs, limit, offset)
     products_ids = []
 
     for product in products:
@@ -197,9 +185,9 @@ def update_published_offers_parameters(category_slugs, limit, offset):
     products = Product.objects.select_related('product_type').filter(id__in=products_ids)
     allowed_statuses = ['ACTIVE', 'ACTIVATING']
 
-    for product in products:
+    for count, product in enumerate(products):
+        logger.info(f'Product {count + 1}/{limit}/{all_products_amount}')
         offer_id = product.private_metadata.get('publish.allegro.id')
-
         if offer_id:
             allegro_offer = allegro_api.get_offer(offer_id)
             try:

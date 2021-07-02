@@ -2,7 +2,7 @@ from django.core.mail import EmailMultiAlternatives
 
 from saleor.plugins.allegro.enums import AllegroErrors
 from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import Product
+from saleor.product.models import Product, Category
 
 
 def email_errors(products_bulk_ids):
@@ -75,3 +75,24 @@ def prepare_failed_tasks_email(errors):
     html += '</table>'
 
     return html
+
+
+def get_products_by_recursive_categories(category_slugs, limit, offset):
+    products = Category.objects.raw('''
+        with recursive categories as (
+            select  id, "name", parent_id, "level"
+            from product_category
+            where slug in %s
+            union all
+            select pc.id, pc.name, pc.parent_id, pc."level"
+            from categories c, product_category pc
+            where pc.parent_id = c.id
+        )
+        select id from product_product pp where category_id in (select id from categories)
+        and private_metadata->>'publish.allegro.status'='published'
+        order by id
+        limit %s
+        offset %s
+    ''', [category_slugs, limit, offset])
+
+    return products
