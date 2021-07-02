@@ -80,10 +80,9 @@ mutation WmsDocumentCreate($input: WmsDocumentInput!)  {
                 id
             }
         }
-        wmsErrors {
+        errors {
             field
             message
-            code
         }
     }
 }
@@ -97,10 +96,9 @@ mutation WmsDocumentUpdate($id: ID!, $input: WmsDocumentInput!) {
             status
             number
         }
-        wmsErrors {
+        errors {
             field
             message
-            code
         }
     }
 }
@@ -113,10 +111,9 @@ DELETE_WMSDOCUMENT_MUTATION = """
                 id
                 number
             }
-            wmsErrors {
+            errors {
                 field
                 message
-                code
             }
         }
     }
@@ -165,10 +162,9 @@ mutation WmsDocPositionCreate($input: WmsDocPositionInput!) {
                 id
             }
         }
-        wmsErrors {
+        errors {
             field
             message
-            code
         }
     }
 }
@@ -187,10 +183,9 @@ mutation WmsDocPositionUpdate($id: ID!, $input: WmsDocPositionInput!) {
                 id
             }
         }
-        wmsErrors {
+        errors {
             field
             message
-            code
         }
     }
 }
@@ -202,10 +197,9 @@ DELETE_WMSDOCPOSITION_MUTATION = """
             wmsDocPosition {
                 id
             }
-            wmsErrors {
+            errors {
                 field
                 message
-                code
             }
         }
     }
@@ -297,7 +291,7 @@ def test_create_wmsdocument(
     )
     content = get_graphql_content(response)
     data = content["data"]["wmsDocumentCreate"]
-    assert data["wmsErrors"] == []
+    assert data["errors"] == []
     assert data["wmsDocument"]["status"] == "DRAFT"
     assert data["wmsDocument"]["createdBy"]["id"] == createdby_id
     assert data["wmsDocument"]["recipient"]["id"] == customer_user_id
@@ -327,7 +321,7 @@ def test_update_wmsdocument(
     )
     content = get_graphql_content(response)
     data = content["data"]["wmsDocumentUpdate"]
-    assert data["wmsErrors"] == []
+    assert data["errors"] == []
     assert data["wmsDocument"]["number"] == wms_document.number
     assert data["wmsDocument"]["documentType"] == wms_document_type
 
@@ -401,7 +395,7 @@ def test_create_wmsdocposition(
     )
     content = get_graphql_content(response)
     data = content["data"]["wmsDocPositionCreate"]
-    assert data["wmsErrors"] == []
+    assert data["errors"] == []
     assert data["wmsDocPosition"]["quantity"] == quantity
     assert data["wmsDocPosition"]["weight"] == weight
     assert data["wmsDocPosition"]["productVariant"]["id"] == variant_id
@@ -431,7 +425,7 @@ def test_update_wmsdocposition(
     )
     content = get_graphql_content(response)
     data = content["data"]["wmsDocPositionUpdate"]
-    assert data["wmsErrors"] == []
+    assert data["errors"] == []
     assert data["wmsDocPosition"]["quantity"] == quantity
     assert data["wmsDocPosition"]["weight"] == weight
 

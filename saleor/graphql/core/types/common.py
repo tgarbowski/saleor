@@ -228,11 +228,7 @@ class WishlistError(Error):
 
 class WmsDocumentError(Error):
     code = WmsDocumentErrorCode(description="The error code.", required=True)
-    attributes = graphene.List(
-        graphene.NonNull(graphene.ID),
-        description="List of attributes IDs which causes the error.",
-        required=False,
-    )
+
 
 class TranslationError(Error):
     code = TranslationErrorCode(description="The error code.", required=True)
