@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from saleor.graphql.core.mutations import ModelDeleteMutation, ModelMutation
 from .types import WmsDocumentInput, WmsDocPositionInput
 from saleor.wms import models
-from saleor.core.permissions import ProductPermissions
+from saleor.core.permissions import WMSPermissions
 from saleor.graphql.core.types.common import WmsDocumentError
 from saleor.core.exceptions import PermissionDenied
 from saleor.plugins.manager import get_plugins_manager
@@ -19,7 +19,7 @@ class WmsDocumentCreate(ModelMutation):
     class Meta:
         description = "Creates a new WMS document."
         model = models.WmsDocument
-        permissions = (ProductPermissions.MANAGE_PRODUCTS,)
+        permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
 
@@ -61,7 +61,7 @@ class WmsDocumentUpdate(ModelMutation):
     class Meta:
         description = "Updates an existing Wms document."
         model = models.WmsDocument
-        permissions = (ProductPermissions.MANAGE_PRODUCTS,)
+        permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
 
@@ -75,7 +75,7 @@ class WmsDocumentDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a wms document."
         model = models.WmsDocument
-        permissions = (ProductPermissions.MANAGE_PRODUCTS,)
+        permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
 
@@ -89,7 +89,7 @@ class WmsDocPositionCreate(ModelMutation):
     class Meta:
         description = "Creates a new wms doc position."
         model = models.WmsDocPosition
-        permissions = (ProductPermissions.MANAGE_PRODUCTS,)
+        permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
 
@@ -117,7 +117,7 @@ class WmsDocPositionUpdate(WmsDocPositionCreate):
     class Meta:
         description = "Updates an existing wms doc position."
         model = models.WmsDocPosition
-        permissions = (ProductPermissions.MANAGE_PRODUCTS,)
+        permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
 
@@ -131,6 +131,6 @@ class WmsDocPositionDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a wms document position."
         model = models.WmsDocPosition
-        permissions = (ProductPermissions.MANAGE_PRODUCTS,)
+        permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"

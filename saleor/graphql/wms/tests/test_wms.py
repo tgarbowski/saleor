@@ -207,13 +207,13 @@ DELETE_WMSDOCPOSITION_MUTATION = """
 
 
 def test_wmsdocument_query_by_id(
-    superuser_api_client, wms_document, permission_manage_wmsdocument
+    staff_api_client, wms_document, permission_manage_wmsdocument
 ):
     # given
     variables = {"id": graphene.Node.to_global_id("WmsDocument", wms_document.pk)}
-    #staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
     # when
-    response = superuser_api_client.post_graphql(QUERY_WMSDOCUMENT, variables=variables)
+    response = staff_api_client.post_graphql(QUERY_WMSDOCUMENT, variables=variables)
 
     # then
     content = get_graphql_content(response)
@@ -223,25 +223,27 @@ def test_wmsdocument_query_by_id(
 
 
 def test_wmsdocument_query_by_number(
-    superuser_api_client, wms_document,
+    staff_api_client, wms_document, permission_manage_wmsdocument
 ):
     variables = {"number": wms_document.number}
-    response = superuser_api_client.post_graphql(QUERY_WMSDOCUMENT, variables=variables)
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(QUERY_WMSDOCUMENT, variables=variables)
     content = get_graphql_content(response)
     wmsdocument_data = content["data"]["wmsDocument"]
     assert wmsdocument_data is not None
     assert wmsdocument_data["number"] == wms_document.number
 
 
-def test_fetch_all_wmsdocuments(superuser_api_client):
-    response = superuser_api_client.post_graphql(QUERY_FETCH_ALL_WMSDOCUMENTS)
+def test_fetch_all_wmsdocuments(staff_api_client, permission_manage_wmsdocument):
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(QUERY_FETCH_ALL_WMSDOCUMENTS)
     content = get_graphql_content(response)
     num_wmsdocuments = WmsDocument.objects.count()
     assert content["data"]["wmsDocuments"]["totalCount"] == num_wmsdocuments
     assert len(content["data"]["wmsDocuments"]["edges"]) == num_wmsdocuments
 
 
-def test_wmsdocuments_query_with_filter(superuser_api_client, wms_document):
+def test_wmsdocuments_query_with_filter(staff_api_client, wms_document,permission_manage_wmsdocument):
 
     variables = {
         "filter": {
@@ -249,7 +251,8 @@ def test_wmsdocuments_query_with_filter(superuser_api_client, wms_document):
         }
     }
 
-    response = superuser_api_client.post_graphql(QUERY_WMSDOCUMENTS_WITH_FILTER, variables)
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(QUERY_WMSDOCUMENTS_WITH_FILTER, variables)
     content = get_graphql_content(response)
     first_wmsdocument_id = graphene.Node.to_global_id("WmsDocument", wms_document.pk)
     wmsdocuments = content["data"]["wmsDocuments"]["edges"]
@@ -260,7 +263,8 @@ def test_wmsdocuments_query_with_filter(superuser_api_client, wms_document):
 
 
 def test_create_wmsdocument(
-    superuser_api_client,
+    staff_api_client,
+    permission_manage_wmsdocument,
     staff_user,
     customer_user,
     warehouse,
@@ -286,7 +290,8 @@ def test_create_wmsdocument(
         }
     }
 
-    response = superuser_api_client.post_graphql(
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
         query, variables
     )
     content = get_graphql_content(response)
@@ -300,10 +305,7 @@ def test_create_wmsdocument(
     assert data["wmsDocument"]["deliverer"] == deliverer
 
 
-def test_update_wmsdocument(
-    superuser_api_client,
-    wms_document
-):
+def test_update_wmsdocument(staff_api_client, wms_document, permission_manage_wmsdocument):
     query = MUTATION_UPDATE_WMSDOCUMENT
 
     wms_document_id = graphene.Node.to_global_id("WmsDocument", wms_document.pk)
@@ -316,7 +318,8 @@ def test_update_wmsdocument(
         }
     }
 
-    response = superuser_api_client.post_graphql(
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
         query, variables
     )
     content = get_graphql_content(response)
@@ -326,11 +329,12 @@ def test_update_wmsdocument(
     assert data["wmsDocument"]["documentType"] == wms_document_type
 
 
-def test_delete_wmsdocument(superuser_api_client, wms_document):
+def test_delete_wmsdocument(staff_api_client, wms_document, permission_manage_wmsdocument):
     query = DELETE_WMSDOCUMENT_MUTATION
     node_id = graphene.Node.to_global_id("WmsDocument", wms_document.id)
     variables = {"id": node_id}
-    response = superuser_api_client.post_graphql(
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
         query, variables
     )
     content = get_graphql_content(response)
@@ -342,7 +346,7 @@ def test_delete_wmsdocument(superuser_api_client, wms_document):
 
 
 def test_wmsdocposition_query_by_id(
-    superuser_api_client, wms_docposition,
+    staff_api_client, wms_docposition, permission_manage_wmsdocument
 ):
 
     wmsdocposition_id = graphene.Node.to_global_id("WmsDocPosition", wms_docposition.pk)
@@ -351,7 +355,8 @@ def test_wmsdocposition_query_by_id(
     variables = {"id": wmsdocposition_id}
 
     # when
-    response = superuser_api_client.post_graphql(QUERY_WMSDOCPOSITION, variables=variables)
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(QUERY_WMSDOCPOSITION, variables=variables)
 
     # then
     content = get_graphql_content(response)
@@ -360,8 +365,9 @@ def test_wmsdocposition_query_by_id(
     assert wmsdocposition_data["id"] == wmsdocposition_id
 
 
-def test_fetch_all_wmsdocpositions(superuser_api_client):
-    response = superuser_api_client.post_graphql(QUERY_FETCH_ALL_WMSDOCPOSITIONS)
+def test_fetch_all_wmsdocpositions(staff_api_client, permission_manage_wmsdocument):
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(QUERY_FETCH_ALL_WMSDOCPOSITIONS)
     content = get_graphql_content(response)
     num_wmsdocpositions = WmsDocPosition.objects.count()
     assert content["data"]["wmsDocPositions"]["totalCount"] == num_wmsdocpositions
@@ -369,12 +375,12 @@ def test_fetch_all_wmsdocpositions(superuser_api_client):
 
 
 def test_create_wmsdocposition(
-    superuser_api_client,
+    staff_api_client,
     wms_document,
-    variant
+    variant,
+    permission_manage_wmsdocument
 ):
     query = MUTATION_CREATE_WMSDOCPOSITION
-    #manager = PluginsManager(plugins=setup_wms.PLUGINS)
 
     wmsdocument_id = graphene.Node.to_global_id("WmsDocument", wms_document.pk)
     variant_id = graphene.Node.to_global_id("ProductVariant", variant.pk)
@@ -390,7 +396,8 @@ def test_create_wmsdocposition(
         }
     }
 
-    response = superuser_api_client.post_graphql(
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
         query, variables
     )
     content = get_graphql_content(response)
@@ -403,8 +410,9 @@ def test_create_wmsdocposition(
 
 
 def test_update_wmsdocposition(
-    superuser_api_client,
-    wms_docposition
+    staff_api_client,
+    wms_docposition,
+    permission_manage_wmsdocument
 ):
     query = MUTATION_UPDATE_WMSDOCPOSITION
 
@@ -420,7 +428,8 @@ def test_update_wmsdocposition(
         }
     }
 
-    response = superuser_api_client.post_graphql(
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
         query, variables
     )
     content = get_graphql_content(response)
@@ -430,11 +439,12 @@ def test_update_wmsdocposition(
     assert data["wmsDocPosition"]["weight"] == weight
 
 
-def test_delete_wmsdocposition(superuser_api_client, wms_docposition):
+def test_delete_wmsdocposition(staff_api_client, wms_docposition, permission_manage_wmsdocument):
     query = DELETE_WMSDOCPOSITION_MUTATION
     node_id = graphene.Node.to_global_id("WmsDocPosition", wms_docposition.id)
     variables = {"id": node_id}
-    response = superuser_api_client.post_graphql(
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
         query, variables
     )
     content = get_graphql_content(response)

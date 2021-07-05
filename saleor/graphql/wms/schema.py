@@ -1,6 +1,6 @@
 import graphene
 
-from ...core.permissions import ProductPermissions
+from ...core.permissions import ProductPermissions, WMSPermissions
 from ..decorators import permission_required
 from .mutations import (WmsDocumentCreate, WmsDocumentUpdate, WmsDocPositionCreate,
                         WmsDocPositionUpdate, WmsDocumentDelete, WmsDocPositionDelete)
@@ -54,23 +54,23 @@ class WmsDocumentQueries(graphene.ObjectType):
         endDate=graphene.Argument(graphene.Date, required=True)
     )
 
-    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
+    @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_documents(self, info, **kwargs):
         return resolve_wms_documents(info, **kwargs)
 
-    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
+    @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_document(self, info, **kwargs):
         return resolve_wms_document(info, **kwargs)
 
-    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
+    @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_document_pdf(self, info, **kwargs):
         return resolve_wms_document_pdf(info, **kwargs)
 
-    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
+    @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_actions_report(self, info, **kwargs):
         return resolve_wms_actions_report(info, **kwargs)
 
-    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
+    @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_products_report(self, info, **kwargs):
         return resolve_wms_products_report(info, **kwargs)
 
@@ -88,11 +88,11 @@ class WmsDocPositionQueries(graphene.ObjectType):
         description="Look up a wms document position by id",
     )
 
-    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
+    @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_doc_positions(self, info, **kwargs):
         return resolve_wms_doc_positions(info, **kwargs)
 
-    @permission_required(ProductPermissions.MANAGE_PRODUCTS)
+    @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_doc_position(self, info, **kwargs):
         return resolve_wms_doc_position(info, **kwargs)
 

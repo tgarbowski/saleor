@@ -5894,7 +5894,6 @@ type WmsDocumentError {
   field: String
   message: String
   code: WmsErrorCode!
-  attributes: [ID!]
 }
 
 input WmsDocumentFilterInput {
