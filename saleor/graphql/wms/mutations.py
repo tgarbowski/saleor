@@ -1,13 +1,14 @@
 import graphene
 
 from django.core.exceptions import ValidationError
+
 from saleor.graphql.core.mutations import ModelDeleteMutation, ModelMutation
 from .types import WmsDocumentInput, WmsDocPositionInput
 from saleor.wms import models
 from saleor.core.permissions import WMSPermissions
 from saleor.graphql.core.types.common import WmsDocumentError
-from saleor.core.exceptions import PermissionDenied
 from saleor.plugins.manager import get_plugins_manager
+from saleor.wms.error_codes import WmsErrorCode
 
 
 class WmsDocumentCreate(ModelMutation):
@@ -22,6 +23,18 @@ class WmsDocumentCreate(ModelMutation):
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
+
+    @classmethod
+    def clean_input(cls, info, instance, data):
+        cleaned_input = super().clean_input(info, instance, data)
+        location = cleaned_input.get("location")
+        document_type = cleaned_input.get("document_type")
+        warehouse_second = cleaned_input.get("warehouse_second")
+
+        WmsDocumentCreate.validate_wms_location(location, document_type)
+        WmsDocumentCreate.validate_wms_second_warehouse(warehouse_second, document_type)
+
+        return cleaned_input
 
     @classmethod
     def save(cls, info, instance, cleaned_input):
@@ -50,8 +63,30 @@ class WmsDocumentCreate(ModelMutation):
         configuration = {item["name"]: item["value"] for item in plugin.configuration}
         return configuration
 
+    @staticmethod
+    def validate_wms_location(location, document_type):
+        if not location and document_type in ["FGTN", "IO"]:
+            raise ValidationError(
+                {
+                    "location": ValidationError(
+                        "Location is necessary for FGTN and IO documents"
+                    )
+                }
+            )
 
-class WmsDocumentUpdate(ModelMutation):
+    @staticmethod
+    def validate_wms_second_warehouse(warehouse_second, document_type):
+        if not warehouse_second and document_type == "IWM":
+            raise ValidationError(
+                {
+                    "second_warehouse": ValidationError(
+                        "Second warehouse is necessary for IWM documents"
+                    )
+                }
+            )
+
+
+class WmsDocumentUpdate(WmsDocumentCreate):
     class Arguments:
         id = graphene.ID(required=True, description="ID of a WmsDocument to update.")
         input = WmsDocumentInput(
@@ -64,6 +99,23 @@ class WmsDocumentUpdate(ModelMutation):
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
+
+    @classmethod
+    def save(cls, info, instance, cleaned_input):
+        location = instance.location
+        document_type = instance.document_type
+        WmsDocumentCreate.validate_wms_location(location, document_type)
+        instance.save()
+
+    @classmethod
+    def clean_input(cls, info, instance, data):
+        cleaned_input = super().clean_input(info, instance, data)
+        document_type = cleaned_input.get('document_type')
+
+        if document_type and document_type != instance.document_type:
+            instance.number = WmsDocumentCreate.create_document_number(document_type)
+
+        return cleaned_input
 
 
 class WmsDocumentDelete(ModelDeleteMutation):
@@ -92,6 +144,33 @@ class WmsDocPositionCreate(ModelMutation):
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
+
+    @classmethod
+    def clean_input(cls, info, instance, data):
+        cleaned_input = super().clean_input(info, instance, data)
+        weight = cleaned_input.get("weight")
+        quantity = cleaned_input.get("quantity")
+
+        if weight and weight < 0:
+            raise ValidationError(
+                {
+                    "weight": ValidationError(
+                        "Document position can't have negative weight.",
+                        code=WmsErrorCode.INVALID,
+                    )
+                }
+            )
+        if quantity and quantity < 0:
+            raise ValidationError(
+                {
+                    "quantity": ValidationError(
+                        "Document position can't have negative quantity.",
+                        code=WmsErrorCode.INVALID,
+                    )
+                }
+            )
+
+        return cleaned_input
 
     @classmethod
     def save(cls, info, instance, cleaned_input):

@@ -8,7 +8,6 @@ from saleor.wms import models
 
 
 def filter_document_type(qs, _, value):
-    #return qs.filter(document_type=value.get("document_type"))
     query_objects = qs.none()
     if value:
         query_objects |= qs.filter(document_type__in=value)
@@ -31,7 +30,12 @@ def filter_recipient(qs, _, value):
 
 
 def filter_document(qs, _, value):
-    return qs.filter(document=value.get("document"))
+    document_id = graphene.Node.from_global_id(value['document'])[1]
+    return qs.filter(document=document_id)
+
+
+def filter_location(qs, _, value):
+    return qs.filter(location=value.get("location"))
 
 
 class DocumentTypeInput(graphene.InputObjectType):
@@ -54,11 +58,16 @@ class DocumentInput(graphene.InputObjectType):
     document = graphene.String(description="Document of warehouse positions", required=False)
 
 
+class LocationInput(graphene.InputObjectType):
+    location = graphene.String(description="Location for warehouse document", required=False)
+
+
 class WmsDocumentFilter(django_filters.FilterSet):
     document_type = ListObjectTypeFilter(input_class=WmsDocumentTypeFilter, method=filter_document_type)
     created_by = ObjectTypeFilter(input_class=CreatedByInput, method=filter_created_by)
     status = ListObjectTypeFilter(input_class=WmsDocumentStatusFilter, method=filter_status)
     recipient = ObjectTypeFilter(input_class=RecipientInput, method=filter_recipient)
+    location = ObjectTypeFilter(input_class=LocationInput, method=filter_location)
 
     class Meta:
         model = models.WmsDocument

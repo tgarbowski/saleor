@@ -73,6 +73,7 @@ mutation WmsDocumentCreate($input: WmsDocumentInput!)  {
             documentType
             number
             status
+            location
             warehouse{
                 id
             }
@@ -243,7 +244,7 @@ def test_fetch_all_wmsdocuments(staff_api_client, permission_manage_wmsdocument)
     assert len(content["data"]["wmsDocuments"]["edges"]) == num_wmsdocuments
 
 
-def test_wmsdocuments_query_with_filter(staff_api_client, wms_document,permission_manage_wmsdocument):
+def test_wmsdocuments_query_with_filter(staff_api_client, wms_document, permission_manage_wmsdocument):
 
     variables = {
         "filter": {
@@ -279,6 +280,7 @@ def test_create_wmsdocument(
     customer_user_id = graphene.Node.to_global_id("User", customer_user.pk)
     deliverer = {"firma": "Google", "miasto": "Warszawa"}
     deliverer = json.dumps(deliverer)
+    location = "location100"
 
     variables = {
         "input": {
@@ -286,7 +288,8 @@ def test_create_wmsdocument(
             "recipient": customer_user_id,
             "deliverer": deliverer,
             "documentType": "GRN",
-            "warehouse": warehouse_id
+            "warehouse": warehouse_id,
+            "location": location
         }
     }
 
@@ -303,10 +306,17 @@ def test_create_wmsdocument(
     assert data["wmsDocument"]["documentType"] == "GRN"
     assert data["wmsDocument"]["warehouse"]["id"] == warehouse_id
     assert data["wmsDocument"]["deliverer"] == deliverer
+    assert data["wmsDocument"]["location"] == location
 
 
-def test_update_wmsdocument(staff_api_client, wms_document, permission_manage_wmsdocument):
+def test_update_wmsdocument(
+        staff_api_client,
+        wms_document,
+        permission_manage_wmsdocument,
+        setup_wms
+):
     query = MUTATION_UPDATE_WMSDOCUMENT
+    manager = PluginsManager(plugins=setup_wms.PLUGINS)
 
     wms_document_id = graphene.Node.to_global_id("WmsDocument", wms_document.pk)
     wms_document_type = "GIN"
@@ -325,7 +335,7 @@ def test_update_wmsdocument(staff_api_client, wms_document, permission_manage_wm
     content = get_graphql_content(response)
     data = content["data"]["wmsDocumentUpdate"]
     assert data["errors"] == []
-    assert data["wmsDocument"]["number"] == wms_document.number
+    assert data["wmsDocument"]["number"] == 'GIN1'
     assert data["wmsDocument"]["documentType"] == wms_document_type
 
 
@@ -407,6 +417,70 @@ def test_create_wmsdocposition(
     assert data["wmsDocPosition"]["weight"] == weight
     assert data["wmsDocPosition"]["productVariant"]["id"] == variant_id
     assert data["wmsDocPosition"]["document"]["id"] == wmsdocument_id
+
+
+def test_create_wmsdocposition_negative_quantity(
+    staff_api_client,
+    wms_document,
+    variant,
+    permission_manage_wmsdocument
+):
+    query = MUTATION_CREATE_WMSDOCPOSITION
+
+    wmsdocument_id = graphene.Node.to_global_id("WmsDocument", wms_document.pk)
+    variant_id = graphene.Node.to_global_id("ProductVariant", variant.pk)
+    quantity = -10
+    weight = 50
+
+    variables = {
+        "input": {
+            "quantity": quantity,
+            "weight": weight,
+            "productVariant": variant_id,
+            "document": wmsdocument_id
+        }
+    }
+
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
+        query, variables
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["wmsDocPositionCreate"]
+    assert data["errors"][0]['field'] == "quantity"
+    assert data["wmsDocPosition"] == None
+
+
+def test_create_wmsdocposition_negative_weight(
+    staff_api_client,
+    wms_document,
+    variant,
+    permission_manage_wmsdocument
+):
+    query = MUTATION_CREATE_WMSDOCPOSITION
+
+    wmsdocument_id = graphene.Node.to_global_id("WmsDocument", wms_document.pk)
+    variant_id = graphene.Node.to_global_id("ProductVariant", variant.pk)
+    quantity = 10
+    weight = -50
+
+    variables = {
+        "input": {
+            "quantity": quantity,
+            "weight": weight,
+            "productVariant": variant_id,
+            "document": wmsdocument_id
+        }
+    }
+
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
+        query, variables
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["wmsDocPositionCreate"]
+    assert data["errors"][0]['field'] == "weight"
+    assert data["wmsDocPosition"] == None
 
 
 def test_update_wmsdocposition(

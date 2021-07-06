@@ -16,7 +16,8 @@ def wms_document(staff_user, customer_user, warehouse):
         status='DRAFT',
         created_by=staff_user,
         recipient=customer_user,
-        warehouse=warehouse
+        warehouse=warehouse,
+        location='location1'
     )
 
 

@@ -1,9 +1,9 @@
 import base64
+import graphene
+from weasyprint import HTML
 
 from django.db.models import Sum, Count, Q, F
 from django.template.loader import get_template
-import graphene
-from weasyprint import HTML
 
 from saleor.wms.models import WmsDocument, WmsDocPosition
 

@@ -49,6 +49,7 @@ class WmsDocument(models.Model):
     deliverer = models.JSONField(blank=True, null=True)
     number = models.CharField(max_length=255, unique=True, blank=True)
     status = models.CharField(max_length=20, choices=DocumentStatuses.choices, default='DRAFT')
+    location = models.CharField(max_length=50, blank=True)
 
     class Meta:
         permissions = (

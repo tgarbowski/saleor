@@ -2300,6 +2300,10 @@ type LanguageDisplay {
   language: String!
 }
 
+input LocationInput {
+  location: String
+}
+
 type Manifest {
   identifier: String!
   version: String!
@@ -5857,6 +5861,7 @@ type WmsDocument implements Node {
   deliverer: JSONString
   number: String!
   status: WmsDocumentStatus!
+  location: String!
 }
 
 type WmsDocumentCountableConnection {
@@ -5901,6 +5906,7 @@ input WmsDocumentFilterInput {
   documentType: [WmsDocumentTypeFilter]
   status: [WmsDocumentStatusFilter]
   recipient: RecipientInput
+  location: LocationInput
 }
 
 input WmsDocumentInput {
@@ -5911,6 +5917,7 @@ input WmsDocumentInput {
   createdBy: ID
   warehouse: ID
   warehouseSecond: ID
+  location: String
 }
 
 enum WmsDocumentStatus {
