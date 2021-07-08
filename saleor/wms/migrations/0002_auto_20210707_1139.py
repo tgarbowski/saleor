@@ -42,7 +42,11 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(default='', on_delete=django.db.models.deletion.PROTECT, related_name='wms_recipient', to='account.user'),
             preserve_default=False,
         ),
-        migrations.AlterField(
+        migrations.RemoveField(
+            model_name='wmsdocument',
+            name='deliverer',
+        ),
+        migrations.AddField(
             model_name='wmsdocument',
             name='deliverer',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='wms_deliverer', to='wms.wmsdeliverer'),
