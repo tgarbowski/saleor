@@ -24,7 +24,9 @@ QUERY_WMSDOCUMENT = """
             recipient {
                 id
             }
-            deliverer
+            deliverer {
+                id
+            }
             number
             status
         }
@@ -69,7 +71,9 @@ mutation WmsDocumentCreate($input: WmsDocumentInput!)  {
             recipient{
                 id
             }
-            deliverer
+            deliverer {
+                id
+            }
             documentType
             number
             status
@@ -206,6 +210,87 @@ DELETE_WMSDOCPOSITION_MUTATION = """
     }
 """
 
+QUERY_WMSDELIVERER = """
+    query ($id: ID){
+        wmsDeliverer(id: $id){
+            id
+            companyName
+            street
+            city
+            postalCode
+            email
+            vatId
+            phone
+            country
+            firstName
+            lastName
+        }
+    }
+"""
+
+MUTATION_CREATE_WMSDELIVERER = """
+mutation WmsDelivererCreate($input: WmsDelivererInput!)  {
+    wmsDelivererCreate(input: $input) {
+        wmsDeliverer{
+          id
+          companyName
+          street
+          city
+          postalCode
+          email
+          vatId
+          phone
+          country
+          firstName
+          lastName
+        }
+        errors {
+            field
+            message
+        }
+    }
+}
+"""
+
+MUTATION_UPDATE_WMSDELIVERER = """
+mutation WmsDelivererUpdate($id: ID!, $input: WmsDelivererInput!)  {
+    wmsDelivererUpdate(id: $id, input: $input) {
+        wmsDeliverer{
+          id
+          companyName
+          street
+          city
+          postalCode
+          email
+          vatId
+          phone
+          country
+          firstName
+          lastName
+        }
+        errors {
+            field
+            message
+        }
+    }
+}
+"""
+
+DELETE_WMSDELIVERER_MUTATION = """
+    mutation WmsDelivererDelete($id: ID!)  {
+        wmsDelivererDelete(id: $id) {
+            wmsDeliverer{
+                id
+                companyName
+            }
+            errors {
+                field
+                message
+            }
+        }
+    }
+"""
+
 
 def test_wmsdocument_query_by_id(
     staff_api_client, wms_document, permission_manage_wmsdocument
@@ -269,24 +354,23 @@ def test_create_wmsdocument(
     staff_user,
     customer_user,
     warehouse,
+    wms_deliverer,
     setup_wms
 ):
     query = MUTATION_CREATE_WMSDOCUMENT
     manager = PluginsManager(plugins=setup_wms.PLUGINS)
 
-    import json
     warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
     createdby_id = graphene.Node.to_global_id("User", staff_user.pk)
     customer_user_id = graphene.Node.to_global_id("User", customer_user.pk)
-    deliverer = {"firma": "Google", "miasto": "Warszawa"}
-    deliverer = json.dumps(deliverer)
+    deliverer_id = graphene.Node.to_global_id("WmsDeliverer", wms_deliverer.pk)
     location = "location100"
 
     variables = {
         "input": {
             "createdBy": createdby_id,
             "recipient": customer_user_id,
-            "deliverer": deliverer,
+            "deliverer": deliverer_id,
             "documentType": "GRN",
             "warehouse": warehouse_id,
             "location": location
@@ -305,7 +389,7 @@ def test_create_wmsdocument(
     assert data["wmsDocument"]["recipient"]["id"] == customer_user_id
     assert data["wmsDocument"]["documentType"] == "GRN"
     assert data["wmsDocument"]["warehouse"]["id"] == warehouse_id
-    assert data["wmsDocument"]["deliverer"] == deliverer
+    assert data["wmsDocument"]["deliverer"]["id"] == deliverer_id
     assert data["wmsDocument"]["location"] == location
 
 
@@ -527,3 +611,106 @@ def test_delete_wmsdocposition(staff_api_client, wms_docposition, permission_man
     with pytest.raises(wms_docposition._meta.model.DoesNotExist):
         wms_docposition.refresh_from_db()
     assert data["wmsDocPosition"]["id"] == node_id
+
+
+def test_wmsdeliverer_query_by_id(
+    staff_api_client, wms_deliverer, permission_manage_wmsdocument
+):
+    query = QUERY_WMSDELIVERER
+    wmsdeliverer_id = graphene.Node.to_global_id("WmsDeliverer", wms_deliverer.pk)
+    variables = {"id": wmsdeliverer_id}
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+
+    response = staff_api_client.post_graphql(query, variables=variables)
+    content = get_graphql_content(response)
+    wmsdeliverer_data = content["data"]["wmsDeliverer"]
+    assert wmsdeliverer_data is not None
+    assert wmsdeliverer_data["id"] == wmsdeliverer_id
+
+
+def test_update_wmsdeliverer(staff_api_client, wms_deliverer, permission_manage_wmsdocument):
+    query = MUTATION_UPDATE_WMSDELIVERER
+    wmsdeliverer_id = graphene.Node.to_global_id("WmsDeliverer", wms_deliverer.pk)
+    company_name = 'new_company_name'
+    email = 'newemail@yandex.com'
+
+    variables = {
+        "id": wmsdeliverer_id,
+        "input": {
+            "companyName": company_name,
+            "email": email
+        }
+    }
+
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
+        query, variables
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["wmsDelivererUpdate"]
+    assert data["errors"] == []
+    assert data["wmsDeliverer"]["companyName"] == company_name
+    assert data["wmsDeliverer"]["email"] == email
+
+
+def test_create_wmsdeliverer(staff_api_client, permission_manage_wmsdocument):
+    query = MUTATION_CREATE_WMSDELIVERER
+
+    company_name = "Company name",
+    street = "Długa 1",
+    city = "Warszawa",
+    postal_code = "111-11",
+    email = "asd@gmail.com",
+    vat_id = "365375734645656",
+    phone = "+48911231223",
+    country = "US",
+    first_name = "Adam",
+    last_name = "Mickiewicz"
+
+    variables = {
+        "input": {
+            "companyName": company_name,
+            "street": street,
+            "city": city,
+            "postalCode": postal_code,
+            "email": email,
+            "vatId": vat_id,
+            "phone": phone,
+            "country": country,
+            "firstName": first_name,
+            "lastName": last_name
+        }
+    }
+
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
+        query, variables
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["wmsDelivererCreate"]
+    assert data["errors"] == []
+    assert data["wmsDeliverer"]["companyName"] == company_name
+    assert data["wmsDeliverer"]["street"] == street
+    assert data["wmsDeliverer"]["postalCode"] == postal_code
+    assert data["wmsDeliverer"]["email"] == email
+    assert data["wmsDeliverer"]["vatId"] == vat_id
+    assert data["wmsDeliverer"]["phone"] == phone
+    assert data["wmsDeliverer"]["country"] == country
+    assert data["wmsDeliverer"]["firstName"] == first_name
+    assert data["wmsDeliverer"]["lastName"] == last_name
+
+
+def test_delete_wmsdeliverer(staff_api_client, wms_deliverer, permission_manage_wmsdocument):
+    query = DELETE_WMSDELIVERER_MUTATION
+    node_id = graphene.Node.to_global_id("WmsDeliverer", wms_deliverer.id)
+    variables = {"id": node_id}
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
+        query, variables
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["wmsDelivererDelete"]
+    assert data["wmsDeliverer"]["id"] == node_id
+    with pytest.raises(wms_deliverer._meta.model.DoesNotExist):
+        wms_deliverer.refresh_from_db()
+    assert node_id == data["wmsDeliverer"]["id"]

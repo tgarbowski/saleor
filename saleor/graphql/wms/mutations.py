@@ -3,7 +3,7 @@ import graphene
 from django.core.exceptions import ValidationError
 
 from saleor.graphql.core.mutations import ModelDeleteMutation, ModelMutation
-from .types import WmsDocumentInput, WmsDocPositionInput
+from .types import WmsDelivererInput, WmsDocumentInput, WmsDocPositionInput
 from saleor.wms import models
 from saleor.core.permissions import WMSPermissions
 from saleor.graphql.core.types.common import WmsDocumentError
@@ -210,6 +210,49 @@ class WmsDocPositionDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a wms document position."
         model = models.WmsDocPosition
+        permissions = (WMSPermissions.MANAGE_WMS,)
+        error_type_class = WmsDocumentError
+        error_type_field = "wms_errors"
+
+
+class WmsDelivererCreate(ModelMutation):
+    class Arguments:
+        input = WmsDelivererInput(
+            required=True, description="Fields required to create a WMS deliverer."
+        )
+
+    class Meta:
+        description = "Creates a new WMS deliverer."
+        model = models.WmsDeliverer
+        permissions = (WMSPermissions.MANAGE_WMS,)
+        error_type_class = WmsDocumentError
+        error_type_field = "wms_errors"
+
+
+class WmsDelivererUpdate(ModelMutation):
+    class Arguments:
+        id = graphene.ID(required=True, description="ID of a wms doc position to update.")
+        input = WmsDelivererInput(
+            required=True, description="Fields required to update a WMS deliverer."
+        )
+
+    class Meta:
+        description = "Updates a new WMS deliverer."
+        model = models.WmsDeliverer
+        permissions = (WMSPermissions.MANAGE_WMS,)
+        error_type_class = WmsDocumentError
+        error_type_field = "wms_errors"
+
+
+class WmsDelivererDelete(ModelDeleteMutation):
+    class Arguments:
+        id = graphene.ID(
+            required=True, description="ID of a wms deliverer to delete."
+        )
+
+    class Meta:
+        description = "Updates a new WMS deliverer."
+        model = models.WmsDeliverer
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"

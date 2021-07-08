@@ -1,19 +1,20 @@
 import graphene
 
-from ...core.permissions import ProductPermissions, WMSPermissions
+from ...core.permissions import WMSPermissions
 from ..decorators import permission_required
 from .mutations import (WmsDocumentCreate, WmsDocumentUpdate, WmsDocPositionCreate,
-                        WmsDocPositionUpdate, WmsDocumentDelete, WmsDocPositionDelete)
+                        WmsDocPositionUpdate, WmsDocumentDelete, WmsDocPositionDelete,
+                        WmsDelivererCreate, WmsDelivererUpdate, WmsDelivererDelete)
 
 from saleor.wms import models
 from saleor.graphql.core.fields import FilterInputConnectionField
-from saleor.graphql.wms.filters import WmsDocumentFilterInput
 from saleor.graphql.wms.resolvers import (resolve_wms_documents, resolve_wms_document,
                                           resolve_wms_doc_positions, resolve_wms_document_pdf,
                                           resolve_wms_actions_report, resolve_wms_products_report,
-                                          resolve_wms_doc_position)
-from .types import WmsDocPosition, WmsDocument
-from .filters import WmsDocPositionFilterInput
+                                          resolve_wms_doc_position, resolve_wms_deliverers,
+                                          resolve_wms_deliverer)
+from .types import WmsDeliverer, WmsDocPosition, WmsDocument
+from .filters import WmsDocPositionFilterInput, WmsDocumentFilterInput
 from graphene.types.generic import GenericScalar
 
 
@@ -26,6 +27,10 @@ class WmsDocumentMutations(graphene.ObjectType):
     wms_doc_position_create = WmsDocPositionCreate.Field()
     wms_doc_position_update = WmsDocPositionUpdate.Field()
     wms_doc_position_delete = WmsDocPositionDelete.Field()
+    # Deliverers
+    wms_deliverer_create = WmsDelivererCreate.Field()
+    wms_deliverer_update = WmsDelivererUpdate.Field()
+    wms_deliverer_delete = WmsDelivererDelete.Field()
 
 
 class WmsDocumentQueries(graphene.ObjectType):
@@ -97,3 +102,22 @@ class WmsDocPositionQueries(graphene.ObjectType):
         return resolve_wms_doc_position(info, **kwargs)
 
 
+class WmsDelivererQueries(graphene.ObjectType):
+    wms_deliverers = FilterInputConnectionField(
+        WmsDeliverer,
+        #filter=WmsDelivererFilterInput(description="Filtering wms deliverers"),
+        description="List of wms deliverers"
+    )
+    wms_deliverer = graphene.Field(
+        WmsDeliverer,
+        id=graphene.Argument(graphene.ID, description="ID of the wms deliverer.", ),
+        description="Look up a wms deliverer by id.",
+    )
+
+    @permission_required(WMSPermissions.MANAGE_WMS)
+    def resolve_wms_deliverers(self, info, **kwargs):
+        return resolve_wms_deliverers(info, **kwargs)
+
+    @permission_required(WMSPermissions.MANAGE_WMS)
+    def resolve_wms_deliverer(self, info, **kwargs):
+        return resolve_wms_deliverer(info, **kwargs)

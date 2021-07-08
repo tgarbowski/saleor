@@ -1,7 +1,7 @@
 import graphene
 
 from saleor.wms import models
-from .types import WmsDocPosition, WmsDocument
+from .types import WmsDeliverer, WmsDocPosition, WmsDocument
 from .utils import create_pdf_document, wms_products_report, wms_actions_report
 
 
@@ -26,6 +26,15 @@ def resolve_wms_doc_positions(info, **_kwargs):
 
 def resolve_wms_doc_position(info, **_kwargs):
     return graphene.Node.get_node_from_global_id(info, _kwargs['id'], WmsDocPosition)
+
+
+def resolve_wms_deliverers(info, **_kwargs):
+    qs = models.WmsDeliverer.objects.all()
+    return qs
+
+
+def resolve_wms_deliverer(info, **_kwargs):
+    return graphene.Node.get_node_from_global_id(info, _kwargs['id'], WmsDeliverer)
 
 
 def resolve_wms_document_pdf(info, **_kwargs):

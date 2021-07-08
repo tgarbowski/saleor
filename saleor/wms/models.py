@@ -1,10 +1,26 @@
+from django_countries.fields import CountryField
+
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from saleor.account.models import PossiblePhoneNumberField
 from saleor.product.models import ProductVariant
 from saleor.account.models import User
 from saleor.warehouse.models import Warehouse
 from saleor.core.permissions import WMSPermissions
+
+
+class WmsDeliverer(models.Model):
+    company_name = models.CharField(max_length=256)
+    street = models.CharField(max_length=256)
+    city = models.CharField(max_length=256)
+    postal_code = models.CharField(max_length=20)
+    email = models.CharField(max_length=256, blank=True)
+    vat_id = models.CharField(max_length=256, blank=True)
+    phone = PossiblePhoneNumberField(blank=True, default="")
+    country = CountryField()
+    first_name = models.CharField(max_length=256, blank=True)
+    last_name = models.CharField(max_length=256, blank=True)
 
 
 class WmsDocument(models.Model):
@@ -34,19 +50,21 @@ class WmsDocument(models.Model):
     document_type = models.CharField(max_length=10, choices=DocumentTypes.choices)
     created_by = models.ForeignKey(
         User,
-        on_delete=models.CASCADE,
-        blank=True,
-        null=True,
+        on_delete=models.PROTECT,
         related_name="wms_created_by"
     )
     recipient = models.ForeignKey(
         User,
-        on_delete=models.CASCADE,
-        blank=True,
-        null=True,
+        on_delete=models.PROTECT,
         related_name="wms_recipient"
     )
-    deliverer = models.JSONField(blank=True, null=True)
+    deliverer = models.ForeignKey(
+        WmsDeliverer,
+        blank=True,
+        null=True,
+        related_name="wms_deliverer",
+        on_delete=models.SET_NULL
+    )
     number = models.CharField(max_length=255, unique=True, blank=True)
     status = models.CharField(max_length=20, choices=DocumentStatuses.choices, default='DRAFT')
     location = models.CharField(max_length=50, blank=True)

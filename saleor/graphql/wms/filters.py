@@ -1,10 +1,16 @@
 import django_filters
 import graphene
+from graphene_django.filter import GlobalIDMultipleChoiceFilter
 
 from .enums import WmsDocumentStatusFilter, WmsDocumentTypeFilter
 from saleor.graphql.core.filters import ListObjectTypeFilter, ObjectTypeFilter
 from saleor.graphql.core.types import FilterInputObjectType
+from saleor.graphql.core.types.common import DateRangeInput
+from saleor.graphql.utils import get_nodes
+from saleor.graphql.utils.filters import filter_range_field
 from saleor.wms import models
+from saleor.account.models import User
+from saleor.warehouse.models import Warehouse
 
 
 def filter_document_type(qs, _, value):
@@ -25,8 +31,25 @@ def filter_status(qs, _, value):
     return query_objects
 
 
-def filter_recipient(qs, _, value):
-    return qs.filter(recipient=value.get("recipient"))
+def filter_recipients(qs, _, value):
+    if value:
+        recipients = get_nodes(value, "User", User)
+        qs = qs.filter(recipient__in=recipients)
+    return qs
+
+
+def filter_created_by(qs, _, value):
+    if value:
+        created_by = get_nodes(value, "User", User)
+        qs = qs.filter(created_by__in=created_by)
+    return qs
+
+
+def filter_deliverers(qs, _, value):
+    if value:
+        deliverers = get_nodes(value, "WmsDeliverer", models.WmsDeliverer)
+        qs = qs.filter(deliverer__in=deliverers)
+    return qs
 
 
 def filter_document(qs, _, value):
@@ -35,23 +58,30 @@ def filter_document(qs, _, value):
 
 
 def filter_location(qs, _, value):
-    return qs.filter(location=value.get("location"))
+    return qs.filter(location=value)
+
+
+def filter_created_at_range(qs, _, value):
+    return filter_range_field(qs, "created_at__date", value)
+
+
+def filter_updated_at_range(qs, _, value):
+    return filter_range_field(qs, "updated_at__date", value)
+
+
+def filter_warehouses(qs, _, value):
+    if value:
+        warehouses = get_nodes(value, "Warehouse", Warehouse)
+        qs = qs.filter(warehouse__in=warehouses)
+    return qs
 
 
 class DocumentTypeInput(graphene.InputObjectType):
     document_type = graphene.String(description="Document type for warehouse document", required=False)
 
 
-class CreatedByInput(graphene.InputObjectType):
-    user_id = graphene.ID(description="user id", required=False)
-
-
 class StatusInput(graphene.InputObjectType):
     status = graphene.String(description="Status of warehouse documents", required=False)
-
-
-class RecipientInput(graphene.InputObjectType):
-    recipient = graphene.String(description="Recipient of warehouse documents", required=False)
 
 
 class DocumentInput(graphene.InputObjectType):
@@ -61,21 +91,29 @@ class DocumentInput(graphene.InputObjectType):
 class LocationInput(graphene.InputObjectType):
     location = graphene.String(description="Location for warehouse document", required=False)
 
-
 class WmsDocumentFilter(django_filters.FilterSet):
     document_type = ListObjectTypeFilter(input_class=WmsDocumentTypeFilter, method=filter_document_type)
-    created_by = ObjectTypeFilter(input_class=CreatedByInput, method=filter_created_by)
+    created_by = GlobalIDMultipleChoiceFilter(method=filter_created_by)
+    recipients = GlobalIDMultipleChoiceFilter(method=filter_recipients)
+    deliverers = GlobalIDMultipleChoiceFilter(method=filter_deliverers)
     status = ListObjectTypeFilter(input_class=WmsDocumentStatusFilter, method=filter_status)
-    recipient = ObjectTypeFilter(input_class=RecipientInput, method=filter_recipient)
-    location = ObjectTypeFilter(input_class=LocationInput, method=filter_location)
+    location = django_filters.CharFilter(method=filter_location)
+    created_at = ObjectTypeFilter(input_class=DateRangeInput, method=filter_created_at_range)
+    updated_at = ObjectTypeFilter(input_class=DateRangeInput, method=filter_updated_at_range)
+    warehouses = GlobalIDMultipleChoiceFilter(method=filter_warehouses)
 
     class Meta:
         model = models.WmsDocument
         fields = [
-            "created_by",
             "document_type",
+            "created_by",
+            "recipients",
+            "deliverers",
             "status",
-            "recipient"
+            "location",
+            "created_at",
+            "updated_at",
+            "warehouses"
         ]
 
 

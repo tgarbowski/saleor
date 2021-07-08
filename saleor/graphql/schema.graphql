@@ -1544,10 +1544,6 @@ type CreateToken {
   accountErrors: [AccountError!]!
 }
 
-input CreatedByInput {
-  userId: ID
-}
-
 type CreditCard {
   brand: String!
   firstDigits: String
@@ -2300,10 +2296,6 @@ type LanguageDisplay {
   language: String!
 }
 
-input LocationInput {
-  location: String
-}
-
 type Manifest {
   identifier: String!
   version: String!
@@ -2597,6 +2589,9 @@ type Mutation {
   wmsDocPositionCreate(input: WmsDocPositionInput!): WmsDocPositionCreate
   wmsDocPositionUpdate(id: ID!, input: WmsDocPositionInput!): WmsDocPositionUpdate
   wmsDocPositionDelete(id: ID!): WmsDocPositionDelete
+  wmsDelivererCreate(input: WmsDelivererInput!): WmsDelivererCreate
+  wmsDelivererUpdate(id: ID!, input: WmsDelivererInput!): WmsDelivererUpdate
+  wmsDelivererDelete(id: ID!): WmsDelivererDelete
   webhookCreate(input: WebhookCreateInput!): WebhookCreate
   webhookDelete(id: ID!): WebhookDelete
   webhookUpdate(id: ID!, input: WebhookUpdateInput!): WebhookUpdate
@@ -4337,6 +4332,8 @@ type ProductVariantUpdatePrivateMeta {
 }
 
 type Query {
+  wmsDeliverers(before: String, after: String, first: Int, last: Int): WmsDelivererCountableConnection
+  wmsDeliverer(id: ID): WmsDeliverer
   wmsDocPositions(filter: WmsDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WmsDocPositionCountableConnection
   wmsDocPosition(id: ID): WmsDocPosition
   wmsDocuments(filter: WmsDocumentFilterInput, before: String, after: String, first: Int, last: Int): WmsDocumentCountableConnection
@@ -4422,10 +4419,6 @@ type Query {
   user(id: ID!): User
   _entities(representations: [_Any]): [_Entity]
   _service: _Service
-}
-
-input RecipientInput {
-  recipient: String
 }
 
 type ReducedRate {
@@ -5801,6 +5794,315 @@ enum WeightUnitsEnum {
   G
 }
 
+type WmsDeliverer implements Node {
+  companyName: String!
+  street: String!
+  city: String!
+  postalCode: String!
+  email: String!
+  vatId: String!
+  phone: String
+  country: WmsDelivererCountry!
+  firstName: String!
+  lastName: String!
+  id: ID!
+}
+
+type WmsDelivererCountableConnection {
+  pageInfo: PageInfo!
+  edges: [WmsDelivererCountableEdge!]!
+  totalCount: Int
+}
+
+type WmsDelivererCountableEdge {
+  node: WmsDeliverer!
+  cursor: String!
+}
+
+enum WmsDelivererCountry {
+  AF
+  AX
+  AL
+  DZ
+  AS
+  AD
+  AO
+  AI
+  AQ
+  AG
+  AR
+  AM
+  AW
+  AU
+  AT
+  AZ
+  BS
+  BH
+  BD
+  BB
+  BY
+  BE
+  BZ
+  BJ
+  BM
+  BT
+  BO
+  BQ
+  BA
+  BW
+  BV
+  BR
+  IO
+  BN
+  BG
+  BF
+  BI
+  CV
+  KH
+  CM
+  CA
+  KY
+  CF
+  TD
+  CL
+  CN
+  CX
+  CC
+  CO
+  KM
+  CG
+  CD
+  CK
+  CR
+  CI
+  HR
+  CU
+  CW
+  CY
+  CZ
+  DK
+  DJ
+  DM
+  DO
+  EC
+  EG
+  SV
+  GQ
+  ER
+  EE
+  SZ
+  ET
+  EU
+  FK
+  FO
+  FJ
+  FI
+  FR
+  GF
+  PF
+  TF
+  GA
+  GM
+  GE
+  DE
+  GH
+  GI
+  GR
+  GL
+  GD
+  GP
+  GU
+  GT
+  GG
+  GN
+  GW
+  GY
+  HT
+  HM
+  VA
+  HN
+  HK
+  HU
+  IS
+  IN
+  ID
+  IR
+  IQ
+  IE
+  IM
+  IL
+  IT
+  JM
+  JP
+  JE
+  JO
+  KZ
+  KE
+  KI
+  KW
+  KG
+  LA
+  LV
+  LB
+  LS
+  LR
+  LY
+  LI
+  LT
+  LU
+  MO
+  MG
+  MW
+  MY
+  MV
+  ML
+  MT
+  MH
+  MQ
+  MR
+  MU
+  YT
+  MX
+  FM
+  MD
+  MC
+  MN
+  ME
+  MS
+  MA
+  MZ
+  MM
+  NA
+  NR
+  NP
+  NL
+  NC
+  NZ
+  NI
+  NE
+  NG
+  NU
+  NF
+  KP
+  MK
+  MP
+  NO
+  OM
+  PK
+  PW
+  PS
+  PA
+  PG
+  PY
+  PE
+  PH
+  PN
+  PL
+  PT
+  PR
+  QA
+  RE
+  RO
+  RU
+  RW
+  BL
+  SH
+  KN
+  LC
+  MF
+  PM
+  VC
+  WS
+  SM
+  ST
+  SA
+  SN
+  RS
+  SC
+  SL
+  SG
+  SX
+  SK
+  SI
+  SB
+  SO
+  ZA
+  GS
+  KR
+  SS
+  ES
+  LK
+  SD
+  SR
+  SJ
+  SE
+  CH
+  SY
+  TW
+  TJ
+  TZ
+  TH
+  TL
+  TG
+  TK
+  TO
+  TT
+  TN
+  TR
+  TM
+  TC
+  TV
+  UG
+  UA
+  AE
+  GB
+  UM
+  US
+  UY
+  UZ
+  VU
+  VE
+  VN
+  VG
+  VI
+  WF
+  EH
+  YE
+  ZM
+  ZW
+}
+
+type WmsDelivererCreate {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsErrors: [WmsDocumentError!]!
+  wmsDeliverer: WmsDeliverer
+}
+
+type WmsDelivererDelete {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsErrors: [WmsDocumentError!]!
+  wmsDeliverer: WmsDeliverer
+}
+
+input WmsDelivererInput {
+  companyName: String
+  street: String
+  city: String
+  postalCode: String
+  email: String
+  vatId: String
+  phone: String
+  country: CountryCode
+  firstName: String
+  lastName: String
+}
+
+type WmsDelivererUpdate {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  wmsErrors: [WmsDocumentError!]!
+  wmsDeliverer: WmsDeliverer
+}
+
 type WmsDocPosition implements Node {
   id: ID!
   productVariant: ProductVariant!
@@ -5856,9 +6158,9 @@ type WmsDocument implements Node {
   warehouse: Warehouse!
   warehouseSecond: Warehouse
   documentType: WmsDocumentDocumentType!
-  createdBy: User
-  recipient: User
-  deliverer: JSONString
+  createdBy: User!
+  recipient: User!
+  deliverer: WmsDeliverer
   number: String!
   status: WmsDocumentStatus!
   location: String!
@@ -5902,16 +6204,20 @@ type WmsDocumentError {
 }
 
 input WmsDocumentFilterInput {
-  createdBy: CreatedByInput
   documentType: [WmsDocumentTypeFilter]
+  createdBy: [ID]
+  recipients: [ID]
+  deliverers: [ID]
   status: [WmsDocumentStatusFilter]
-  recipient: RecipientInput
-  location: LocationInput
+  location: String
+  createdAt: DateRangeInput
+  updatedAt: DateRangeInput
+  warehouses: [ID]
 }
 
 input WmsDocumentInput {
   documentType: String
-  deliverer: JSONString
+  deliverer: ID
   status: String
   recipient: ID
   createdBy: ID
@@ -5954,7 +6260,7 @@ enum WmsErrorCode {
 
 scalar _Any
 
-union _Entity = Address | User | Group | ServiceAccount | App | ProductVariant | Product | ProductType | Collection | Category | ProductImage | WmsDocument | WmsDocPosition
+union _Entity = Address | User | Group | ServiceAccount | App | ProductVariant | Product | ProductType | Collection | Category | ProductImage | WmsDocument | WmsDocPosition | WmsDeliverer
 
 type _Service {
   sdl: String

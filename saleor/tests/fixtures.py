@@ -89,7 +89,7 @@ from ..webhook.models import Webhook
 from ..wishlist.models import Wishlist
 
 from saleor.graphql.wms.tests.fixtures import (wms_document, wms_docposition, setup_wms,
-                                               permission_manage_wmsdocument)
+                                               permission_manage_wmsdocument, wms_deliverer)
 
 
 class CaptureQueriesContext(BaseCaptureQueriesContext):
