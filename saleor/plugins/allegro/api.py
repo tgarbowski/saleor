@@ -628,8 +628,8 @@ class AllegroAPI:
                 for error in offer['validation'].get('errors'):
                     if 'too few offers related to a product' in error['message']:
                         must_assign_offer_to_product = True
-                    logger.error((error['message'] + ' dla ogłoszenia: ' + self.env + '/offer/' + offer['id'] + '/restore'))
-                    self.errors.append((error['message'] + 'dla ogłoszenia: ' + self.env + '/offer/' + offer['id'] + '/restore'))
+                    logger.error((error['message'] + ' dla ogłoszenia: ' + self.plugin_config['auth_env'] + '/offer/' + offer['id'] + '/restore'))
+                    self.errors.append((error['message'] + 'dla ogłoszenia: ' + self.plugin_config['auth_env'] + '/offer/' + offer['id'] + '/restore'))
                 self.update_status_and_publish_data_in_private_metadata(
                     saleor_product, offer['id'],
                     ProductPublishState.MODERATED.value,
