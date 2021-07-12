@@ -4332,7 +4332,7 @@ type ProductVariantUpdatePrivateMeta {
 }
 
 type Query {
-  wmsDeliverers(before: String, after: String, first: Int, last: Int): WmsDelivererCountableConnection
+  wmsDeliverers(filter: WmsDelivererFilterInput, before: String, after: String, first: Int, last: Int): WmsDelivererCountableConnection
   wmsDeliverer(id: ID): WmsDeliverer
   wmsDocPositions(filter: WmsDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WmsDocPositionCountableConnection
   wmsDocPosition(id: ID): WmsDocPosition
@@ -6082,6 +6082,10 @@ type WmsDelivererDelete {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
   wmsErrors: [WmsDocumentError!]!
   wmsDeliverer: WmsDeliverer
+}
+
+input WmsDelivererFilterInput {
+  search: String
 }
 
 input WmsDelivererInput {

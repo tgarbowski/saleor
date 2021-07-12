@@ -14,7 +14,7 @@ from saleor.graphql.wms.resolvers import (resolve_wms_documents, resolve_wms_doc
                                           resolve_wms_doc_position, resolve_wms_deliverers,
                                           resolve_wms_deliverer)
 from .types import WmsDeliverer, WmsDocPosition, WmsDocument
-from .filters import WmsDocPositionFilterInput, WmsDocumentFilterInput
+from .filters import WmsDocPositionFilterInput, WmsDocumentFilterInput, WmsDelivererFilterInput
 from graphene.types.generic import GenericScalar
 
 
@@ -105,7 +105,7 @@ class WmsDocPositionQueries(graphene.ObjectType):
 class WmsDelivererQueries(graphene.ObjectType):
     wms_deliverers = FilterInputConnectionField(
         WmsDeliverer,
-        #filter=WmsDelivererFilterInput(description="Filtering wms deliverers"),
+        filter=WmsDelivererFilterInput(description="Filtering wms deliverers"),
         description="List of wms deliverers"
     )
     wms_deliverer = graphene.Field(

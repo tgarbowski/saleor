@@ -11,6 +11,7 @@ from saleor.graphql.utils.filters import filter_range_field
 from saleor.wms import models
 from saleor.account.models import User
 from saleor.warehouse.models import Warehouse
+from saleor.graphql.product.filters import filter_fields_containing_value
 
 
 def filter_document_type(qs, _, value):
@@ -136,3 +137,18 @@ class WmsDocPositionFilterInput(FilterInputObjectType):
     class Meta:
         filterset_class = WmsDocPositionFilter
 
+
+class WmsDelivererFilter(django_filters.FilterSet):
+    search = django_filters.CharFilter(
+        method=filter_fields_containing_value("company_name")
+    )
+
+    class Meta:
+        model = models.WmsDeliverer
+        fields = [
+            "search"
+        ]
+
+class WmsDelivererFilterInput(FilterInputObjectType):
+    class Meta:
+        filterset_class = WmsDelivererFilter
