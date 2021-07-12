@@ -102,6 +102,9 @@ class WmsDocumentFilter(django_filters.FilterSet):
     created_at = ObjectTypeFilter(input_class=DateRangeInput, method=filter_created_at_range)
     updated_at = ObjectTypeFilter(input_class=DateRangeInput, method=filter_updated_at_range)
     warehouses = GlobalIDMultipleChoiceFilter(method=filter_warehouses)
+    search = django_filters.CharFilter(
+        method=filter_fields_containing_value("number")
+    )
 
     class Meta:
         model = models.WmsDocument

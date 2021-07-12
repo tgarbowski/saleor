@@ -6217,6 +6217,7 @@ input WmsDocumentFilterInput {
   createdAt: DateRangeInput
   updatedAt: DateRangeInput
   warehouses: [ID]
+  search: String
 }
 
 input WmsDocumentInput {
