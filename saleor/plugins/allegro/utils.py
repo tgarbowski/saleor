@@ -1,8 +1,12 @@
+from datetime import datetime
+import pytz
+
 from django.core.mail import EmailMultiAlternatives
 
 from saleor.plugins.allegro.enums import AllegroErrors
+from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import Product, Category
+from saleor.product.models import Product, ProductVariant, Category
 
 
 def email_errors(products_bulk_ids):
@@ -96,3 +100,24 @@ def get_products_by_recursive_categories(category_slugs, limit, offset):
     ''', [category_slugs, limit, offset])
 
     return products
+
+
+def bulk_update_allegro_status_to_unpublished(unpublished_skus):
+    limit = 1000
+    total_count = len(unpublished_skus)
+    if total_count > 0:
+        for offset in range(0, total_count, limit):
+            update_skus = unpublished_skus[offset:offset + limit]
+            product_variants = ProductVariant.objects.select_related('product').filter(
+                sku__in=update_skus)
+            products_to_update = []
+            for variant in product_variants:
+                product = variant.product
+                product.is_published = False
+                product.store_value_in_private_metadata(
+                    {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
+                        .strftime('%Y-%m-%d %H:%M:%S')})
+                product.store_value_in_private_metadata(
+                    {'publish.allegro.status': ProductPublishState.UNPUBLISHED.value})
+                products_to_update.append(product)
+            Product.objects.bulk_update(products_to_update, ['private_metadata', 'is_published'])

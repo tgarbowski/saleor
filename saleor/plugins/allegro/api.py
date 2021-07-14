@@ -416,7 +416,7 @@ class AllegroAPI:
             },
             "offerCriteria": [
                 {
-                    "offers": offers,
+                    "offers": offers[:1000],
                     "type": "CONTAINS_OFFERS"
                 }
             ]

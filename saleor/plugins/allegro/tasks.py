@@ -6,8 +6,8 @@ from ...celeryconf import app
 from .api import AllegroAPI
 from .enums import AllegroErrors
 from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish_message,
-                    get_products_by_recursive_categories)
-from saleor.product.models import Product
+                    get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished)
+from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
 
 logger = logging.getLogger(__name__)
@@ -208,3 +208,42 @@ def update_published_offers_parameters(category_slugs, limit, offset):
                 logger.info(f'No offer found or offer not active/draft for product {product.id}')
         else:
             logger.info(f'publish.allegro.id is empty for product {product.id}')
+
+
+@app.task()
+def bulk_allegro_unpublish_buy_now():
+    config = get_plugin_configuration()
+    allegro_api = AllegroAPI(config['token_value'], config['env'])
+    # fetch allegro BUY_NOW from db
+    buy_now_products = Category.objects.raw('''
+        select id from product_product
+        where private_metadata->>'publish.type'='BUY_NOW'
+    '''
+    )
+    products_ids = [product.id for product in buy_now_products]
+    skus = list(ProductVariant.objects.filter(product_id__in=products_ids).values_list('sku', flat=True))
+    # Unpublish BUY_NOW offers
+    total_count = len(skus)
+    limit = 1000
+    skus_purchased = []
+    uuids = []
+    for offset in range(0, total_count, limit):
+        update_skus = skus[offset:offset + limit]
+        allegro_data = allegro_api.bulk_offer_unpublish(skus=update_skus)
+        # Skus purchased or errors
+        if allegro_data['status'] == 'ERROR':
+            skus_purchased.extend(update_skus)
+        if allegro_data.get('message') == AllegroErrors.BID_OR_PURCHASED:
+            for error in allegro_data["errors"]:
+                skus_purchased.append(error['sku'])
+        if allegro_data.get('uuid'):
+            uuids.append(allegro_data['uuid'])
+
+    unpublished_skus = [sku for sku in skus if sku not in skus_purchased]
+    # Set private_metadata allegro.publish.status to 'unpublished' and update date
+    bulk_update_allegro_status_to_unpublished(unpublished_skus)
+    # Check unpublish status
+    if uuids:
+        trigger_time = datetime.now() + timedelta(minutes=10)
+        for uuid in uuids:
+            check_bulk_unpublish_status_task.s(uuid).apply_async(eta=trigger_time)
