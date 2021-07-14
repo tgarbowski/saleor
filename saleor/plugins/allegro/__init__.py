@@ -5,3 +5,4 @@ class ProductPublishState(str, Enum):
     MODERATED = "moderated"
     PUBLISHED = "published"
     SOLD = "sold"
+    UNPUBLISHED = "unpublished"
