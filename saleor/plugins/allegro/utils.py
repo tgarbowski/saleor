@@ -121,3 +121,28 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
                     {'publish.allegro.status': ProductPublishState.UNPUBLISHED.value})
                 products_to_update.append(product)
             Product.objects.bulk_update(products_to_update, ['private_metadata', 'is_published'])
+
+
+def can_publish(instance, data):
+    can_be_published = False
+
+    is_bundled = False
+    bundle_id = instance.private_metadata.get("bundle.id")
+    is_bundled = bool(type(bundle_id) is str and len(bundle_id) > 0)
+
+    publish_status_verify = bool(
+        instance.private_metadata.get('publish.allegro.status') not in [
+            ProductPublishState.SOLD.value,
+            ProductPublishState.PUBLISHED.value
+        ]
+    )
+
+    if (    not instance.is_published
+        and data.get('starting_at')
+        and data.get('offer_type')
+        and publish_status_verify
+        and not is_bundled
+    ):
+        can_be_published = True
+
+    return can_be_published

@@ -579,6 +579,7 @@ class BaseBulkMutation(BaseMutation):
 
         from saleor.graphql.product.bulk_mutations.products import ProductBulkPublish
         if type(instance_model) == type(Product) and cls == ProductBulkPublish:
+            from saleor.plugins.allegro.utils import can_publish
 
             interval, chunks = info.context.plugins.get_intervals_and_chunks()
             step = math.ceil(len(instances) / (chunks))
@@ -588,8 +589,7 @@ class BaseBulkMutation(BaseMutation):
                 instance.refresh_from_db()
                 instances_ids.append(instance.id)
 
-                if not instance.is_published and data.get('starting_at') and \
-                        data.get('offer_type'):
+                if can_publish(instance, data):
                     starting_at = (datetime.strptime(data.get('starting_at'), '%Y-%m-%d %H:%M') + timedelta(minutes=(start))).strftime("%Y-%m-%d %H:%M")
                     if i == len(instances) - 1:
                         info.context.plugins.product_published({"product": instance, "offer_type": data.get('offer_type'), "starting_at": starting_at, "products_bulk_ids": instances_ids})
