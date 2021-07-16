@@ -627,6 +627,8 @@ class ProductBulkClearWarehouseLocation(BaseBulkMutation):
         product_variants = ProductVariantModel.objects.select_related('product').filter(
             sku__in=data["skus"])
         for product_variant in product_variants:
+            
+            product_variant.product.private_metadata["publish.allegro.status"] = "published"
             if "location" in product_variant.private_metadata:
                 product_variant.private_metadata["location"] = ""
             product_variant.save()
