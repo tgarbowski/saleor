@@ -270,6 +270,8 @@ def create_collage(images, product):
 
 
 def create_warehouse_locations_matrix(warehouse_from, warehouse_to):
+    warehouse_to = warehouse_to.strip()
+    warehouse_from = warehouse_from.strip()
     warehouse_from_location = re.findall(r'\d+', warehouse_from)
     warehouse_to_location = re.findall(r'\d+', warehouse_to)
     warehouse_locations = [[]]
@@ -321,7 +323,7 @@ def generate_description_json_for_megapack(bundle_content):
 
     list_fragment = {"key": generate_key_id(), "data": {}, "type": "unordered-list-item",
                      'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
-    list_fragment["text"] = f'  razem: {products_amount} szt., {products_weight} kg'
+    list_fragment["text"] = f'  razem: {products_amount} szt., {round(products_weight, 2)} kg'
     blocks.append(list_fragment)
 
     description_json["blocks"] = blocks

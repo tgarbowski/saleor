@@ -147,10 +147,9 @@ class CheckoutPaymentCreate(BaseMutation, I18nMixin):
         checkout = models.Checkout.objects.prefetch_related(
             "lines__variant__product__collections"
         ).get(pk=checkout_id)
-
+        print(data)
         data = data["input"]
         gateway = data["gateway"]
-
         cls.validate_gateway(gateway, checkout.currency)
         cls.validate_token(info.context.plugins, gateway, data)
         cls.validate_return_url(data)

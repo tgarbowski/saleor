@@ -65,6 +65,10 @@ class SitePermissions(BasePermissionEnum):
     MANAGE_TRANSLATIONS = "site.manage_translations"
 
 
+class WMSPermissions(BasePermissionEnum):
+    MANAGE_WMS = "wms.manage_wms"
+
+
 PERMISSIONS_ENUMS = [
     AccountPermissions,
     AppPermission,
@@ -79,6 +83,7 @@ PERMISSIONS_ENUMS = [
     ShippingPermissions,
     SitePermissions,
     CheckoutPermissions,
+    WMSPermissions
 ]
 
 

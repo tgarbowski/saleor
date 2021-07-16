@@ -44,7 +44,6 @@ def create_payment_information(
         shipping = payment.order.shipping_address
     else:
         billing, shipping = None, None
-
     billing_address = AddressData(**billing.as_data()) if billing else None
     shipping_address = AddressData(**shipping.as_data()) if shipping else None
 
@@ -127,7 +126,6 @@ def create_payment(
         "total": total,
         "return_url": return_url,
     }
-
     payment, _ = Payment.objects.get_or_create(defaults=defaults, **data)
     return payment
 
