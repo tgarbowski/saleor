@@ -1,12 +1,15 @@
 import logging
 from datetime import datetime, timedelta
+import math
 import pytz
 
 from ...celeryconf import app
 from .api import AllegroAPI
 from .enums import AllegroErrors
 from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish_message,
-                    get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished)
+                    get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished,
+                    can_publish)
+from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
 
@@ -84,10 +87,17 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
 
             if products_bulk_ids: email_errors(products_bulk_ids)
             return
+        # Assign existing product_id to offer
+        existing_product_id = saleor_product.private_metadata.get('publish.allegro.product')
+        if existing_product_id:
+            allegro_api_instance.add_product_to_offer(
+                allegro_product_id=existing_product_id,
+                allegro_id=offer.get('id'),
+                description=description)
         # Save errors if they exist
         err_handling_response = allegro_api_instance.error_handling(offer, saleor_product, ProductPublishState)
         # If must_assign_offer_to_product create new product and assign to offer
-        if err_handling_response == 'must_assign_offer_to_product':
+        if err_handling_response == 'must_assign_offer_to_product' and not existing_product_id:
             offer_id = saleor_product.private_metadata.get('publish.allegro.id')
             parameters = allegro_api_instance.prepare_product_parameters(
                 saleor_product,
@@ -247,3 +257,51 @@ def bulk_allegro_unpublish_buy_now():
         trigger_time = datetime.now() + timedelta(minutes=10)
         for uuid in uuids:
             check_bulk_unpublish_status_task.s(uuid).apply_async(eta=trigger_time)
+
+
+@app.task()
+def bulk_allegro_publish_unpublished_to_auction(limit):
+    def calculate_date(i, day_limit):
+        # Start from tomorrow with day_limit per day and spread everyday between 7-8 pm
+        day = math.ceil((i + 1) / day_limit)
+        minute = int(60 * ((i - (day - 1) * day_limit) / day_limit))
+        starting_at = now + timedelta(days=day)
+        starting_at = starting_at.replace(hour=19, minute=minute)
+        return starting_at.strftime("%Y-%m-%d %H:%M")
+
+    config = get_plugin_configuration()
+    allegro_api = AllegroAPI(config['token_value'], config['env'])
+    manager = get_plugins_manager()
+    plugin = manager.get_plugin('allegro')
+    # fetch unpublished allegro BUY_NOW offers from db
+    buy_now_products = Category.objects.raw('''
+            select id from product_product
+            where private_metadata->>'publish.type'='BUY_NOW'
+            and private_metadata->>'publish.allegro.status'='unpublished'
+            and is_published = false
+            limit %s
+        ''',[limit]
+    )
+    instances_ids = [product.id for product in buy_now_products]
+    instances = Product.objects.filter(id__in=instances_ids)
+    instances_length = len(instances)
+    day_limit = 2000
+    now = datetime.now()
+    # dummy data to pass validation
+    dummy_data = {
+        "starting_at": "dummy_date",
+        "offer_type": "AUCTION"
+    }
+
+    for i, instance in enumerate(instances):
+        if can_publish(instance, dummy_data):
+            instance.delete_value_from_private_metadata('publish.allegro.date')
+            starting_at = calculate_date(i, day_limit)
+            products_bulk_ids = instances_ids if i == instances_length - 1 else None
+            offer_payload = {
+                "product": instance,
+                "offer_type": "AUCTION",
+                "starting_at": starting_at,
+                "products_bulk_ids": products_bulk_ids
+            }
+            plugin.product_published(offer_payload, None)
