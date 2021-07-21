@@ -1,9 +1,11 @@
+import json
 from typing import TYPE_CHECKING
 
 from django.conf import settings
 
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 
+from .utils import generate_authorization_token, calculate_price_to_payu
 from ..utils import get_supported_currencies
 from . import (
     GatewayConfig,
@@ -15,6 +17,9 @@ from . import (
     refund,
     void,
 )
+
+import requests
+from requests.structures import CaseInsensitiveDict
 
 GATEWAY_NAME = "PayU"
 
@@ -37,6 +42,7 @@ class PayuGatewayPlugin(BasePlugin):
     PLUGIN_NAME = GATEWAY_NAME
     DEFAULT_ACTIVE = True
     DEFAULT_CONFIGURATION = [
+        {"name": "PayUEndpoint", "value": None},
         {"name": "Store customers card", "value": False},
         {"name": "Automatic payment capture", "value": True},
         {"name": "Supported currencies", "value": settings.DEFAULT_CURRENCY},
@@ -44,6 +50,11 @@ class PayuGatewayPlugin(BasePlugin):
         {"name": "Secret API key", "value": None},
     ]
     CONFIG_STRUCTURE = {
+        "PayuEndpoint": {
+            "type": ConfigurationTypeField.STRING,
+            "help_text": "Determines which payu version to use.",
+            "label": "API URL",
+        },
         "Store customers card": {
             "type": ConfigurationTypeField.BOOLEAN,
             "help_text": "Determines if Saleor should store cards.",
@@ -80,7 +91,9 @@ class PayuGatewayPlugin(BasePlugin):
             auto_capture=configuration["Automatic payment capture"],
             supported_currencies=configuration["Supported currencies"],
             connection_params={
-                "api_key": configuration["Public API key"]
+                "pos_id": configuration["Public API key"],
+                "api_url": configuration["PayuEndpoint"],
+                "md5": configuration["Secret API key"]
             },
             store_customer=configuration["Store customers card"]
         )
@@ -98,7 +111,6 @@ class PayuGatewayPlugin(BasePlugin):
     def capture_payment(
         self, payment_information: "PaymentData", previous_value
     ) -> "GatewayResponse":
-        print('capture')
         return capture(payment_information, self._get_gateway_config())
 
     @require_active_plugin
@@ -123,11 +135,47 @@ class PayuGatewayPlugin(BasePlugin):
     def process_payment(
         self, payment_information: "PaymentData", previous_value
     ) -> "GatewayResponse":
+
+        config = self._get_gateway_config()
+        authorization_token = generate_authorization_token(config)
+        print(authorization_token)
+        url = f'{config.connection_params["api_url"]}/api/v2_1/orders'
+
+        headers = CaseInsensitiveDict()
+        headers["Content-Type"] = "application/json"
+        headers["Accept"] = "application/json"
+        headers["Authorization"] = f'Bearer {authorization_token["access_token"]}'
+        print(authorization_token["access_token"])
+        data = {
+                "notifyUrl": "https://your.eshop.com/notify",
+                "customerIp": payment_information.customer_ip_address,
+                "merchantPosId": config.connection_params["pos_id"],
+                "description": "RTV market",
+                "currencyCode": "PLN",
+                "totalAmount": calculate_price_to_payu(payment_information.amount),
+                "buyer": {
+                    "email": payment_information.customer_email,
+                    "phone": payment_information.billing.phone,
+                    "firstName": payment_information.billing.first_name,
+                    "lastName": payment_information.billing.last_name,
+                    "language": "pl"
+                },
+                "products": [
+                    {
+                        "name": "dummy",
+                        "unitPrice": "15000",
+                        "quantity": "1"
+                    } # TO DO DOSTAC PRODUKTY
+                ]
+            }
+        resp = requests.post(url, headers=headers, data=str(data).replace("'", '"').encode("utf-8"), allow_redirects=False)
+        redirect_url = json.loads(resp.content.decode("utf-8"))["redirectUri"]
+        print(redirect_url)
+        import ipdb; ipdb.set_trace()
         return process_payment(payment_information, self._get_gateway_config())
 
     @require_active_plugin
     def get_client_token(self, token_config: "TokenConfig", previous_value):
-        print('token')
         return get_client_token()
 
     @require_active_plugin
@@ -139,3 +187,7 @@ class PayuGatewayPlugin(BasePlugin):
     def get_payment_config(self, previous_value):
         config = self._get_gateway_config()
         return [{"field": "store_customer_card", "value": config.store_customer}]
+
+    @require_active_plugin
+    def token_is_required_as_payment_input(self, previous_value):
+        return False

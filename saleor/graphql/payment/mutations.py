@@ -147,7 +147,6 @@ class CheckoutPaymentCreate(BaseMutation, I18nMixin):
         checkout = models.Checkout.objects.prefetch_related(
             "lines__variant__product__collections"
         ).get(pk=checkout_id)
-        print(data)
         data = data["input"]
         gateway = data["gateway"]
         cls.validate_gateway(gateway, checkout.currency)
@@ -199,6 +198,7 @@ class PaymentCapture(BaseMutation):
 
     @classmethod
     def perform_mutation(cls, _root, info, payment_id, amount=None):
+
         payment = cls.get_node_or_error(
             info, payment_id, field="payment_id", only_type=Payment
         )
