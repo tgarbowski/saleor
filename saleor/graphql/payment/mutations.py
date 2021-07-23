@@ -10,7 +10,10 @@ from ...core.utils import get_client_ip
 from ...core.utils.url import validate_storefront_url
 from ...payment import PaymentError, gateway, models
 from ...payment.error_codes import PaymentErrorCode
-from ...payment.utils import create_payment, is_currency_supported
+from ...payment.gateways.payu.utils import generate_authorization_token, \
+    generate_payu_redirect_url
+from ...payment.utils import create_payment, is_currency_supported, \
+    create_payment_information
 from ..account.i18n import I18nMixin
 from ..account.types import AddressInput
 from ..checkout.types import Checkout
@@ -19,6 +22,7 @@ from ..core.scalars import PositiveDecimal
 from ..core.types import common as common_types
 from ..core.utils import from_global_id_strict_type
 from .types import Payment, PaymentInitialized
+from ...plugins.manager import get_plugins_manager
 
 
 class PaymentInput(graphene.InputObjectType):
@@ -198,7 +202,6 @@ class PaymentCapture(BaseMutation):
 
     @classmethod
     def perform_mutation(cls, _root, info, payment_id, amount=None):
-
         payment = cls.get_node_or_error(
             info, payment_id, field="payment_id", only_type=Payment
         )
@@ -287,3 +290,37 @@ class PaymentInitialize(BaseMutation):
                 }
             )
         return PaymentInitialize(initialized_payment=response)
+
+
+class GeneratePaymentURL(BaseMutation):
+    payment_url = graphene.Field(graphene.String, description="an URL to submit payment")
+
+    class Arguments:
+        gateway = graphene.String(
+            description="Gateway name used to complete payment", required=True
+        )
+
+        checkout_id = graphene.ID(description="Checkout ID.", required=True)
+
+        payment_data = graphene.JSONString(
+            description="Data to request a payment url", required=False
+        )
+
+    class Meta:
+        description = "Generates an url to redirect to payment gateway and complete payment"
+
+    @classmethod
+    def perform_mutation(cls, root, info, checkout_id, **data):
+        checkout_id = from_global_id_strict_type(
+            checkout_id, only_type=Checkout, field="checkout_id"
+        )
+
+        payment = models.Payment.objects.filter(checkout=checkout_id).first()
+
+        manager = get_plugins_manager()
+        plugin = manager.get_plugin(payment.gateway)
+        config = plugin.get_payment_connection_params(plugin.configuration)
+
+        redirect_url = generate_payu_redirect_url(config, create_payment_information(payment))
+
+        return GeneratePaymentURL(payment_url=redirect_url)

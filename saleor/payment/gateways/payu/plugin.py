@@ -135,43 +135,6 @@ class PayuGatewayPlugin(BasePlugin):
     def process_payment(
         self, payment_information: "PaymentData", previous_value
     ) -> "GatewayResponse":
-
-        config = self._get_gateway_config()
-        authorization_token = generate_authorization_token(config)
-        print(authorization_token)
-        url = f'{config.connection_params["api_url"]}/api/v2_1/orders'
-
-        headers = CaseInsensitiveDict()
-        headers["Content-Type"] = "application/json"
-        headers["Accept"] = "application/json"
-        headers["Authorization"] = f'Bearer {authorization_token["access_token"]}'
-        print(authorization_token["access_token"])
-        data = {
-                "notifyUrl": "https://your.eshop.com/notify",
-                "customerIp": payment_information.customer_ip_address,
-                "merchantPosId": config.connection_params["pos_id"],
-                "description": "RTV market",
-                "currencyCode": "PLN",
-                "totalAmount": calculate_price_to_payu(payment_information.amount),
-                "buyer": {
-                    "email": payment_information.customer_email,
-                    "phone": payment_information.billing.phone,
-                    "firstName": payment_information.billing.first_name,
-                    "lastName": payment_information.billing.last_name,
-                    "language": "pl"
-                },
-                "products": [
-                    {
-                        "name": "dummy",
-                        "unitPrice": "15000",
-                        "quantity": "1"
-                    } # TO DO DOSTAC PRODUKTY
-                ]
-            }
-        resp = requests.post(url, headers=headers, data=str(data).replace("'", '"').encode("utf-8"), allow_redirects=False)
-        redirect_url = json.loads(resp.content.decode("utf-8"))["redirectUri"]
-        print(redirect_url)
-        import ipdb; ipdb.set_trace()
         return process_payment(payment_information, self._get_gateway_config())
 
     @require_active_plugin
@@ -186,7 +149,14 @@ class PayuGatewayPlugin(BasePlugin):
     @require_active_plugin
     def get_payment_config(self, previous_value):
         config = self._get_gateway_config()
-        return [{"field": "store_customer_card", "value": config.store_customer}]
+        connection_params = []
+        for name, value in config.connection_params.items():
+            connection_params.append({"field": name, "value": value})
+        return [{"field": "store_customer_card", "value": config.store_customer}] + connection_params
+
+    @require_active_plugin
+    def get_payment_connection_params(self, previous_value):
+        return self._get_gateway_config()
 
     @require_active_plugin
     def token_is_required_as_payment_input(self, previous_value):

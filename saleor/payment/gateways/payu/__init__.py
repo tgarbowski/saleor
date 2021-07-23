@@ -60,7 +60,6 @@ def capture(payment_information: PaymentData, config: GatewayConfig) -> GatewayR
     success = dummy_success()
     if not success:
         error = "Unable to process capture"
-
     return GatewayResponse(
         is_success=success,
         action_required=False,
