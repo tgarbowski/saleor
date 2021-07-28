@@ -354,8 +354,6 @@ def _process_payment(
 ) -> Transaction:
     """Process the payment assigned to checkout."""
     try:
-        print('process_payment')
-        print(payment_data)
         if payment.to_confirm:
             txn = gateway.confirm(payment, additional_data=payment_data)
 
@@ -366,7 +364,6 @@ def _process_payment(
                 store_source=store_source,
                 additional_data=payment_data,
             )
-        print(txn)
         payment.refresh_from_db()
         if not txn.is_success:
             raise PaymentError(txn.error)

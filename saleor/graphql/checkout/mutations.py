@@ -837,8 +837,6 @@ class CheckoutComplete(BaseMutation):
                 tracking_code=tracking_code,
                 redirect_url=data.get("redirect_url"),
             )
-            print(data)
-            print(order)
         # If gateway returns information that additional steps are required we need
         # to inform the frontend and pass all required data
         return CheckoutComplete(
