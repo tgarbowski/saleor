@@ -1,5 +1,4 @@
 import json
-import locale
 import decimal
 
 import requests
@@ -31,21 +30,22 @@ def calculate_price_to_payu(price: decimal.Decimal):
     return price
 
 
-def generate_payu_redirect_url(config, payment_information: "PaymentData"):
+def generate_payu_redirect_url(config, payment_information: "PaymentData", checkout_id):
     authorization_token = generate_authorization_token(config)
     url = f'{config.connection_params["api_url"]}/api/v2_1/orders'
-
     headers = CaseInsensitiveDict()
     headers["Content-Type"] = "application/json"
     headers["Accept"] = "application/json"
     headers["Authorization"] = f'Bearer {authorization_token["access_token"]}'
     data = {
-        "notifyUrl": "https://your.eshop.com/notify",
+        "notifyUrl": "https://your.eshop.com/notify",  # TO DO tutaj url do notyfikacji
         "customerIp": payment_information.customer_ip_address,
         "merchantPosId": config.connection_params["pos_id"],
-        "description": "RTV market",
+        "description": payment_information.customer_email,
         "currencyCode": "PLN",
         "totalAmount": calculate_price_to_payu(payment_information.amount),
+        "extOrderId": checkout_id,
+        "continueUrl": config.connection_params["continue_url"],  # TO DO
         "buyer": {
             "email": payment_information.customer_email,
             "phone": payment_information.billing.phone,

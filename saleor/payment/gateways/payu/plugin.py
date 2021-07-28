@@ -5,7 +5,6 @@ from django.conf import settings
 
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 
-from .utils import generate_authorization_token, calculate_price_to_payu
 from ..utils import get_supported_currencies
 from . import (
     GatewayConfig,
@@ -17,9 +16,6 @@ from . import (
     refund,
     void,
 )
-
-import requests
-from requests.structures import CaseInsensitiveDict
 
 GATEWAY_NAME = "PayU"
 
@@ -48,9 +44,10 @@ class PayuGatewayPlugin(BasePlugin):
         {"name": "Supported currencies", "value": settings.DEFAULT_CURRENCY},
         {"name": "Public API key", "value": None},
         {"name": "Secret API key", "value": None},
+        {"name": "Continue URL", "value": None},
     ]
     CONFIG_STRUCTURE = {
-        "PayuEndpoint": {
+        "PayUEndpoint": {
             "type": ConfigurationTypeField.STRING,
             "help_text": "Determines which payu version to use.",
             "label": "API URL",
@@ -71,6 +68,11 @@ class PayuGatewayPlugin(BasePlugin):
             " Please enter currency codes separated by a comma.",
             "label": "Supported currencies",
         },
+        "Continue URL": {
+            "type": ConfigurationTypeField.STRING,
+            "help_text": "Determines url to redirect after payment execution",
+            "label": "Continue URL"
+        },
         "Public API key": {
             "type": ConfigurationTypeField.SECRET,
             "help_text": "Provide  public API key.",
@@ -79,7 +81,7 @@ class PayuGatewayPlugin(BasePlugin):
         "Secret API key": {
             "type": ConfigurationTypeField.SECRET,
             "help_text": "Provide Stripe secret API key.",
-            "label": "Drugi klucz (md5)",
+            "label": "Client Secret",
         },
     }
 
@@ -92,8 +94,9 @@ class PayuGatewayPlugin(BasePlugin):
             supported_currencies=configuration["Supported currencies"],
             connection_params={
                 "pos_id": configuration["Public API key"],
-                "api_url": configuration["PayuEndpoint"],
-                "md5": configuration["Secret API key"]
+                "md5": configuration["Secret API key"],
+                "continue_url": configuration["Continue URL"],
+                "api_url": configuration["PayUEndpoint"],
             },
             store_customer=configuration["Store customers card"]
         )

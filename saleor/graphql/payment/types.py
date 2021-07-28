@@ -167,3 +167,10 @@ class PaymentInitialized(graphene.ObjectType):
     data = graphene.JSONString(
         description="Initialized data by gateway.", required=False
     )
+
+
+class PaymentUrl(graphene.ObjectType):
+    class Meta:
+        description = ("data to generate redirect url for payment")
+
+    payment_url = graphene.String(description="")
