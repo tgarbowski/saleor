@@ -1640,11 +1640,6 @@ type DeactivateAllUserTokens {
   accountErrors: [AccountError!]!
 }
 
-input DeclaredValueDataInput {
-  amount: String
-  currency: String
-}
-
 type DeleteMetadata {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
   metadataErrors: [MetadataError!]!
@@ -1775,22 +1770,19 @@ input DpdCreateLabelInput {
 }
 
 input DpdCreatePackageInput {
-  servicesData: ServicesDataInput!
   reference: String
-  payerType: String
-  ref1: String
-  ref2: String
-  ref3: String
   thirdPartyFID: Int
   langCode: String
-  returnPayload: Boolean
-  packageData: PackageDataInput!
+  packageData: [PackageDataInput]!
   senderData: SenderDataInput!
   recieverData: RecieverDataInput!
+  fulfillment: ID!
+  services: ServiceDataInput
 }
 
 input DpdCreateProtocolInput {
-  waybills: [String]!
+  waybills: [String]
+  packages: [Int]
   senderData: SenderDataInput!
 }
 
@@ -1801,25 +1793,10 @@ type DpdLabelCreate {
 
 type DpdPackageCreate {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  dupa: JSONString
-}
-
-type DpdPickupCall {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  dupa: JSONString
-}
-
-input DpdPickupCallInput {
-  checkSum: Int
-  operationType: String
-  orderNumber: String
-  orderType: String
-  pickupCallSimplifiedDetails: PickupCallSimplifiedDetailsInput
-  pickupDate: String!
-  pickupTimeFrom: String!
-  pickupTimeTo: String!
-  updateMode: String
-  waybillsReady: Boolean
+  packageId: Int
+  parcelIds: [Int]
+  waybills: [String]
+  status: String
 }
 
 type DpdProtocolCreate {
@@ -2673,7 +2650,6 @@ type Mutation {
   dpdPackageCreate(input: DpdCreatePackageInput!): DpdPackageCreate
   dpdLabelCreate(input: DpdCreateLabelInput!): DpdLabelCreate
   dpdProtocolCreate(input: DpdCreateProtocolInput!): DpdProtocolCreate
-  dpdPickupCall(input: DpdPickupCallInput!): DpdPickupCall
   attributeCreate(input: AttributeCreateInput!): AttributeCreate
   attributeDelete(id: ID!): AttributeDelete
   attributeBulkDelete(ids: [ID]!): AttributeBulkDelete
@@ -3324,29 +3300,12 @@ type OrderVoid {
 }
 
 input PackageDataInput {
-  weight: Int
+  weight: Float!
   content: String
   customerData1: String
   sizeX: Int
   sizeY: Int
   sizeZ: Int
-}
-
-input PackagesParamsInput {
-  dox: Boolean
-  doxCount: Int
-  pallet: Boolean
-  palletMaxHeight: Int
-  palletMaxWeight: Int
-  palletsCount: Int
-  palletsWeight: Int
-  parcelMaxDepth: Int
-  parcelMaxHeight: Int
-  parcelMaxWeight: Int
-  parcelMaxWidth: Int
-  parcelsCount: Int
-  parcelsWeight: Int
-  standardParcel: Boolean
 }
 
 type Page implements Node & ObjectWithMetadata {
@@ -3696,34 +3655,6 @@ input PermissionGroupUpdateInput {
   name: String
   removePermissions: [PermissionEnum!]
   removeUsers: [ID!]
-}
-
-input PickupCallSimplifiedDetailsInput {
-  packagesParams: PackagesParamsInput!
-  pickupCustomer: PickupCustomerInput!
-  pickupPayer: PickupPayerInput!
-  pickupSender: PickupSenderInput!
-}
-
-input PickupCustomerInput {
-  customerFullName: String
-  customerName: String
-  customerPhone: String
-}
-
-input PickupPayerInput {
-  payerCostCenter: String
-  payerName: String
-  payerNumber: Int
-}
-
-input PickupSenderInput {
-  senderAddress: String
-  senderCity: String
-  senderFullName: String
-  senderName: String
-  senderPhone: String
-  senderPostalCode: String
 }
 
 type Plugin implements Node {
@@ -4520,13 +4451,13 @@ type Query {
 }
 
 input RecieverDataInput {
-  address: String
-  city: String
-  company: String
-  countryCode: String
-  email: String
-  phone: String
-  postalCode: String
+  address: String!
+  city: String!
+  company: String!
+  countryCode: String!
+  email: String!
+  phone: String!
+  postalCode: String!
 }
 
 type ReducedRate {
@@ -4683,14 +4614,14 @@ type SelectedAttribute {
 }
 
 input SenderDataInput {
-  address: String
-  city: String
-  company: String
-  countryCode: String
-  email: String
-  fid: String
-  phone: String
-  postalCode: String
+  address: String!
+  city: String!
+  company: String!
+  countryCode: String!
+  email: String!
+  fid: String!
+  phone: String!
+  postalCode: String!
 }
 
 input SeoInput {
@@ -4798,8 +4729,8 @@ type ServiceAccountUpdatePrivateMeta {
   serviceAccount: ServiceAccount
 }
 
-input ServicesDataInput {
-  declaredValue: DeclaredValueDataInput
+input ServiceDataInput {
+  dox: Boolean
 }
 
 type SetPassword {
