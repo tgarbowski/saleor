@@ -16,10 +16,8 @@ from ..core.utils import get_duplicates_ids
 from ..core.validators import validate_price_precision
 from .enums import ShippingMethodTypeEnum
 from .types import ShippingMethod, ShippingZone
-from saleor.plugins.dpd.api import DpdApi, dpd_init
-from zeep import helpers
+from saleor.plugins.dpd.api import DpdApi
 import base64
-#from saleor.order.models import Fulfillment
 from saleor.graphql.order.types import Fulfillment
 
 
@@ -425,18 +423,23 @@ class DpdPackageCreate(BaseMutation):
 
     @classmethod
     def perform_mutation(cls, _root, info, **data):
-        DPD_ApiInstance = DpdApi(useTest=True, initZeep=True, settings=dpd_init())
+        DPD_ApiInstance = DpdApi()
 
-        package = DPD_ApiInstance.GeneratePackageShipment(
+        package = DPD_ApiInstance.generate_package_shipment(
             packageData=data['input']['packageData'],
             recieverData=data['input']['recieverData'],
             senderData=data['input']['senderData'],
             servicesData=data['input'].get('services')
         )
 
+        if package.Status != 'OK':
+            return DpdPackageCreate(
+                status=package.Status
+            )
+
         package = package.Packages.Package[0]
         parcels = package.Parcels.Parcel
-        parcelIds = [parcel.ParcelId for parcel in package.Parcels.Parcel]
+        parcel_ids = [parcel.ParcelId for parcel in package.Parcels.Parcel]
         waybills = [parcel.Waybill for parcel in package.Parcels.Parcel]
         new_parcels = []
 
@@ -461,15 +464,12 @@ class DpdPackageCreate(BaseMutation):
         fulfillment_id = data['input']['fulfillment']
         fulfillment = graphene.Node.get_node_from_global_id(info, fulfillment_id, Fulfillment)
         fulfillment.store_value_in_private_metadata({'package': json_package})
-        if package.PackageId:
-            fulfillment.tracking_number = package.PackageId
-        else:
-            fulfillment.tracking_number = ''
+        fulfillment.tracking_number = package.PackageId
         fulfillment.save()
 
         return DpdPackageCreate(
             packageId=package.PackageId,
-            parcelIds=parcelIds,
+            parcelIds=parcel_ids,
             waybills=waybills,
             status=package.Status
         )
@@ -492,9 +492,9 @@ class DpdLabelCreate(BaseMutation):
 
     @classmethod
     def perform_mutation(cls, _root, info, **data):
-        DPD_ApiInstance = DpdApi(useTest=True, initZeep=True, settings=dpd_init())
+        DPD_ApiInstance = DpdApi()
 
-        label = DPD_ApiInstance.GenerateSpedLabel(
+        label = DPD_ApiInstance.generate_label(
             packageId=data['input']['packageId'],
             senderData=data['input']['senderData']
         )
@@ -523,9 +523,9 @@ class DpdProtocolCreate(BaseMutation):
 
     @classmethod
     def perform_mutation(cls, _root, info, **data):
-        DPD_ApiInstance = DpdApi(useTest=True, initZeep=True, settings=dpd_init())
+        DPD_ApiInstance = DpdApi()
 
-        protocol = DPD_ApiInstance.generateProtocol(
+        protocol = DPD_ApiInstance.generate_protocol(
             waybills=data['input'].get('waybills'),
             packages=data['input'].get('packages'),
             senderData=data['input']['senderData']
