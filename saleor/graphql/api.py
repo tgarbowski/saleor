@@ -21,6 +21,8 @@ from .translations.schema import TranslationQueries
 from .warehouse.schema import StockQueries, WarehouseMutations, WarehouseQueries
 from .webhook.schema import WebhookMutations, WebhookQueries
 from .metaquery.schema import MetadataQueries
+from .wms.schema import (WmsDocumentQueries, WmsDocPositionQueries, WmsDocumentMutations,
+                         WmsDelivererQueries)
 
 
 class Query(
@@ -44,6 +46,9 @@ class Query(
     WarehouseQueries,
     WebhookQueries,
     MetadataQueries,
+    WmsDocumentQueries,
+    WmsDocPositionQueries,
+    WmsDelivererQueries
 ):
     pass
 
@@ -67,6 +72,7 @@ class Mutation(
     ShopMutations,
     WarehouseMutations,
     WebhookMutations,
+    WmsDocumentMutations
 ):
     pass
 

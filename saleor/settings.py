@@ -255,6 +255,7 @@ INSTALLED_APPS = [
     "saleor.wishlist",
     "saleor.app",
     "saleor.salingo",
+    "saleor.wms",
     # External apps
     "versatileimagefield",
     "django_measurement",
@@ -534,6 +535,7 @@ PLUGINS = [
     "saleor.plugins.allegro.plugin.AllegroPlugin",
     "saleor.plugins.sumi.plugin.SumiPlugin",
     "saleor.plugins.allegroSync.plugin.AllegroSyncPlugin",
+    "saleor.plugins.wms.plugin.WMSPlugin"
 ]
 
 # Plugin discovery

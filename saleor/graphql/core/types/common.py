@@ -28,6 +28,7 @@ from ..enums import (
     WebhookErrorCode,
     WeightUnitsEnum,
     WishlistErrorCode,
+    WmsDocumentErrorCode
 )
 from .money import VAT
 
@@ -223,6 +224,10 @@ class WebhookError(Error):
 
 class WishlistError(Error):
     code = WishlistErrorCode(description="The error code.", required=True)
+
+
+class WmsDocumentError(Error):
+    code = WmsDocumentErrorCode(description="The error code.", required=True)
 
 
 class TranslationError(Error):
