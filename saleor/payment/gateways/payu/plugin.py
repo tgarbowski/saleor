@@ -34,7 +34,7 @@ def require_active_plugin(fn):
 
 
 class PayuGatewayPlugin(BasePlugin):
-    PLUGIN_ID = "mirumee.payments.payu"
+    PLUGIN_ID = "salingo.payments.payu"
     PLUGIN_NAME = GATEWAY_NAME
     DEFAULT_ACTIVE = True
     DEFAULT_CONFIGURATION = [
