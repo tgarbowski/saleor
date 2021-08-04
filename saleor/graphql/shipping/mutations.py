@@ -367,7 +367,7 @@ class SenderDataInput(graphene.InputObjectType):
     postalCode = graphene.String(required=True)
 
 
-class RecieverDataInput(graphene.InputObjectType):
+class ReceiverDataInput(graphene.InputObjectType):
     address = graphene.String(required=True)
     city = graphene.String(required=True)
     company = graphene.String(required=True)
@@ -387,7 +387,7 @@ class DpdCreatePackageInput(graphene.InputObjectType):
     langCode = graphene.String(description="Language Code")
     packageData = graphene.List(PackageDataInput, required=True)
     senderData = SenderDataInput(required=True, description="Sender data.")
-    recieverData = RecieverDataInput(required=True)
+    receiverData = ReceiverDataInput(required=True)
     fulfillment = graphene.ID(required=True, description="Order fullfilment record ID")
     services = ServiceDataInput()
 
@@ -427,7 +427,7 @@ class DpdPackageCreate(BaseMutation):
 
         package = DPD_ApiInstance.generate_package_shipment(
             packageData=data['input']['packageData'],
-            recieverData=data['input']['recieverData'],
+            receiverData=data['input']['receiverData'],
             senderData=data['input']['senderData'],
             servicesData=data['input'].get('services')
         )

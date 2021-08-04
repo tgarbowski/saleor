@@ -104,7 +104,7 @@ class DpdApi():
 
     def generate_package_shipment(self,
         packageData,
-        recieverData,
+        receiverData,
         senderData,
         servicesData=None,
         reference=None,
@@ -115,7 +115,7 @@ class DpdApi():
         openUMLFeV3 = self['openUMLFeV3']
         packageOpenUMLFeV3 = self['packageOpenUMLFeV3']
         packageOpenUMLFeV3.parcels = [self.get_package_payload(**package) for package in packageData]
-        packageOpenUMLFeV3.receiver = self.get_adress_payload(**recieverData)
+        packageOpenUMLFeV3.receiver = self.get_adress_payload(**receiverData)
         packageOpenUMLFeV3.sender = self.get_adress_payload(**senderData)
         if servicesData:
             packageOpenUMLFeV3.services = self.get_services_payload(**servicesData)
