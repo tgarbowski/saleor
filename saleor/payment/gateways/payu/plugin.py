@@ -1,23 +1,23 @@
-import json
+import logging
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.core.handlers.wsgi import WSGIRequest
+from django.http import HttpResponse, HttpResponseNotFound
 
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
-
 from ..utils import get_supported_currencies
-from . import (
-    GatewayConfig,
-    authorize,
-    capture,
-    confirm,
-    get_client_token,
-    process_payment,
-    refund,
-    void,
-)
+from .utils import get_client_token
+from . import GatewayConfig, process_payment
+
+
+logger = logging.getLogger(__name__)
 
 GATEWAY_NAME = "PayU"
+WEBHOOK_PATH = "/webhooks"
+ADDITIONAL_ACTION_PATH = "/additional-actions"
+
+from .webhooks import handle_webhook
 
 if TYPE_CHECKING:
     from ...interface import GatewayResponse, PaymentData, TokenConfig
@@ -45,6 +45,8 @@ class PayuGatewayPlugin(BasePlugin):
         {"name": "Public API key", "value": None},
         {"name": "Secret API key", "value": None},
         {"name": "Continue URL", "value": None},
+        {"name": "Second MD5 key", "value": None},
+        {"name": "Notify URL", "value": None},
     ]
     CONFIG_STRUCTURE = {
         "PayUEndpoint": {
@@ -73,6 +75,11 @@ class PayuGatewayPlugin(BasePlugin):
             "help_text": "Determines url to redirect after payment execution",
             "label": "Continue URL"
         },
+        "Notify URL": {
+            "type": ConfigurationTypeField.STRING,
+            "help_text": "Determines url to receive notifications",
+            "label": "Notify URL"
+        },
         "Public API key": {
             "type": ConfigurationTypeField.SECRET,
             "help_text": "Provide  public API key.",
@@ -82,6 +89,11 @@ class PayuGatewayPlugin(BasePlugin):
             "type": ConfigurationTypeField.SECRET,
             "help_text": "Provide Stripe secret API key.",
             "label": "Client Secret",
+        },
+        "Second MD5 key": {
+            "type": ConfigurationTypeField.SECRET,
+            "help_text": "Provide Payu second MD5 key.",
+            "label": "Second MD5 key",
         },
     }
 
@@ -96,44 +108,53 @@ class PayuGatewayPlugin(BasePlugin):
                 "pos_id": configuration["Public API key"],
                 "md5": configuration["Secret API key"],
                 "continue_url": configuration["Continue URL"],
+                "notify_url": configuration["Notify URL"],
                 "api_url": configuration["PayUEndpoint"],
+                "second_md5": configuration["Second MD5 key"]
             },
             store_customer=configuration["Store customers card"]
         )
 
+
+    def webhook(self, request: WSGIRequest, path: str, previous_value) -> HttpResponse:
+        config = self._get_gateway_config()
+        if path.startswith(WEBHOOK_PATH):
+            return handle_webhook(request, config)
+        return HttpResponseNotFound()
+
     def _get_gateway_config(self):
         return self.config
-
+    '''
     @require_active_plugin
     def authorize_payment(
         self, payment_information: "PaymentData", previous_value
     ) -> "GatewayResponse":
-        return authorize(payment_information, self._get_gateway_config())
+        raise NotImplementedError()
 
     @require_active_plugin
     def capture_payment(
         self, payment_information: "PaymentData", previous_value
     ) -> "GatewayResponse":
-        return capture(payment_information, self._get_gateway_config())
+        raise NotImplementedError()
 
     @require_active_plugin
     def confirm_payment(
         self, payment_information: "PaymentData", previous_value
     ) -> "GatewayResponse":
-        return confirm(payment_information, self._get_gateway_config())
+        raise NotImplementedError()
 
     @require_active_plugin
     def refund_payment(
         self, payment_information: "PaymentData", previous_value
     ) -> "GatewayResponse":
-        return refund(payment_information, self._get_gateway_config())
+        raise NotImplementedError()
 
     @require_active_plugin
     def void_payment(
         self, payment_information: "PaymentData", previous_value
     ) -> "GatewayResponse":
-        return void(payment_information, self._get_gateway_config())
-
+        raise NotImplementedError()
+    '''
     @require_active_plugin
     def process_payment(
         self, payment_information: "PaymentData", previous_value

@@ -3524,6 +3524,10 @@ type PaymentSource {
   creditCardInfo: CreditCard
 }
 
+type PaymentUrl {
+  paymentUrl: String
+}
+
 type PaymentVoid {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
   payment: Payment
@@ -4377,6 +4381,7 @@ type Query {
   reportProductSales(period: ReportingPeriod!, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   payment(id: ID!): Payment
   payments(before: String, after: String, first: Int, last: Int): PaymentCountableConnection
+  generatePaymentUrl(paymentId: ID!): PaymentUrl
   page(id: ID, slug: String): Page
   pages(sortBy: PageSortingInput, filter: PageFilterInput, before: String, after: String, first: Int, last: Int): PageCountableConnection
   homepageEvents(before: String, after: String, first: Int, last: Int): OrderEventCountableConnection

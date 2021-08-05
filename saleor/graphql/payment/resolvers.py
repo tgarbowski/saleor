@@ -25,11 +25,10 @@ def resolve_generate_payment_url(info, **kwargs):
     payment_id = from_global_id_strict_type(
         kwargs["payment_id"], only_type=Payment, field="payment_id"
     )
+
     payment = models.Payment.objects.filter(id=payment_id).first()
     manager = get_plugins_manager()
     plugin = manager.get_plugin(payment.gateway)
     config = plugin.get_payment_connection_params(plugin.configuration)
-    redirect_url = generate_payu_redirect_url(config,
-                                              create_payment_information(payment),
-                                              payment_id)
+    redirect_url = generate_payu_redirect_url(config, create_payment_information(payment))
     return PaymentUrl(payment_url=redirect_url)

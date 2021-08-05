@@ -1,10 +1,15 @@
-import json
 import decimal
-
+import json
 import requests
 from requests.structures import CaseInsensitiveDict
+import uuid
 
 from saleor.payment.interface import PaymentData
+from saleor.payment.models import Payment
+
+
+def get_client_token(**_):
+    return str(uuid.uuid4())
 
 
 def generate_authorization_token(config):
@@ -30,22 +35,40 @@ def calculate_price_to_payu(price: decimal.Decimal):
     return price
 
 
-def generate_payu_redirect_url(config, payment_information: "PaymentData", checkout_id):
+def calculate_payu_price_to_decimal(price: str):
+    price = int(price) / decimal.Decimal(100)
+    return price
+
+
+def set_payment_token(payment_id):
+    payment = Payment.objects.get(pk=payment_id)
+    token = get_client_token()
+    payment.token = token
+    payment.save()
+
+    return token
+
+
+def generate_payu_redirect_url(config, payment_information: "PaymentData"):
     authorization_token = generate_authorization_token(config)
     url = f'{config.connection_params["api_url"]}/api/v2_1/orders'
     headers = CaseInsensitiveDict()
     headers["Content-Type"] = "application/json"
     headers["Accept"] = "application/json"
     headers["Authorization"] = f'Bearer {authorization_token["access_token"]}'
+    # Set unique payment token
+    payment_id = payment_information.payment_id
+    payment_token = set_payment_token(payment_id)
+
     data = {
-        "notifyUrl": "https://your.eshop.com/notify",  # TO DO tutaj url do notyfikacji
+        "notifyUrl": config.connection_params["notify_url"],
         "customerIp": payment_information.customer_ip_address,
         "merchantPosId": config.connection_params["pos_id"],
         "description": payment_information.customer_email,
         "currencyCode": "PLN",
         "totalAmount": calculate_price_to_payu(payment_information.amount),
-        "extOrderId": checkout_id,
-        "continueUrl": config.connection_params["continue_url"],  # TO DO
+        "extOrderId": payment_token,
+        "continueUrl": config.connection_params["continue_url"],
         "buyer": {
             "email": payment_information.customer_email,
             "phone": payment_information.billing.phone,
