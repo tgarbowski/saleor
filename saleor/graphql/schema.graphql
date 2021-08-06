@@ -1766,7 +1766,6 @@ type Domain {
 
 input DpdCreateLabelInput {
   packageId: Int!
-  senderData: SenderDataInput!
 }
 
 input DpdCreatePackageInput {
@@ -4619,7 +4618,7 @@ input SenderDataInput {
   company: String!
   countryCode: String!
   email: String!
-  fid: String!
+  fid: String
   phone: String!
   postalCode: String!
 }

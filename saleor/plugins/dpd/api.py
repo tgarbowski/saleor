@@ -1,25 +1,32 @@
+import enum
+
 import zeep
 
-from saleor.plugins.manager import get_plugins_manager
+from .utils import get_dpd_config
+
+
+class GenerationPolicy(enum.Enum):
+    STOP_ON_FIRST_ERROR = 'STOP_ON_FIRST_ERROR'
+    IGNORE_ERRORS = 'IGNORE_ERRORS'
+    ALL_OR_NOTHING = 'ALL_OR_NOTHING'
 
 
 class DpdApi():
     client = None
     service = None
     factory = None
-    generation_policy = 'ALL_OR_NOTHING'
 
     def __init__(self):
         self.set_config()
         self.init_zeep()
 
     def set_config(self):
-        manager = get_plugins_manager()
-        plugin = manager.get_plugin('Dpd')
-        self.API_USERNAME = plugin.config.username
-        self.API_PASSWORD = plugin.config.password
-        self.API_FID = plugin.config.master_fid
-        self.API_URL = plugin.config.api_url
+        dpd_config = get_dpd_config()
+        self.API_USERNAME = dpd_config.username
+        self.API_PASSWORD = dpd_config.password
+        self.API_FID = dpd_config.master_fid
+        self.API_URL = dpd_config.api_url
+        self.generation_policy = 'ALL_OR_NOTHING'
 
     def init_zeep(self):
         self.client = zeep.Client(self.API_URL)
@@ -112,6 +119,7 @@ class DpdApi():
         langCode='PL'
     ):
 
+        self.generation_policy = GenerationPolicy.ALL_OR_NOTHING.value
         openUMLFeV3 = self['openUMLFeV3']
         packageOpenUMLFeV3 = self['packageOpenUMLFeV3']
         packageOpenUMLFeV3.parcels = [self.get_package_payload(**package) for package in packageData]
@@ -133,14 +141,13 @@ class DpdApi():
         )
 
     def generate_label(self,
-        senderData,
         packageId,
         reference=None
     ):
 
+        self.generation_policy = GenerationPolicy.STOP_ON_FIRST_ERROR.value
         dpdServicesParamsPayload = self['dpdServicesParamsV1']
         dpdServicesParamsPayload.policy = self.generation_policy_payload
-        dpdServicesParamsPayload.pickupAddress = self.get_adress_payload(**senderData)
 
         sessionPayload = self['sessionDSPV1']
         sessionPayload.sessionType = self.get_from_factory('sessionTypeDSPEnumV1')(
@@ -179,6 +186,7 @@ class DpdApi():
         packages=None
     ):
 
+        self.generation_policy = GenerationPolicy.STOP_ON_FIRST_ERROR.value
         dpdServicesParamsPayload = self['dpdServicesParamsV1']
         dpdServicesParamsPayload.policy = self.generation_policy_payload
         dpdServicesParamsPayload.pickupAddress = self.get_adress_payload(**senderData)

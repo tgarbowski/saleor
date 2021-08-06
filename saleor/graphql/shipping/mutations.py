@@ -19,6 +19,7 @@ from .types import ShippingMethod, ShippingZone
 from saleor.plugins.dpd.api import DpdApi
 import base64
 from saleor.graphql.order.types import Fulfillment
+from saleor.plugins.dpd.utils import get_dpd_fid
 
 
 class ShippingPriceInput(graphene.InputObjectType):
@@ -362,7 +363,7 @@ class SenderDataInput(graphene.InputObjectType):
     company = graphene.String(required=True)
     countryCode = graphene.String(required=True)
     email = graphene.String(required=True)
-    fid = graphene.String(required=True)
+    fid = graphene.String(required=False)
     phone = graphene.String(required=True)
     postalCode = graphene.String(required=True)
 
@@ -394,7 +395,6 @@ class DpdCreatePackageInput(graphene.InputObjectType):
 
 class DpdCreateLabelInput(graphene.InputObjectType):
     packageId = graphene.Int(required=True)
-    senderData = SenderDataInput(required=True)
 
 
 class DpdCreateProtocolInput(graphene.InputObjectType):
@@ -424,6 +424,8 @@ class DpdPackageCreate(BaseMutation):
     @classmethod
     def perform_mutation(cls, _root, info, **data):
         DPD_ApiInstance = DpdApi()
+
+        data['input']['senderData']['fid'] = get_dpd_fid()
 
         package = DPD_ApiInstance.generate_package_shipment(
             packageData=data['input']['packageData'],
@@ -495,8 +497,7 @@ class DpdLabelCreate(BaseMutation):
         DPD_ApiInstance = DpdApi()
 
         label = DPD_ApiInstance.generate_label(
-            packageId=data['input']['packageId'],
-            senderData=data['input']['senderData']
+            packageId=data['input']['packageId']
         )
 
         data = base64.b64encode(label['documentData']).decode('ascii')
@@ -524,6 +525,8 @@ class DpdProtocolCreate(BaseMutation):
     @classmethod
     def perform_mutation(cls, _root, info, **data):
         DPD_ApiInstance = DpdApi()
+
+        data['input']['senderData']['fid'] = get_dpd_fid()
 
         protocol = DPD_ApiInstance.generate_protocol(
             waybills=data['input'].get('waybills'),
