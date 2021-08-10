@@ -577,8 +577,10 @@ class BaseBulkMutation(BaseMutation):
         model_type = registry.get_type_for_model(instance_model)
         instances = cls.get_nodes_or_error(ids, "id", model_type)
 
+        is_published = data.get('is_published')
+
         from saleor.graphql.product.bulk_mutations.products import ProductBulkPublish
-        if type(instance_model) == type(Product) and cls == ProductBulkPublish:
+        if type(instance_model) == type(Product) and cls == ProductBulkPublish and is_published:
             from saleor.plugins.allegro.utils import can_publish
 
             interval, chunks = info.context.plugins.get_intervals_and_chunks()
@@ -626,8 +628,11 @@ class BaseBulkMutation(BaseMutation):
 
         if count:
             qs = instance_model.objects.filter(pk__in=clean_instance_ids)
-            if not data.get('is_published') or data['is_published'] is False:
+            if cls != ProductBulkPublish:
                 cls.bulk_action(queryset=qs, **data)
+            if cls == ProductBulkPublish and is_published is False:
+                from saleor.plugins.allegro.tasks import bulk_allegro_unpublish
+                bulk_allegro_unpublish.delay(product_ids=clean_instance_ids)
         return count, errors
 
     @classmethod

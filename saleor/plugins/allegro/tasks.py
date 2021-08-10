@@ -8,7 +8,7 @@ from .api import AllegroAPI
 from .enums import AllegroErrors
 from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish_message,
                     get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished,
-                    can_publish)
+                    can_publish, update_allegro_purchased_error)
 from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
@@ -305,3 +305,51 @@ def bulk_allegro_publish_unpublished_to_auction(limit):
                 "products_bulk_ids": products_bulk_ids
             }
             plugin.product_published(offer_payload, None)
+
+
+@app.task()
+def bulk_allegro_unpublish(product_ids):
+    config = get_plugin_configuration()
+    allegro_api = AllegroAPI(config['token_value'], config['env'])
+    # Exclude products with publish.allegro.status == sold
+    products = Product.objects.filter(id__in=product_ids)
+    sold_product_ids = [product.id for product in products if product.private_metadata.get('publish.allegro.status') == 'sold']
+    product_ids = [product.id for product in products if product.id not in sold_product_ids]
+    sold_skus = list(ProductVariant.objects.filter(product_id__in=sold_product_ids).values_list('sku', flat=True))
+    skus = list(ProductVariant.objects.filter(product_id__in=product_ids).values_list('sku', flat=True))
+    logger.info(f'SKUS TO UNPUBLISH{skus}')
+
+    total_count = len(skus)
+    limit = 1000
+    skus_purchased = []
+    uuids = []
+    for offset in range(0, total_count, limit):
+        update_skus = skus[offset:offset + limit]
+        allegro_data = allegro_api.bulk_offer_unpublish(skus=update_skus)
+        logger.info(f'BULK OFFER UNPUBLISH RETURN DATA{allegro_data}')
+        # Skus purchased or errors
+        if allegro_data['status'] == 'ERROR':
+            skus_purchased.extend(update_skus)
+        if allegro_data.get('message') == AllegroErrors.BID_OR_PURCHASED:
+            for error in allegro_data["errors"]:
+                skus_purchased.append(error['sku'])
+        if allegro_data.get('message') == AllegroErrors.NO_OFFER_NEEDS_ENDING and allegro_data["errors"]:
+            for error in allegro_data["errors"]:
+                skus_purchased.append(error['sku'])
+        if allegro_data.get('uuid'):
+            uuids.append(allegro_data['uuid'])
+
+    skus_purchased.extend(sold_skus)
+    unpublished_skus = [sku for sku in skus if sku not in skus_purchased]
+    logger.info(f'UNPUBSLISHED SKUS{unpublished_skus}')
+    # Set private_metadata allegro.publish.status to 'unpublished' and update date
+    bulk_update_allegro_status_to_unpublished(unpublished_skus)
+    # Log error in private metadata if purchased/bid/connection error
+    logger.info(f'SKUS PURCHASED{skus_purchased}')
+    if skus_purchased:
+        update_allegro_purchased_error(skus_purchased)
+    # Check unpublish status
+    if uuids:
+        trigger_time = datetime.now() + timedelta(minutes=10)
+        for uuid in uuids:
+            check_bulk_unpublish_status_task.s(uuid).apply_async(eta=trigger_time)

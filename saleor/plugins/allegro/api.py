@@ -441,9 +441,11 @@ class AllegroAPI:
         offers_bid_or_purchased = [
             {'sku': offer['external']['id'], 'offer': offer['id'],
              'available': offer['stock']['available'], 'sold': offer['stock']['sold'],
-             'error_message': 'Sold or not available'}
+             'bidders_count': offer['saleInfo']['biddersCount'],'error_message': 'Sold or not available'}
              for offer in offers
              if offer['saleInfo']['biddersCount'] or offer['stock']['sold'] or not offer['stock']['available']]
+
+        logger.info(f'OFFERS BID OR PURCHASED BASED ON ALLEGRO RESPONSE{offers_bid_or_purchased}')
         # Remove canceled allegro offers
         if offers_bid_or_purchased:
             skus = [offer['sku'] for offer in offers_bid_or_purchased]
@@ -451,13 +453,18 @@ class AllegroAPI:
             product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
 
             for product_variant in product_variants:
+                # Products returned from customer
                 if 'publish.allegro.status' in product_variant.product.private_metadata and \
                         product_variant.product.private_metadata['publish.allegro.status'] == 'moderated' and \
                         ('reserved' not in product_variant.metadata or product_variant.metadata['reserved'] is False):
                     skus_to_pass.append(product_variant.sku)
 
+            logger.info(f'SKUS TO PASS{skus_to_pass}')
+
             offers_bid_or_purchased = [offer for offer in offers_bid_or_purchased
                                        if offer['sku'] not in skus_to_pass]
+
+        logger.info(f'OFFERS BID OR PURCHASED{offers_bid_or_purchased}')
 
         return offers_bid_or_purchased
 
