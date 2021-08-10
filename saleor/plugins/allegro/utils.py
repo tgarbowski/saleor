@@ -118,7 +118,7 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
                     {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
                         .strftime('%Y-%m-%d %H:%M:%S')})
                 product.store_value_in_private_metadata(
-                    {'publish.allegro.status': ProductPublishState.UNPUBLISHED.value})
+                    {'publish.allegro.status': ProductPublishState.MODERATED.value})
                 products_to_update.append(product)
             Product.objects.bulk_update(products_to_update, ['private_metadata', 'is_published'])
 
@@ -146,3 +146,16 @@ def can_publish(instance, data):
         can_be_published = True
 
     return can_be_published
+
+
+def update_allegro_purchased_error(skus):
+    product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
+    products_to_update = []
+
+    for variant in product_variants:
+        product = variant.product
+        product.store_value_in_private_metadata(
+            {'publish.allegro.errors': ["Wycofanie produktu zakończone niepowodzeniem"]})
+        products_to_update.append(product)
+
+    Product.objects.bulk_update(products_to_update, ['private_metadata'])
