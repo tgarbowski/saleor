@@ -283,10 +283,16 @@ def create_warehouse_locations_matrix(warehouse_from, warehouse_to):
         first_letter = warehouse_from[1].upper()
         for row_number in rows_numbers:
             number_str = str(row_number)
-            row_numbers_list.append(number_str.zfill(2))
+            if warehouse_from_location[0].startswith('0'):
+                row_numbers_list.append(number_str.zfill(2))
+            else:
+                row_numbers_list.append(number_str)
         for column_number in columns_numbers:
             number_str = str(column_number)
-            column_numbers_list.append(number_str.zfill(2))
+            if warehouse_from_location[1].startswith('0'):
+                column_numbers_list.append(number_str.zfill(2))
+            else:
+                column_numbers_list.append(number_str)
         warehouse_locations = [[f'#{first_letter}{x}K{y}' for y in column_numbers_list] for x in row_numbers_list]
     flatten_locations = [value for row in warehouse_locations for value in row]
     return flatten_locations
