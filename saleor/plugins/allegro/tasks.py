@@ -8,7 +8,7 @@ from .api import AllegroAPI
 from .enums import AllegroErrors
 from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish_message,
                     get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished,
-                    can_publish, update_allegro_purchased_error)
+                    can_publish, update_allegro_purchased_error, email_bulk_unpublish_result)
 from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
@@ -348,8 +348,5 @@ def bulk_allegro_unpublish(product_ids):
     logger.info(f'SKUS PURCHASED{skus_purchased}')
     if skus_purchased:
         update_allegro_purchased_error(skus_purchased)
-    # Check unpublish status
-    if uuids:
-        trigger_time = datetime.now() + timedelta(minutes=10)
-        for uuid in uuids:
-            check_bulk_unpublish_status_task.s(uuid).apply_async(eta=trigger_time)
+    # Send unpublished to email
+    email_bulk_unpublish_result(skus_purchased)
