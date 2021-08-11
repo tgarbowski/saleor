@@ -45,6 +45,15 @@ def email_bulk_unpublish_message(status, **kwargs):
     send_mail(message)
 
 
+def email_bulk_unpublish_result(failed_skus):
+    if not failed_skus:
+        message = 'Wszystkie oferty dla danych SKU zostały pomyślnie wycofane.'
+    else:
+        message = prepare_failed_tasks_email(failed_skus)
+
+    send_mail(message)
+
+
 def send_mail(message):
     subject = 'Logi z wycofywania ofert'
     from_email = 'noreply.salingo@gmail.com'
@@ -56,15 +65,14 @@ def send_mail(message):
     return message.send()
 
 
-def prepare_failed_tasks_email(errors):
+def prepare_failed_tasks_email(skus):
     html = '<table style="width:100%; margin-bottom: 1rem;">'
     html += '<tr>'
-    html += '<th></th>'
+    html += '<th>Nie udało się wycofać poniższych SKU</th>'
     html += '</tr>'
-    for error in errors:
+    for sku in skus:
         html += '<tr>'
-        html += '<td style="width: 9rem;">' + str(error.get('offer').get('id')) + '</td>'
-        html += '<td>' + 'errors: ' + str(error.get('errors')) + '</td>'
+        html += '<td style="width: 9rem;">' + str(sku) + '</td>'
         html += '</tr>'
     html += '<tr>'
     html += '<td>' + '</td>'
