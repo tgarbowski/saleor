@@ -356,6 +356,7 @@ def _process_payment(
     try:
         if payment.to_confirm:
             txn = gateway.confirm(payment, additional_data=payment_data)
+
         else:
             txn = gateway.process_payment(
                 payment=payment,

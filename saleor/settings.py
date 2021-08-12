@@ -255,6 +255,7 @@ INSTALLED_APPS = [
     "saleor.wishlist",
     "saleor.app",
     "saleor.salingo",
+    "saleor.wms",
     # External apps
     "versatileimagefield",
     "django_measurement",
@@ -530,10 +531,12 @@ PLUGINS = [
     "saleor.payment.gateways.razorpay.plugin.RazorpayGatewayPlugin",
     "saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
     "saleor.payment.gateways.authorize_net.plugin.AuthorizeNetGatewayPlugin",
+    "saleor.payment.gateways.payu.plugin.PayuGatewayPlugin",
     "saleor.plugins.invoicing.plugin.InvoicingPlugin",
     "saleor.plugins.allegro.plugin.AllegroPlugin",
     "saleor.plugins.sumi.plugin.SumiPlugin",
     "saleor.plugins.allegroSync.plugin.AllegroSyncPlugin",
+    "saleor.plugins.wms.plugin.WMSPlugin",
     "saleor.plugins.dpd.plugin.DpdPlugin"
 ]
 

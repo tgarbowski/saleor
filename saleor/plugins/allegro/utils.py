@@ -45,6 +45,15 @@ def email_bulk_unpublish_message(status, **kwargs):
     send_mail(message)
 
 
+def email_bulk_unpublish_result(failed_skus):
+    if not failed_skus:
+        message = 'Wszystkie oferty dla danych SKU zostały pomyślnie wycofane.'
+    else:
+        message = prepare_failed_tasks_email(failed_skus)
+
+    send_mail(message)
+
+
 def send_mail(message):
     subject = 'Logi z wycofywania ofert'
     from_email = 'noreply.salingo@gmail.com'
@@ -56,15 +65,14 @@ def send_mail(message):
     return message.send()
 
 
-def prepare_failed_tasks_email(errors):
+def prepare_failed_tasks_email(skus):
     html = '<table style="width:100%; margin-bottom: 1rem;">'
     html += '<tr>'
-    html += '<th></th>'
+    html += '<th>Nie udało się wycofać poniższych SKU</th>'
     html += '</tr>'
-    for error in errors:
+    for sku in skus:
         html += '<tr>'
-        html += '<td style="width: 9rem;">' + str(error.get('offer').get('id')) + '</td>'
-        html += '<td>' + 'errors: ' + str(error.get('errors')) + '</td>'
+        html += '<td style="width: 9rem;">' + str(sku) + '</td>'
         html += '</tr>'
     html += '<tr>'
     html += '<td>' + '</td>'
@@ -118,7 +126,7 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
                     {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
                         .strftime('%Y-%m-%d %H:%M:%S')})
                 product.store_value_in_private_metadata(
-                    {'publish.allegro.status': ProductPublishState.UNPUBLISHED.value})
+                    {'publish.allegro.status': ProductPublishState.MODERATED.value})
                 products_to_update.append(product)
             Product.objects.bulk_update(products_to_update, ['private_metadata', 'is_published'])
 
@@ -146,3 +154,16 @@ def can_publish(instance, data):
         can_be_published = True
 
     return can_be_published
+
+
+def update_allegro_purchased_error(skus):
+    product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
+    products_to_update = []
+
+    for variant in product_variants:
+        product = variant.product
+        product.store_value_in_private_metadata(
+            {'publish.allegro.errors': ["Wycofanie produktu zakończone niepowodzeniem"]})
+        products_to_update.append(product)
+
+    Product.objects.bulk_update(products_to_update, ['private_metadata'])

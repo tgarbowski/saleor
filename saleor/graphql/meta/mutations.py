@@ -1,7 +1,6 @@
 import json
 import logging
 from typing import List
-from datetime import datetime, timedelta
 
 import graphene
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
@@ -18,7 +17,6 @@ from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from ..product.utils import create_collage
 from ...plugins.allegro.api import AllegroAPI
 from ...plugins.allegro.utils import get_plugin_configuration
-from ...plugins.allegro.tasks import check_bulk_unpublish_status_task
 from ...product.models import ProductVariant, ProductImage
 from .types import ObjectWithMetadata
 
@@ -254,11 +252,6 @@ class BaseMetadataMutation(BaseMutation):
             for product in enumerate(allegro_data['errors']):
                 if 'sku' in product[1]:
                     products_allegro_sold_or_auctioned.append(product[1]['sku'])
-
-        unique_id = allegro_data.get('uuid')
-        if unique_id:
-            trigger_time = datetime.now() + timedelta(minutes=10)
-            check_bulk_unpublish_status_task.s(unique_id).apply_async(eta=trigger_time)
 
         if allegro_data['status'] == "ERROR":
             logger.error("Fetch allegro data error" + str(allegro_data['message']))

@@ -10,6 +10,7 @@ from ...core.utils import get_client_ip
 from ...core.utils.url import validate_storefront_url
 from ...payment import PaymentError, gateway, models
 from ...payment.error_codes import PaymentErrorCode
+
 from ...payment.utils import create_payment, is_currency_supported
 from ..account.i18n import I18nMixin
 from ..account.types import AddressInput
@@ -147,10 +148,8 @@ class CheckoutPaymentCreate(BaseMutation, I18nMixin):
         checkout = models.Checkout.objects.prefetch_related(
             "lines__variant__product__collections"
         ).get(pk=checkout_id)
-
         data = data["input"]
         gateway = data["gateway"]
-
         cls.validate_gateway(gateway, checkout.currency)
         cls.validate_token(info.context.plugins, gateway, data)
         cls.validate_return_url(data)

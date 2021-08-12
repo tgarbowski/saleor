@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Invoice</title>
+    <style>
+      @page {
+        margin: 0.5cm;
+      }
+      .thick {
+        font-weight: bold;
+        color: black;
+      }
+      .warehouse_document {
+        padding: 10px 10px 10px 10px;
+      }
+      .header {
+        margin-bottom: 20px;
+      }
+      h4 {
+        margin-bottom: 10px;
+        margin-top: 0px;
+        color: #696d73;
+        font-style: italic;
+        font-size: 20px;
+      }
+      .text-left-i{
+        text-align: left !important;
+      }
+      .bottom {
+        margin-top: 20px;
+      }
+      table {
+        border-collapse: collapse;
+      }
+      tr {
+        border: solid gray;
+        border-width: 1px 0;
+      }
+
+      html {
+        color: #14213d;
+        font-family: Source Sans Pro;
+        font-size: 11pt;
+        line-height: 1.6;
+      }
+
+      html table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      html table th {
+        border-bottom: .2mm solid #a9a;
+        color: #a9a;
+        font-size: 10pt;
+        font-weight: 400;
+        padding-bottom: .25cm;
+        text-transform: uppercase;
+      }
+
+      html table td {
+        padding-top: 7mm;
+      }
+      html table th, html table td {
+        text-align: center;
+      }
+      html table th:first-of-type, html table td:first-of-type {
+        text-align: left;
+      }
+      html table th:last-of-type, html table td:last-of-type {
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="warehouse_document">
+      <div class="header">
+        <h4>{{ translated_document_type }} nr {{ document.number }}</h4>
+        <div><span class="thick">Data wystawienia:</span> {{ document.created_at|date:"d-m-Y H:i" }}</div>
+        <div><span class="thick">Magazyn:</span> {{ document.warehouse }}</div>
+        {% if document.document_type == 'IWM' %}
+          <div><span class="thick">Do Magazynu:</span> Magazyn2</div>
+        {% endif %}
+        <div><span class="thick">Dostawca:</span>
+          {% if deliverer %}
+            {{ deliverer }}
+          {% endif %}
+        </div>
+        <div><span class="thick">Odbiorca:</span>
+          {% if document.recipient %}
+            {{ document.recipient }}
+          {% endif %}
+        </div>
+      </div>
+      <div id="list_table">
+        <table class="main-table">
+          <thead style="background-color: #dde3ed;">
+            <tr>
+              <th class="text-left-i thick">Produkt</th>
+              <th class="number thick">Ilość</th>
+              <th class="number thick">Waga</th>
+              <th class="no_print1 number thick">Jednostka</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for position in document_positions %}
+              <tr>
+                <td class="text-left-i">{{ forloop.counter }}. {{ position }}</td>
+                <td class="number">{{ position.quantity }}</td>
+                <td class="number">{{ position.weight }}</td>
+                <td class="number">kg</td>
+             </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="bottom">
+        <div><span class="thick">Utworzył:</span> {{ document.created_by }}</div>
+        <div><span class="thick">Data aktualizacji:</span> {{ document.updated_at|date:"d-m-Y H:i" }}</div>
+      </div>
+    </div>
+  </body>
+</html>
+
