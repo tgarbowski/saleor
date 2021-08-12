@@ -1768,6 +1768,45 @@ type Domain {
   url: String!
 }
 
+input DpdCreateLabelInput {
+  packageId: Int!
+}
+
+input DpdCreatePackageInput {
+  reference: String
+  thirdPartyFID: Int
+  langCode: String
+  packageData: [PackageDataInput]!
+  senderData: SenderDataInput!
+  receiverData: ReceiverDataInput!
+  fulfillment: ID!
+  services: ServiceDataInput
+}
+
+input DpdCreateProtocolInput {
+  waybills: [String]
+  packages: [Int]
+  senderData: SenderDataInput!
+}
+
+type DpdLabelCreate {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  label: String
+}
+
+type DpdPackageCreate {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  packageId: Int
+  parcelIds: [Int]
+  waybills: [String]
+  status: String
+}
+
+type DpdProtocolCreate {
+  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
+  protocol: String
+}
+
 type DraftOrderBulkDelete {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
   count: Int!
@@ -2620,6 +2659,9 @@ type Mutation {
   shippingZoneDelete(id: ID!): ShippingZoneDelete
   shippingZoneBulkDelete(ids: [ID]!): ShippingZoneBulkDelete
   shippingZoneUpdate(id: ID!, input: ShippingZoneUpdateInput!): ShippingZoneUpdate
+  dpdPackageCreate(input: DpdCreatePackageInput!): DpdPackageCreate
+  dpdLabelCreate(input: DpdCreateLabelInput!): DpdLabelCreate
+  dpdProtocolCreate(input: DpdCreateProtocolInput!): DpdProtocolCreate
   attributeCreate(input: AttributeCreateInput!): AttributeCreate
   attributeDelete(id: ID!): AttributeDelete
   attributeBulkDelete(ids: [ID]!): AttributeBulkDelete
@@ -3267,6 +3309,15 @@ type OrderVoid {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
   order: Order
   orderErrors: [OrderError!]!
+}
+
+input PackageDataInput {
+  weight: Float!
+  content: String
+  customerData1: String
+  sizeX: Int
+  sizeY: Int
+  sizeZ: Int
 }
 
 type Page implements Node & ObjectWithMetadata {
@@ -4426,6 +4477,16 @@ type Query {
   _service: _Service
 }
 
+input ReceiverDataInput {
+  address: String!
+  city: String!
+  company: String!
+  countryCode: String!
+  email: String!
+  phone: String!
+  postalCode: String!
+}
+
 type ReducedRate {
   rate: Float!
   rateType: TaxRateType!
@@ -4579,6 +4640,17 @@ type SelectedAttribute {
   values: [AttributeValue]!
 }
 
+input SenderDataInput {
+  address: String!
+  city: String!
+  company: String!
+  countryCode: String!
+  email: String!
+  fid: String
+  phone: String!
+  postalCode: String!
+}
+
 input SeoInput {
   title: String
   description: String
@@ -4682,6 +4754,10 @@ type ServiceAccountUpdatePrivateMeta {
   errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
   accountErrors: [AccountError!]!
   serviceAccount: ServiceAccount
+}
+
+input ServiceDataInput {
+  dox: Boolean
 }
 
 type SetPassword {

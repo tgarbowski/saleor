@@ -16,6 +16,10 @@ from ..core.utils import get_duplicates_ids
 from ..core.validators import validate_price_precision
 from .enums import ShippingMethodTypeEnum
 from .types import ShippingMethod, ShippingZone
+from saleor.plugins.dpd.api import DpdApi
+import base64
+from saleor.graphql.order.types import Fulfillment
+from saleor.plugins.dpd.utils import get_dpd_fid
 
 
 class ShippingPriceInput(graphene.InputObjectType):
@@ -341,4 +345,196 @@ class ShippingPriceDelete(BaseMutation):
         shipping_method.id = shipping_method_id
         return ShippingPriceDelete(
             shipping_method=shipping_method, shipping_zone=shipping_zone
+        )
+
+
+class PackageDataInput(graphene.InputObjectType):
+    weight = graphene.Float(description="Weight", required=True)
+    content = graphene.String(description="Content")
+    customerData1 = graphene.String(description="Customer Data")
+    sizeX = graphene.Int(description="Size X")
+    sizeY = graphene.Int(description="Size Y")
+    sizeZ = graphene.Int(description="Size Z")
+
+
+class SenderDataInput(graphene.InputObjectType):
+    address = graphene.String(required=True)
+    city = graphene.String(required=True)
+    company = graphene.String(required=True)
+    countryCode = graphene.String(required=True)
+    email = graphene.String(required=True)
+    fid = graphene.String(required=False)
+    phone = graphene.String(required=True)
+    postalCode = graphene.String(required=True)
+
+
+class ReceiverDataInput(graphene.InputObjectType):
+    address = graphene.String(required=True)
+    city = graphene.String(required=True)
+    company = graphene.String(required=True)
+    countryCode = graphene.String(required=True)
+    email = graphene.String(required=True)
+    phone = graphene.String(required=True)
+    postalCode = graphene.String(required=True)
+
+
+class ServiceDataInput(graphene.InputObjectType):
+    dox = graphene.Boolean(description="Envelope up to 0,5 kg")
+
+
+class DpdCreatePackageInput(graphene.InputObjectType):
+    reference = graphene.String()
+    thirdPartyFID = graphene.Int(description="Third party FID")
+    langCode = graphene.String(description="Language Code")
+    packageData = graphene.List(PackageDataInput, required=True)
+    senderData = SenderDataInput(required=True, description="Sender data.")
+    receiverData = ReceiverDataInput(required=True)
+    fulfillment = graphene.ID(required=True, description="Order fullfilment record ID")
+    services = ServiceDataInput()
+
+
+class DpdCreateLabelInput(graphene.InputObjectType):
+    packageId = graphene.Int(required=True)
+
+
+class DpdCreateProtocolInput(graphene.InputObjectType):
+    waybills = graphene.List(graphene.String)
+    packages = graphene.List(graphene.Int)
+    senderData = SenderDataInput(required=True)
+
+
+class DpdPackageCreate(BaseMutation):
+    packageId = graphene.Int()
+    parcelIds = graphene.List(graphene.Int)
+    waybills = graphene.List(graphene.String)
+    status = graphene.String()
+
+    class Arguments:
+        input = DpdCreatePackageInput(
+            required=True,
+            description=(
+                "Client-side generated data required to create dpd package."
+            ),
+        )
+
+    class Meta:
+        description = "Creates a new shipping price."
+        permissions = (ShippingPermissions.MANAGE_SHIPPING,)
+
+    @classmethod
+    def perform_mutation(cls, _root, info, **data):
+        DPD_ApiInstance = DpdApi()
+
+        data['input']['senderData']['fid'] = get_dpd_fid()
+
+        package = DPD_ApiInstance.generate_package_shipment(
+            packageData=data['input']['packageData'],
+            receiverData=data['input']['receiverData'],
+            senderData=data['input']['senderData'],
+            servicesData=data['input'].get('services')
+        )
+
+        if package.Status != 'OK':
+            return DpdPackageCreate(
+                status=package.Status
+            )
+
+        package = package.Packages.Package[0]
+        parcels = package.Parcels.Parcel
+        parcel_ids = [parcel.ParcelId for parcel in package.Parcels.Parcel]
+        waybills = [parcel.Waybill for parcel in package.Parcels.Parcel]
+        new_parcels = []
+
+        for parcel, response_parcel in zip(data['input']['packageData'], parcels):
+            new_parcels.append(
+                {
+                    "id": response_parcel.ParcelId,
+                    "waybill": response_parcel.Waybill,
+                    "weight": parcel['weight'],
+                    "sizeX": parcel['sizeX'],
+                    "sizeY": parcel['sizeY'],
+                    "sizeZ": parcel['sizeZ']
+                }
+            )
+
+        json_package = {
+            "status": package.Status,
+            "id": package.PackageId,
+            "parcels": new_parcels,
+        }
+
+        fulfillment_id = data['input']['fulfillment']
+        fulfillment = graphene.Node.get_node_from_global_id(info, fulfillment_id, Fulfillment)
+        fulfillment.store_value_in_private_metadata({'package': json_package})
+        fulfillment.tracking_number = package.PackageId
+        fulfillment.save()
+
+        return DpdPackageCreate(
+            packageId=package.PackageId,
+            parcelIds=parcel_ids,
+            waybills=waybills,
+            status=package.Status
+        )
+
+
+class DpdLabelCreate(BaseMutation):
+    label = graphene.Field(graphene.String, description='B64 label representation')
+
+    class Arguments:
+        input = DpdCreateLabelInput(
+            required=True,
+            description=(
+                "Client-side generated data required to create dpd label."
+            ),
+        )
+
+    class Meta:
+        description = "Creates a new shipping price."
+        permissions = (ShippingPermissions.MANAGE_SHIPPING,)
+
+    @classmethod
+    def perform_mutation(cls, _root, info, **data):
+        DPD_ApiInstance = DpdApi()
+
+        label = DPD_ApiInstance.generate_label(
+            packageId=data['input']['packageId']
+        )
+
+        data = base64.b64encode(label['documentData']).decode('ascii')
+
+        return DpdLabelCreate(
+            label=data
+        )
+
+
+class DpdProtocolCreate(BaseMutation):
+    protocol = graphene.Field(graphene.String, description='B64 protocol representation')
+
+    class Arguments:
+        input = DpdCreateProtocolInput(
+            required=True,
+            description=(
+                "Client-side generated data required to create dpd label."
+            ),
+        )
+
+    class Meta:
+        description = "Creates a new shipping price."
+        permissions = (ShippingPermissions.MANAGE_SHIPPING,)
+
+    @classmethod
+    def perform_mutation(cls, _root, info, **data):
+        DPD_ApiInstance = DpdApi()
+
+        data['input']['senderData']['fid'] = get_dpd_fid()
+
+        protocol = DPD_ApiInstance.generate_protocol(
+            waybills=data['input'].get('waybills'),
+            packages=data['input'].get('packages'),
+            senderData=data['input']['senderData']
+        )
+        data = base64.b64encode(protocol['documentData']).decode('ascii')
+
+        return DpdProtocolCreate(
+            protocol=data
         )

@@ -205,3 +205,4 @@ webencodings==0.5.1; python_version >= "3.6" and python_full_version < "3.0.0" o
 websockets==8.1; python_full_version >= "3.6.1"
 wrapt==1.12.1; python_version >= "3.5"
 yarl==1.5.1; python_version >= "3.6"
+zeep==4.0.0
