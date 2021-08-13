@@ -2,14 +2,14 @@
 
 {% block subject %}
   {% blocktrans trimmed with order=fulfillment.order context "Fulfillment confirmation email subject" %}
-    Your order {{ order }} has been fulfilled
+    Twoje zamówienie {{ order }} zostało zrealizowane
   {% endblocktrans %}
 {% endblock %}
 
 {% block plain %}
 {% include 'templated_email/shared/_header.email' %}
 {% blocktrans context "Fulfillment confirmation email text" %}
-Thank you for your order. Below is the list of fulfilled products.
+Dziękujemy za Twoje zamówienie. Poniżej lista wysyłanych produktów.
 {% endblocktrans %}
 {% if fulfillment.tracking_number %}
 {% blocktrans trimmed with tracking_number=fulfillment.tracking_number context "Fulfillment confirmation email text" %}

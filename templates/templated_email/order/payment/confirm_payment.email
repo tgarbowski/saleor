@@ -2,15 +2,14 @@
 
 {% block subject %}
   {% blocktrans trimmed context "Payment confirmation subject" %}
-    Order {{ order }} payment details
+    Płatność do zamówienia {{ order }}
   {% endblocktrans %}
 {% endblock %}
 
 {% block plain %}
 {% include 'templated_email/shared/_header.email' %}
 {% blocktrans context "Payment confirmation email text" %}
-Thank you for your payment.
-Your payment was successfully processed.
+Dziękujemy za opłacenie zamówienia. Twoja płatność została przetworzona poprawnie..
 {% endblocktrans %}
 {% include 'templated_email/shared/_footer.email' %}
 {% endblock %}
