@@ -136,7 +136,7 @@ class ProductOrderField(graphene.Enum):
     NAME = ["name", "slug"]
     PRICE = ["min_variants_price_amount", "name", "slug"]
     MINIMAL_PRICE = ["minimal_variant_price_amount", "name", "slug"]
-    DATE = ["updated_at", "name", "slug"]
+    DATE = ["created_at", "name", "slug"]
     TYPE = ["product_type__name", "name", "slug"]
     PUBLISHED = ["is_published", "name", "slug"]
     PUBLICATION_DATE = ["publication_date", "name", "slug"]

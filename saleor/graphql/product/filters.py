@@ -334,6 +334,10 @@ def filter_updated_at_range(qs, _, value):
     return filter_range_field(qs, "updated_at__date", value)
 
 
+def filter_created_at_range(qs, _, value):
+    return filter_range_field(qs, "created_at__date", value)
+
+
 def filter_warehouse_location(qs, _, value):
     return filter_by_warehouse_locations(qs, warehouse_from=value.get("lte"), warehouse_to=value.get("gte"))
 
@@ -369,6 +373,8 @@ class ProductFilter(django_filters.FilterSet):
     allegro_status = django_filters.CharFilter(method=filter_allegro_status)
     updated_at = ObjectTypeFilter(input_class=DateRangeInput,
                                   method=filter_updated_at_range)
+    created_at = ObjectTypeFilter(input_class=DateRangeInput,
+                                  method=filter_created_at_range)
     warehouse_location = ObjectTypeFilter(input_class=WarehouseLocationRangeInput, method=filter_warehouse_location)
 
     class Meta:
@@ -385,6 +391,7 @@ class ProductFilter(django_filters.FilterSet):
             "search",
             "allegro_status",
             "updated_at",
+            "created_at",
             "warehouse_location",
         ]
 
