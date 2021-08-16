@@ -518,6 +518,7 @@ class Product(CountableDjangoObjectType):
             "seo_description",
             "seo_title",
             "updated_at",
+            "created_at",
             "weight",
             "visible_in_listings",
             "default_variant",

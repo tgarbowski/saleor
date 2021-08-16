@@ -3751,6 +3751,7 @@ type Product implements Node & ObjectWithMetadata & ObjectWithJSONMetadata {
   productType: ProductType!
   slug: String!
   category: Category
+  createdAt: DateTime
   updatedAt: DateTime
   chargeTaxes: Boolean!
   weight: Weight
@@ -3912,6 +3913,7 @@ input ProductFilterInput {
   search: String
   allegroStatus: String
   updatedAt: DateRangeInput
+  createdAt: DateRangeInput
   warehouseLocation: WarehouseLocationRangeInput
   price: PriceRangeInput
   minimalPrice: PriceRangeInput
