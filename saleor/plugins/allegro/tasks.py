@@ -13,6 +13,8 @@ from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
 
+from django.core.mail import EmailMultiAlternatives
+
 logger = logging.getLogger(__name__)
 
 
@@ -350,3 +352,15 @@ def bulk_allegro_unpublish(product_ids):
         update_allegro_purchased_error(skus_purchased)
     # Send unpublished to email
     email_bulk_unpublish_result(skus_purchased)
+
+
+@app.task()
+def send_archive_email(message):
+    subject = 'Logi z archiwizacji ofert'
+    from_email = 'noreply.salingo@gmail.com'
+    to = 'noreply.salingo@gmail.com'
+    text_content = 'Logi z archiwizacji ofert:'
+    html_content = message
+    message = EmailMultiAlternatives(subject, text_content, from_email, [to])
+    message.attach_alternative(html_content, "text/html")
+    message.send()
