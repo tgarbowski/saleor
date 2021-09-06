@@ -47,8 +47,9 @@ class Command(BaseCommand):
     def get_images(self):
         images = ProductImage.objects.raw('''
                 select
-                ppi.image id,
-                ppi.image image
+                ppi.id,
+                ppi.image,
+                ppi.ppoi
                 from
                 product_product pp,
                 product_productimage ppi,
@@ -73,7 +74,7 @@ class Command(BaseCommand):
                 order by pv.sku
                 ''', [self.start_date, self.end_date])
 
-        images_list = [image.id for image in images]
+        images_list = [image.image.name for image in images]
 
         return images_list
 
