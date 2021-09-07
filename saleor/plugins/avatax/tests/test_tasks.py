@@ -23,7 +23,13 @@ def test_api_post_request_task_sends_request(
     site_settings.save()
 
     config = AvataxConfiguration(
-        username_or_account="", password_or_license="", use_sandbox=False,
+        username_or_account="",
+        password_or_license="",
+        use_sandbox=False,
+        from_street_address="Tęczowa 7",
+        from_city="WROCŁAW",
+        from_postal_code="53-601",
+        from_country="PL",
     )
     request_data = get_order_request_data(order_with_lines, config)
 
@@ -49,7 +55,13 @@ def test_api_post_request_task_creates_order_event(
     site_settings.save()
 
     config = AvataxConfiguration(
-        username_or_account="", password_or_license="", use_sandbox=False,
+        username_or_account="",
+        password_or_license="",
+        use_sandbox=False,
+        from_street_address="Tęczowa 7",
+        from_city="WROCŁAW",
+        from_postal_code="53-601",
+        from_country="PL",
     )
     request_data = get_order_request_data(order_with_lines, config)
 
@@ -76,7 +88,13 @@ def test_api_post_request_task_missing_response(
     )
 
     config = AvataxConfiguration(
-        username_or_account="test", password_or_license="test", use_sandbox=False,
+        username_or_account="test",
+        password_or_license="test",
+        use_sandbox=False,
+        from_street_address="Tęczowa 7",
+        from_city="WROCŁAW",
+        from_postal_code="53-601",
+        from_country="PL",
     )
     request_data = get_order_request_data(order_with_lines, config)
 
@@ -104,7 +122,13 @@ def test_api_post_request_task_order_doesnt_have_any_lines_with_taxes_to_calcula
     )
 
     config = AvataxConfiguration(
-        username_or_account="test", password_or_license="test", use_sandbox=False,
+        username_or_account="test",
+        password_or_license="test",
+        use_sandbox=False,
+        from_street_address="Tęczowa 7",
+        from_city="WROCŁAW",
+        from_postal_code="53-601",
+        from_country="PL",
     )
     request_data = {}
 

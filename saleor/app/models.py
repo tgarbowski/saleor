@@ -6,7 +6,24 @@ from oauthlib.common import generate_token
 
 from ..core.models import Job, ModelWithMetadata
 from ..core.permissions import AppPermission
-from .types import AppType
+from ..webhook.event_types import WebhookEventType
+from .types import AppExtensionTarget, AppExtensionType, AppExtensionView, AppType
+
+
+class AppQueryset(models.QuerySet):
+    def for_event_type(self, event_type: str):
+        permissions = {}
+        required_permission = WebhookEventType.PERMISSIONS.get(event_type)
+        if required_permission:
+            app_label, codename = required_permission.value.split(".")
+            permissions["permissions__content_type__app_label"] = app_label
+            permissions["permissions__codename"] = codename
+        return self.filter(
+            is_active=True,
+            webhooks__is_active=True,
+            webhooks__events__event_type=event_type,
+            **permissions,
+        )
 
 
 class App(ModelWithMetadata):
@@ -33,9 +50,19 @@ class App(ModelWithMetadata):
     app_url = models.URLField(blank=True, null=True)
     version = models.CharField(max_length=60, blank=True, null=True)
 
-    class Meta:
+    objects = models.Manager.from_queryset(AppQueryset)()
+
+    class Meta(ModelWithMetadata.Meta):
         ordering = ("name", "pk")
-        permissions = ((AppPermission.MANAGE_APPS.codename, "Manage apps",),)
+        permissions = (
+            (
+                AppPermission.MANAGE_APPS.codename,
+                "Manage apps",
+            ),
+        )
+
+    def __str__(self):
+        return self.name
 
     def get_permissions(self) -> Set[str]:
         """Return the permissions of the app."""
@@ -74,6 +101,20 @@ class AppToken(models.Model):
     app = models.ForeignKey(App, on_delete=models.CASCADE, related_name="tokens")
     name = models.CharField(blank=True, default="", max_length=128)
     auth_token = models.CharField(default=generate_token, unique=True, max_length=30)
+
+
+class AppExtension(models.Model):
+    app = models.ForeignKey(App, on_delete=models.CASCADE, related_name="extensions")
+    label = models.CharField(max_length=256)
+    url = models.URLField()
+    view = models.CharField(choices=AppExtensionView.CHOICES, max_length=128)
+    type = models.CharField(choices=AppExtensionType.CHOICES, max_length=128)
+    target = models.CharField(choices=AppExtensionTarget.CHOICES, max_length=128)
+    permissions = models.ManyToManyField(
+        Permission,
+        blank=True,
+        help_text="Specific permissions for this app extension.",
+    )
 
 
 class AppInstallation(Job):

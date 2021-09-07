@@ -9,9 +9,8 @@ from django.core.validators import MaxLengthValidator, RegexValidator
 from django.db import models
 
 from ..core.permissions import SitePermissions
-from ..core.utils.translations import TranslationProxy
-from ..core.weight import WeightUnits
-from . import AuthenticationBackends
+from ..core.units import WeightUnits
+from ..core.utils.translations import Translation, TranslationProxy
 from .error_codes import SiteErrorCode
 from .patch_sites import patch_contrib_sites
 
@@ -44,15 +43,10 @@ class SiteSettings(models.Model):
     display_gross_prices = models.BooleanField(default=True)
     charge_taxes_on_shipping = models.BooleanField(default=True)
     track_inventory_by_default = models.BooleanField(default=True)
-    homepage_collection = models.ForeignKey(
-        "product.Collection",
-        on_delete=models.SET_NULL,
-        related_name="+",
-        blank=True,
-        null=True,
-    )
     default_weight_unit = models.CharField(
-        max_length=10, choices=WeightUnits.CHOICES, default=WeightUnits.KILOGRAM
+        max_length=30,
+        choices=WeightUnits.CHOICES,  # type: ignore
+        default=WeightUnits.KG,  # type: ignore
     )
     automatic_fulfillment_digital_products = models.BooleanField(default=False)
     default_digital_max_downloads = models.IntegerField(blank=True, null=True)
@@ -60,6 +54,8 @@ class SiteSettings(models.Model):
     company_address = models.ForeignKey(
         "account.Address", blank=True, null=True, on_delete=models.SET_NULL
     )
+    # FIXME these values are configurable from email plugin. Not needed to be placed
+    # here
     default_mail_sender_name = models.CharField(
         max_length=settings.DEFAULT_MAX_EMAIL_DISPLAY_NAME_LENGTH,
         blank=True,
@@ -68,6 +64,9 @@ class SiteSettings(models.Model):
     )
     default_mail_sender_address = models.EmailField(blank=True, null=True)
     customer_set_password_url = models.CharField(max_length=255, blank=True, null=True)
+    automatically_confirm_all_new_orders = models.BooleanField(default=True)
+    fulfillment_auto_approve = models.BooleanField(default=True)
+    fulfillment_allow_unpaid = models.BooleanField(default=True)
     translated = TranslationProxy()
 
     class Meta:
@@ -100,12 +99,8 @@ class SiteSettings(models.Model):
         value = str(Address(sender_name, addr_spec=sender_address))
         return value
 
-    def available_backends(self):
-        return self.authorizationkey_set.values_list("name", flat=True)
 
-
-class SiteSettingsTranslation(models.Model):
-    language_code = models.CharField(max_length=10)
+class SiteSettingsTranslation(Translation):
     site_settings = models.ForeignKey(
         SiteSettings, related_name="translations", on_delete=models.CASCADE
     )
@@ -126,18 +121,11 @@ class SiteSettingsTranslation(models.Model):
     def __str__(self):
         return self.site_settings.site.name
 
+    def get_translated_object_id(self):
+        return "Shop", self.site_settings_id
 
-class AuthorizationKey(models.Model):
-    site_settings = models.ForeignKey(SiteSettings, on_delete=models.CASCADE)
-    name = models.CharField(max_length=20, choices=AuthenticationBackends.BACKENDS)
-    key = models.TextField()
-    password = models.TextField()
-
-    class Meta:
-        unique_together = (("site_settings", "name"),)
-
-    def __str__(self):
-        return self.name
-
-    def key_and_secret(self):
-        return self.key, self.password
+    def get_translated_keys(self):
+        return {
+            "header_text": self.header_text,
+            "description": self.description,
+        }

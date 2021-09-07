@@ -1,6 +1,9 @@
 import graphene
 
-from ..core.fields import FilterInputConnectionField
+from ..channel import ChannelQsContext
+from ..channel.utils import get_default_channel_slug_or_graphql_error
+from ..core.fields import ChannelContextFilterConnectionField
+from ..core.utils import from_global_id_or_error
 from ..translations.mutations import MenuItemTranslate
 from .bulk_mutations import MenuBulkDelete, MenuItemBulkDelete
 from .filters import MenuFilterInput, MenuItemFilterInput
@@ -14,7 +17,12 @@ from .mutations import (
     MenuItemUpdate,
     MenuUpdate,
 )
-from .resolvers import resolve_menu, resolve_menu_items, resolve_menus
+from .resolvers import (
+    resolve_menu,
+    resolve_menu_item,
+    resolve_menu_items,
+    resolve_menus,
+)
 from .sorters import MenuItemSortingInput, MenuSortingInput
 from .types import Menu, MenuItem
 
@@ -22,13 +30,19 @@ from .types import Menu, MenuItem
 class MenuQueries(graphene.ObjectType):
     menu = graphene.Field(
         Menu,
+        channel=graphene.String(
+            description="Slug of a channel for which the data should be returned."
+        ),
         id=graphene.Argument(graphene.ID, description="ID of the menu."),
         name=graphene.Argument(graphene.String, description="The menu's name."),
         slug=graphene.Argument(graphene.String, description="The menu's slug."),
         description="Look up a navigation menu by ID or name.",
     )
-    menus = FilterInputConnectionField(
+    menus = ChannelContextFilterConnectionField(
         Menu,
+        channel=graphene.String(
+            description="Slug of a channel for which the data should be returned."
+        ),
         sort_by=MenuSortingInput(description="Sort menus."),
         filter=MenuFilterInput(description="Filtering options for menus."),
         description="List of the storefront's menus.",
@@ -38,26 +52,44 @@ class MenuQueries(graphene.ObjectType):
         id=graphene.Argument(
             graphene.ID, description="ID of the menu item.", required=True
         ),
+        channel=graphene.String(
+            description="Slug of a channel for which the data should be returned."
+        ),
         description="Look up a menu item by ID.",
     )
-    menu_items = FilterInputConnectionField(
+    menu_items = ChannelContextFilterConnectionField(
         MenuItem,
+        channel=graphene.String(
+            description="Slug of a channel for which the data should be returned."
+        ),
         sort_by=MenuItemSortingInput(description="Sort menus items."),
         filter=MenuItemFilterInput(description="Filtering options for menu items."),
         description="List of the storefronts's menu items.",
     )
 
-    def resolve_menu(self, info, **data):
-        return resolve_menu(info, data.get("id"), data.get("name"), data.get("slug"))
+    def resolve_menu(self, info, channel=None, **data):
+        if channel is None:
+            channel = get_default_channel_slug_or_graphql_error()
+        return resolve_menu(
+            info, channel, data.get("id"), data.get("name"), data.get("slug")
+        )
 
-    def resolve_menus(self, info, query=None, **kwargs):
-        return resolve_menus(info, query, **kwargs)
+    def resolve_menus(self, info, channel=None, **kwargs):
+        if channel is None:
+            channel = get_default_channel_slug_or_graphql_error()
+        return resolve_menus(info, channel, **kwargs)
 
-    def resolve_menu_item(self, info, **data):
-        return graphene.Node.get_node_from_global_id(info, data.get("id"), MenuItem)
+    def resolve_menu_item(self, info, channel=None, **data):
+        if channel is None:
+            channel = get_default_channel_slug_or_graphql_error()
+        _, id = from_global_id_or_error(data.get("id"), MenuItem)
+        return resolve_menu_item(id, channel)
 
-    def resolve_menu_items(self, info, query=None, **kwargs):
-        return resolve_menu_items(info, query, **kwargs)
+    def resolve_menu_items(self, info, channel=None, **kwargs):
+        if channel is None:
+            channel = get_default_channel_slug_or_graphql_error()
+        menu_items = resolve_menu_items(info, **kwargs)
+        return ChannelQsContext(qs=menu_items, channel_slug=channel)
 
 
 class MenuMutations(graphene.ObjectType):

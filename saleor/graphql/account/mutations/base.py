@@ -2,20 +2,25 @@ import graphene
 from django.contrib.auth import password_validation
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.db import transaction
 
-from ....account import events as account_events, models
-from ....account.emails import (
-    send_set_password_email_with_url,
-    send_user_password_reset_email_with_url,
-)
+from ....account import events as account_events
+from ....account import models
 from ....account.error_codes import AccountErrorCode
+from ....account.notifications import (
+    send_password_reset_notification,
+    send_set_password_notification,
+)
+from ....checkout import AddressType
 from ....core.exceptions import PermissionDenied
 from ....core.permissions import AccountPermissions
+from ....core.tracing import traced_atomic_transaction
 from ....core.utils.url import validate_storefront_url
+from ....graphql.utils import get_user_or_app_from_context
 from ....order.utils import match_orders_with_new_user
 from ...account.i18n import I18nMixin
 from ...account.types import Address, AddressInput, User
+from ...channel.utils import clean_channel, validate_channel
+from ...core.enums import LanguageCodeEnum
 from ...core.mutations import (
     BaseMutation,
     ModelDeleteMutation,
@@ -23,25 +28,26 @@ from ...core.mutations import (
     validation_error_to_error_type,
 )
 from ...core.types.common import AccountError
-from ...meta.deprecated.mutations import ClearMetaBaseMutation, UpdateMetaBaseMutation
-from .jwt import CreateToken
+from .authentication import CreateToken
 
 BILLING_ADDRESS_FIELD = "default_billing_address"
 SHIPPING_ADDRESS_FIELD = "default_shipping_address"
 INVALID_TOKEN = "Invalid or expired token."
 
 
-def can_edit_address(user, address):
-    """Determine whether the user can edit the given address.
+def can_edit_address(context, address):
+    """Determine whether the user or app can edit the given address.
 
     This method assumes that an address can be edited by:
-    - users with proper permissions (staff)
+    - apps with manage users permission
+    - staff with manage users permission
     - customers associated to the given address.
     """
-    return (
-        user.has_perm(AccountPermissions.MANAGE_USERS)
-        or user.addresses.filter(pk=address.pk).exists()
-    )
+    requester = get_user_or_app_from_context(context)
+    if requester.has_perm(AccountPermissions.MANAGE_USERS):
+        return True
+    if not context.app:
+        return requester.addresses.filter(pk=address.pk).exists()
 
 
 class SetPassword(CreateToken):
@@ -69,7 +75,7 @@ class SetPassword(CreateToken):
         try:
             cls._set_password_for_user(email, password, token)
         except ValidationError as e:
-            errors = validation_error_to_error_type(e)
+            errors = validation_error_to_error_type(e, AccountError)
             return cls.handle_typed_errors(errors)
         return super().mutate(root, info, **data)
 
@@ -111,6 +117,12 @@ class RequestPasswordReset(BaseMutation):
                 "reset the password. URL in RFC 1808 format."
             ),
         )
+        channel = graphene.String(
+            description=(
+                "Slug of a channel which will be used for notify user. Optional when "
+                "only one channel exists."
+            )
+        )
 
     class Meta:
         description = "Sends an email with the account password modification link."
@@ -118,9 +130,8 @@ class RequestPasswordReset(BaseMutation):
         error_type_field = "account_errors"
 
     @classmethod
-    def perform_mutation(cls, _root, info, **data):
-        email = data["email"]
-        redirect_url = data["redirect_url"]
+    def clean_user(cls, email, redirect_url):
+
         try:
             validate_storefront_url(redirect_url)
         except ValidationError as error:
@@ -139,7 +150,40 @@ class RequestPasswordReset(BaseMutation):
                     )
                 }
             )
-        send_user_password_reset_email_with_url(redirect_url, user)
+        if not user.is_active:
+            raise ValidationError(
+                {
+                    "email": ValidationError(
+                        "User with this email is inactive",
+                        code=AccountErrorCode.INACTIVE,
+                    )
+                }
+            )
+        return user
+
+    @classmethod
+    def perform_mutation(cls, _root, info, **data):
+        email = data["email"]
+        redirect_url = data["redirect_url"]
+        channel_slug = data.get("channel")
+        user = cls.clean_user(email, redirect_url)
+
+        if not user.is_staff:
+            channel_slug = clean_channel(
+                channel_slug, error_class=AccountErrorCode
+            ).slug
+        elif channel_slug is not None:
+            channel_slug = validate_channel(
+                channel_slug, error_class=AccountErrorCode
+            ).slug
+
+        send_password_reset_notification(
+            redirect_url,
+            user,
+            info.context.plugins,
+            channel_slug=channel_slug,
+            staff=user.is_staff,
+        )
         return RequestPasswordReset()
 
 
@@ -252,7 +296,7 @@ class BaseAddressUpdate(ModelMutation, I18nMixin):
     def clean_input(cls, info, instance, data):
         # Method check_permissions cannot be used for permission check, because
         # it doesn't have the address instance.
-        if not can_edit_address(info.context.user, instance):
+        if not can_edit_address(info.context, instance):
             raise PermissionDenied()
         return super().clean_input(info, instance, data)
 
@@ -267,6 +311,7 @@ class BaseAddressUpdate(ModelMutation, I18nMixin):
         cls.clean_instance(info, address)
         cls.save(info, address, cleaned_input)
         cls._save_m2m(info, address, cleaned_input)
+        info.context.plugins.customer_updated(user)
         address = info.context.plugins.change_user_address(address, None, user)
         success_response = cls.success_response(address)
         success_response.user = user
@@ -291,7 +336,7 @@ class BaseAddressDelete(ModelDeleteMutation):
     def clean_instance(cls, info, instance):
         # Method check_permissions cannot be used for permission check, because
         # it doesn't have the address instance.
-        if not can_edit_address(info.context.user, instance):
+        if not can_edit_address(info.context, instance):
             raise PermissionDenied()
         return super().clean_instance(info, instance)
 
@@ -324,6 +369,7 @@ class BaseAddressDelete(ModelDeleteMutation):
         response = cls.success_response(instance)
 
         response.user = user
+        info.context.plugins.customer_updated(user)
         return response
 
 
@@ -345,7 +391,9 @@ class UserAddressInput(graphene.InputObjectType):
 
 
 class CustomerInput(UserInput, UserAddressInput):
-    pass
+    language_code = graphene.Field(
+        LanguageCodeEnum, required=False, description="User language code."
+    )
 
 
 class UserCreateInput(CustomerInput):
@@ -353,6 +401,12 @@ class UserCreateInput(CustomerInput):
         description=(
             "URL of a view where users should be redirected to "
             "set the password. URL in RFC 1808 format."
+        )
+    )
+    channel = graphene.String(
+        description=(
+            "Slug of a channel which will be used for notify user. Optional when "
+            "only one channel exists."
         )
     )
 
@@ -377,6 +431,7 @@ class BaseCustomerCreate(ModelMutation, I18nMixin):
         if shipping_address_data:
             shipping_address = cls.validate_address(
                 shipping_address_data,
+                address_type=AddressType.SHIPPING,
                 instance=getattr(instance, SHIPPING_ADDRESS_FIELD),
                 info=info,
             )
@@ -385,6 +440,7 @@ class BaseCustomerCreate(ModelMutation, I18nMixin):
         if billing_address_data:
             billing_address = cls.validate_address(
                 billing_address_data,
+                address_type=AddressType.BILLING,
                 instance=getattr(instance, BILLING_ADDRESS_FIELD),
                 info=info,
             )
@@ -401,9 +457,8 @@ class BaseCustomerCreate(ModelMutation, I18nMixin):
         return cleaned_input
 
     @classmethod
-    @transaction.atomic
+    @traced_atomic_transaction()
     def save(cls, info, instance, cleaned_input):
-        # FIXME: save address in user.addresses as well
         default_shipping_address = cleaned_input.get(SHIPPING_ADDRESS_FIELD)
         if default_shipping_address:
             default_shipping_address = info.context.plugins.change_user_address(
@@ -421,33 +476,31 @@ class BaseCustomerCreate(ModelMutation, I18nMixin):
 
         is_creation = instance.pk is None
         super().save(info, instance, cleaned_input)
+        if default_billing_address:
+            instance.addresses.add(default_billing_address)
+        if default_shipping_address:
+            instance.addresses.add(default_shipping_address)
 
         # The instance is a new object in db, create an event
         if is_creation:
             info.context.plugins.customer_created(customer=instance)
             account_events.customer_account_created_event(user=instance)
+        else:
+            info.context.plugins.customer_updated(instance)
 
         if cleaned_input.get("redirect_url"):
-            send_set_password_email_with_url(
-                cleaned_input.get("redirect_url"), instance
+            channel_slug = cleaned_input.get("channel")
+            if not instance.is_staff:
+                channel_slug = clean_channel(
+                    channel_slug, error_class=AccountErrorCode
+                ).slug
+            elif channel_slug is not None:
+                channel_slug = validate_channel(
+                    channel_slug, error_class=AccountErrorCode
+                ).slug
+            send_set_password_notification(
+                cleaned_input.get("redirect_url"),
+                instance,
+                info.context.plugins,
+                channel_slug,
             )
-
-
-class UserUpdateMeta(UpdateMetaBaseMutation):
-    class Meta:
-        description = "Updates metadata for user."
-        model = models.User
-        public = True
-        error_type_class = AccountError
-        error_type_field = "account_errors"
-        permissions = (AccountPermissions.MANAGE_USERS,)
-
-
-class UserClearMeta(ClearMetaBaseMutation):
-    class Meta:
-        description = "Clear metadata for user."
-        model = models.User
-        public = True
-        error_type_class = AccountError
-        error_type_field = "account_errors"
-        permissions = (AccountPermissions.MANAGE_USERS,)

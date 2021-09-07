@@ -4,35 +4,45 @@ It's recommended to use functions from calculations.py module to take in account
 manager.
 """
 
-from typing import TYPE_CHECKING, Iterable, List, Optional
+from decimal import Decimal
+from typing import TYPE_CHECKING, Iterable, Optional
 
 from prices import TaxedMoney
 
 from ..core.prices import quantize_price
 from ..core.taxes import zero_taxed_money
 from ..discount import DiscountInfo
+from .fetch import CheckoutLineInfo
 
 if TYPE_CHECKING:
-    # flake8: noqa
-    from .models import Checkout, CheckoutLine
+    from ..channel.models import Channel
+    from ..checkout.fetch import CheckoutInfo
+    from ..order.models import OrderLine
 
 
 def base_checkout_shipping_price(
-    checkout: "Checkout", lines: Iterable["CheckoutLine"]
+    checkout_info: "CheckoutInfo", lines=None
 ) -> TaxedMoney:
     """Return checkout shipping price."""
-    if not checkout.shipping_method or not checkout.is_shipping_required():
-        return zero_taxed_money(checkout.currency)
+    # FIXME: Optimize checkout.is_shipping_required
+    shipping_method = checkout_info.shipping_method
 
-    shipping_price = checkout.shipping_method.get_total()
+    if lines is not None and all(isinstance(line, CheckoutLineInfo) for line in lines):
+        from .utils import is_shipping_required
+
+        shipping_required = is_shipping_required(lines)
+    else:
+        shipping_required = checkout_info.checkout.is_shipping_required()
+
+    if not shipping_method or not shipping_required:
+        return zero_taxed_money(checkout_info.checkout.currency)
+    shipping_price = shipping_method.channel_listings.get(
+        channel_id=checkout_info.checkout.channel_id,
+    ).get_total()
+
     return quantize_price(
         TaxedMoney(net=shipping_price, gross=shipping_price), shipping_price.currency
     )
-
-
-def base_checkout_subtotal(line_totals: List[TaxedMoney], currency: str) -> TaxedMoney:
-    """Return the total cost of all checkout lines."""
-    return sum(line_totals, zero_taxed_money(currency))
 
 
 def base_checkout_total(
@@ -47,9 +57,36 @@ def base_checkout_total(
 
 
 def base_checkout_line_total(
-    line: "CheckoutLine", discounts: Optional[Iterable[DiscountInfo]] = None
+    checkout_line_info: "CheckoutLineInfo",
+    channel: "Channel",
+    discounts: Optional[Iterable[DiscountInfo]] = None,
 ) -> TaxedMoney:
     """Return the total price of this line."""
-    amount = line.quantity * line.variant.get_price(discounts or [])
+    variant = checkout_line_info.variant
+    variant_price = variant.get_price(
+        checkout_line_info.product,
+        checkout_line_info.collections,
+        channel,
+        checkout_line_info.channel_listing,
+        discounts or [],
+    )
+    amount = checkout_line_info.line.quantity * variant_price
     price = quantize_price(amount, amount.currency)
     return TaxedMoney(net=price, gross=price)
+
+
+def base_order_line_total(order_line: "OrderLine"):
+    unit_price = order_line.unit_price * order_line.quantity
+    return quantize_price(unit_price, unit_price.currency)
+
+
+def base_tax_rate(price: TaxedMoney):
+    tax_rate = Decimal("0.0")
+    # The condition will return False when unit_price.gross is 0.0
+    if not isinstance(price, Decimal) and price.gross:
+        tax_rate = price.tax / price.net
+    return tax_rate
+
+
+def base_checkout_line_unit_price(total_line_price: TaxedMoney, quantity: int):
+    return total_line_price / quantity

@@ -1,4 +1,5 @@
 import django_filters
+import graphene
 from django.core.exceptions import ValidationError
 from django_filters.fields import MultipleChoiceField
 
@@ -70,6 +71,15 @@ def filter_status(qs, _, value):
     return qs.filter(status=value)
 
 
+def filter_metadata(qs, _, value):
+    for metadata_item in value:
+        if metadata_item.value:
+            qs = qs.filter(metadata__contains={metadata_item.key: metadata_item.value})
+        else:
+            qs = qs.filter(metadata__has_key=metadata_item.key)
+    return qs
+
+
 class BaseJobFilter(django_filters.FilterSet):
     created_at = ObjectTypeFilter(
         input_class=DateTimeRangeInput, method=filter_created_at
@@ -78,3 +88,15 @@ class BaseJobFilter(django_filters.FilterSet):
         input_class=DateTimeRangeInput, method=filter_updated_at
     )
     status = EnumFilter(input_class=JobStatusEnum, method=filter_status)
+
+
+class MetadataFilter(graphene.InputObjectType):
+    key = graphene.String(required=True, description="Key of a metadata item.")
+    value = graphene.String(required=False, description="Value of a metadata item.")
+
+
+class MetadataFilterBase(django_filters.FilterSet):
+    metadata = ListObjectTypeFilter(input_class=MetadataFilter, method=filter_metadata)
+
+    class Meta:
+        abstract = True

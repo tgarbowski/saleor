@@ -1,5 +1,5 @@
 from .types import PaymentUrl
-from ..core.utils import from_global_id_strict_type
+from ..core.utils import from_global_id_or_error
 from .types import Payment
 from ...payment import gateway as payment_gateway, models
 from ...payment.utils import fetch_customer_id
@@ -10,19 +10,19 @@ from ...payment.utils import create_payment_information
 
 PAYMENT_SEARCH_FIELDS = ["id"]
 
+def resolve_payment_by_id(id):
+    return models.Payment.objects.filter(id=id).first()
 
 def resolve_client_token(user, gateway: str):
     customer_id = fetch_customer_id(user, gateway)
     return payment_gateway.get_client_token(gateway, customer_id)
 
-
-def resolve_payments(info, query):
-    queryset = models.Payment.objects.all().distinct()
-    return filter_by_query_param(queryset, query, PAYMENT_SEARCH_FIELDS)
+def resolve_payments(info):
+    return models.Payment.objects.all()
 
 
 def resolve_generate_payment_url(info, **kwargs):
-    payment_id = from_global_id_strict_type(
+    payment_id = from_global_id_or_error(
         kwargs["payment_id"], only_type=Payment, field="payment_id"
     )
 

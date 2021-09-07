@@ -4,6 +4,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from ...checkout.calculations import checkout_total
+from ...checkout.fetch import fetch_checkout_info, fetch_checkout_lines
+from ...plugins.manager import PluginsManager, get_plugins_manager
 from .. import ChargeStatus, GatewayError, PaymentError, TransactionKind, gateway
 from ..error_codes import PaymentErrorCode
 from ..interface import GatewayResponse, PaymentMethodInfo
@@ -16,6 +18,7 @@ from ..utils import (
     create_payment_information,
     create_transaction,
     is_currency_supported,
+    update_payment,
     validate_gateway_response,
 )
 
@@ -26,7 +29,12 @@ EXAMPLE_ERROR = "Example dummy error"
 @pytest.fixture
 def payment_method_details():
     return PaymentMethodInfo(
-        last_4="1234", exp_year=2020, exp_month=8, brand="visa", name="Joe Doe"
+        last_4="1234",
+        exp_year=2020,
+        exp_month=8,
+        brand="visa",
+        name="Joe Doe",
+        type="test",
     )
 
 
@@ -37,7 +45,7 @@ def gateway_response(settings, payment_method_details):
         action_required=False,
         transaction_id="transaction-token",
         amount=Decimal(14.50),
-        currency=settings.DEFAULT_CURRENCY,
+        currency="USD",
         kind=TransactionKind.CAPTURE,
         error=None,
         raw_response={
@@ -45,6 +53,7 @@ def gateway_response(settings, payment_method_details):
             "transaction-id": "transaction-token",
         },
         payment_method_info=payment_method_details,
+        psp_reference="test_reference",
     )
 
 
@@ -84,12 +93,17 @@ def test_create_payment(checkout_with_item, address):
     checkout_with_item.billing_address = address
     checkout_with_item.save()
 
+    manager = get_plugins_manager()
+    lines = fetch_checkout_lines(checkout_with_item)
+    checkout_info = fetch_checkout_info(checkout_with_item, lines, [], manager)
+    total = checkout_total(
+        manager=manager, checkout_info=checkout_info, lines=lines, address=address
+    )
+
     data = {
         "gateway": "Dummy",
         "payment_token": "token",
-        "total": checkout_total(
-            checkout=checkout_with_item, lines=list(checkout_with_item)
-        ).gross.amount,
+        "total": total.gross.amount,
         "currency": checkout_with_item.currency,
         "email": "test@example.com",
         "customer_ip_address": "127.0.0.1",
@@ -107,7 +121,7 @@ def test_create_payment_requires_order_or_checkout(settings):
         "gateway": "Dummy",
         "payment_token": "token",
         "total": 10,
-        "currency": settings.DEFAULT_CURRENCY,
+        "currency": "USD",
         "email": "test@example.com",
     }
     with pytest.raises(TypeError) as e:
@@ -119,12 +133,17 @@ def test_create_payment_from_checkout_requires_billing_address(checkout_with_ite
     checkout_with_item.billing_address = None
     checkout_with_item.save()
 
+    manager = get_plugins_manager()
+    lines = fetch_checkout_lines(checkout_with_item)
+    checkout_info = fetch_checkout_info(checkout_with_item, lines, [], manager)
+    total = checkout_total(
+        manager=manager, checkout_info=checkout_info, lines=lines, address=None
+    )
+
     data = {
         "gateway": "Dummy",
         "payment_token": "token",
-        "total": checkout_total(
-            checkout=checkout_with_item, lines=list(checkout_with_item)
-        ),
+        "total": total.gross.amount,
         "currency": checkout_with_item.currency,
         "email": "test@example.com",
         "checkout": checkout_with_item,
@@ -155,12 +174,18 @@ def test_create_payment_information_for_checkout_payment(address, checkout_with_
     checkout_with_item.billing_address = address
     checkout_with_item.shipping_address = address
     checkout_with_item.save()
+
+    manager = get_plugins_manager()
+    lines = fetch_checkout_lines(checkout_with_item)
+    checkout_info = fetch_checkout_info(checkout_with_item, lines, [], manager)
+    total = checkout_total(
+        manager=manager, checkout_info=checkout_info, lines=lines, address=address
+    )
+
     data = {
         "gateway": "Dummy",
         "payment_token": "token",
-        "total": checkout_total(
-            checkout=checkout_with_item, lines=list(checkout_with_item)
-        ).gross.amount,
+        "total": total.gross.amount,
         "currency": checkout_with_item.currency,
         "email": "test@example.com",
         "customer_ip_address": "127.0.0.1",
@@ -234,9 +259,13 @@ def test_payment_needs_to_be_active_for_any_action(func, payment_dummy):
     assert exc.value.message == NOT_ACTIVE_PAYMENT_ERROR
 
 
+@patch.object(PluginsManager, "capture_payment")
 @patch("saleor.order.actions.handle_fully_paid_order")
 def test_gateway_charge_failed(
-    mock_handle_fully_paid_order, mock_get_manager, payment_txn_preauth, dummy_response
+    mock_handle_fully_paid_order,
+    mock_capture_payment,
+    payment_txn_preauth,
+    dummy_response,
 ):
     txn = payment_txn_preauth.transactions.first()
     txn.is_success = False
@@ -246,10 +275,10 @@ def test_gateway_charge_failed(
 
     dummy_response.is_success = False
     dummy_response.kind = TransactionKind.CAPTURE
-    mock_get_manager.capture_payment.return_value = dummy_response
+    mock_capture_payment.return_value = dummy_response
     with pytest.raises(PaymentError):
-        gateway.capture(payment, amount)
-    mock_get_manager.capture_payment.assert_called_once()
+        gateway.capture(payment, get_plugins_manager(), amount)
+    mock_capture_payment.assert_called_once()
     payment.refresh_from_db()
     assert payment.charge_status == ChargeStatus.NOT_CHARGED
     assert not payment.captured_amount
@@ -258,38 +287,73 @@ def test_gateway_charge_failed(
 
 def test_gateway_charge_errors(payment_dummy, transaction_token, settings):
     payment = payment_dummy
-    gateway.authorize(payment, transaction_token)
+    gateway.authorize(
+        payment,
+        transaction_token,
+        get_plugins_manager(),
+        channel_slug=payment_dummy.order.channel.slug,
+    )
     with pytest.raises(PaymentError) as exc:
-        gateway.capture(payment, Decimal("0"))
+        gateway.capture(
+            payment,
+            get_plugins_manager(),
+            amount=Decimal("0"),
+            channel_slug=payment_dummy.order.channel.slug,
+        )
     assert exc.value.message == "Amount should be a positive number."
 
     payment.charge_status = ChargeStatus.FULLY_REFUNDED
     payment.save()
     with pytest.raises(PaymentError) as exc:
-        gateway.capture(payment, Decimal("10"))
+        gateway.capture(
+            payment,
+            get_plugins_manager(),
+            amount=Decimal("10"),
+            channel_slug=payment_dummy.order.channel.slug,
+        )
     assert exc.value.message == "This payment cannot be captured."
 
     payment.charge_status = ChargeStatus.NOT_CHARGED
     payment.save()
     with pytest.raises(PaymentError) as exc:
-        gateway.capture(payment, Decimal("1000000"))
+        gateway.capture(
+            payment,
+            get_plugins_manager(),
+            amount=Decimal("1000000"),
+            channel_slug=payment_dummy.order.channel.slug,
+        )
     assert exc.value.message == ("Unable to charge more than un-captured amount.")
 
 
 def test_gateway_refund_errors(payment_txn_captured):
     payment = payment_txn_captured
     with pytest.raises(PaymentError) as exc:
-        gateway.refund(payment, Decimal("1000000"))
+        gateway.refund(
+            payment,
+            get_plugins_manager(),
+            amount=Decimal("1000000"),
+            channel_slug=payment_txn_captured.order.channel.slug,
+        )
     assert exc.value.message == "Cannot refund more than captured."
 
     with pytest.raises(PaymentError) as exc:
-        gateway.refund(payment, Decimal("0"))
+        gateway.refund(
+            payment,
+            get_plugins_manager(),
+            amount=Decimal("0"),
+            channel_slug=payment_txn_captured.order.channel.slug,
+        )
     assert exc.value.message == "Amount should be a positive number."
 
     payment.charge_status = ChargeStatus.NOT_CHARGED
     payment.save()
     with pytest.raises(PaymentError) as exc:
-        gateway.refund(payment, Decimal("1"))
+        gateway.refund(
+            payment,
+            get_plugins_manager(),
+            amount=Decimal("1"),
+            channel_slug=payment_txn_captured.order.channel.slug,
+        )
     assert exc.value.message == "This payment cannot be refunded."
 
 
@@ -453,12 +517,14 @@ def test_validate_gateway_response_not_json_serializable(gateway_response):
 
 
 @pytest.mark.parametrize(
-    "currency, exp_response", [("EUR", True), ("USD", True), ("PLN", False)],
+    "currency, exp_response",
+    [("EUR", True), ("USD", True), ("PLN", False)],
 )
 def test_is_currency_supported(
-    currency, exp_response, dummy_gateway_config, monkeypatch
+    currency, exp_response, dummy_gateway_config, monkeypatch, channel_USD
 ):
     # given
+    manager = get_plugins_manager()
     dummy_gateway_config.supported_currencies = "USD, EUR"
     monkeypatch.setattr(
         "saleor.payment.gateways.dummy.plugin.DummyGatewayPlugin._get_gateway_config",
@@ -466,7 +532,21 @@ def test_is_currency_supported(
     )
 
     # when
-    response = is_currency_supported(currency, "mirumee.payments.dummy")
+    response = is_currency_supported(currency, "mirumee.payments.dummy", manager)
 
     # then
     assert response == exp_response
+
+
+def test_update_payment(gateway_response, payment_txn_captured):
+    payment = payment_txn_captured
+
+    update_payment(payment_txn_captured, gateway_response)
+
+    payment.refresh_from_db()
+    assert payment.psp_reference == gateway_response.psp_reference
+    assert payment.cc_brand == gateway_response.payment_method_info.brand
+    assert payment.cc_last_digits == gateway_response.payment_method_info.last_4
+    assert payment.cc_exp_year == gateway_response.payment_method_info.exp_year
+    assert payment.cc_exp_month == gateway_response.payment_method_info.exp_month
+    assert payment.payment_method_type == gateway_response.payment_method_info.type

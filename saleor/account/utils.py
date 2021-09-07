@@ -1,12 +1,23 @@
+from typing import TYPE_CHECKING, Union
+
+from ..app.models import App
 from ..checkout import AddressType
 from ..core.utils import create_thumbnails
-from ..plugins.manager import get_plugins_manager
 from .models import User
 
+if TYPE_CHECKING:
+    from ..plugins.manager import PluginsManager
+    from .models import Address
 
-def store_user_address(user, address, address_type):
+
+def store_user_address(
+    user: User,
+    address: "Address",
+    address_type: str,
+    manager: "PluginsManager",
+):
     """Add address to user address book and set as default one."""
-    address = get_plugins_manager().change_user_address(address, address_type, user)
+    address = manager.change_user_address(address, address_type, user)
     address_data = address.as_data()
 
     address = user.addresses.filter(**address_data).first()
@@ -31,8 +42,10 @@ def set_user_default_shipping_address(user, address):
     user.save(update_fields=["default_shipping_address"])
 
 
-def change_user_default_address(user, address, address_type):
-    address = get_plugins_manager().change_user_address(address, address_type, user)
+def change_user_default_address(
+    user: User, address: "Address", address_type: str, manager: "PluginsManager"
+):
+    address = manager.change_user_address(address, address_type, user)
     if address_type == AddressType.BILLING:
         if user.default_billing_address:
             user.addresses.add(user.default_billing_address)
@@ -72,3 +85,13 @@ def remove_staff_member(staff):
         staff.save()
     else:
         staff.delete()
+
+
+def requestor_is_staff_member_or_app(requestor: Union[User, App]):
+    """Return true if requestor is an active app or active staff user."""
+    is_staff = False
+    if isinstance(requestor, User):
+        is_staff = getattr(requestor, "is_staff")
+    elif isinstance(requestor, App):
+        is_staff = True
+    return is_staff and requestor.is_active

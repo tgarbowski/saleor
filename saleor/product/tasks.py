@@ -1,15 +1,21 @@
+import logging
 from typing import Iterable, List, Optional
 
+from django.core.exceptions import ObjectDoesNotExist
+
+from ..attribute.models import Attribute
 from ..celeryconf import app
 from ..discount.models import Sale
-from .models import Attribute, Product, ProductType, ProductVariant
-from .utils.attributes import generate_name_for_variant
+from .models import Product, ProductType, ProductVariant
 from .utils.variant_prices import (
-    update_product_minimal_variant_price,
-    update_products_minimal_variant_prices,
-    update_products_minimal_variant_prices_of_catalogues,
-    update_products_minimal_variant_prices_of_discount,
+    update_product_discounted_price,
+    update_products_discounted_prices,
+    update_products_discounted_prices_of_catalogues,
+    update_products_discounted_prices_of_discount,
 )
+from .utils.variants import generate_and_set_variant_name
+
+logger = logging.getLogger(__name__)
 
 
 def _update_variants_names(instance: ProductType, saved_attributes: Iterable):
@@ -30,41 +36,52 @@ def _update_variants_names(instance: ProductType, saved_attributes: Iterable):
         "attributes__values__translations"
     ).all()
     for variant in variants_to_be_updated:
-        variant.name = generate_name_for_variant(variant)
-        variant.save(update_fields=["name"])
+        generate_and_set_variant_name(variant, variant.sku)
 
 
 @app.task
 def update_variants_names(product_type_pk: int, saved_attributes_ids: List[int]):
-    instance = ProductType.objects.get(pk=product_type_pk)
+    try:
+        instance = ProductType.objects.get(pk=product_type_pk)
+    except ObjectDoesNotExist:
+        logging.warning(f"Cannot find product type with id: {product_type_pk}.")
+        return
     saved_attributes = Attribute.objects.filter(pk__in=saved_attributes_ids)
     _update_variants_names(instance, saved_attributes)
 
 
 @app.task
-def update_product_minimal_variant_price_task(product_pk: int):
-    product = Product.objects.get(pk=product_pk)
-    update_product_minimal_variant_price(product)
+def update_product_discounted_price_task(product_pk: int):
+    try:
+        product = Product.objects.get(pk=product_pk)
+    except ObjectDoesNotExist:
+        logging.warning(f"Cannot find product with id: {product_pk}.")
+        return
+    update_product_discounted_price(product)
 
 
 @app.task
-def update_products_minimal_variant_prices_of_catalogues_task(
+def update_products_discounted_prices_of_catalogues_task(
     product_ids: Optional[List[int]] = None,
     category_ids: Optional[List[int]] = None,
     collection_ids: Optional[List[int]] = None,
 ):
-    update_products_minimal_variant_prices_of_catalogues(
+    update_products_discounted_prices_of_catalogues(
         product_ids, category_ids, collection_ids
     )
 
 
 @app.task
-def update_products_minimal_variant_prices_of_discount_task(discount_pk: int):
-    discount = Sale.objects.get(pk=discount_pk)
-    update_products_minimal_variant_prices_of_discount(discount)
+def update_products_discounted_prices_of_discount_task(discount_pk: int):
+    try:
+        discount = Sale.objects.get(pk=discount_pk)
+    except ObjectDoesNotExist:
+        logging.warning(f"Cannot find discount with id: {discount_pk}.")
+        return
+    update_products_discounted_prices_of_discount(discount)
 
 
 @app.task
-def update_products_minimal_variant_prices_task(product_ids: List[int]):
+def update_products_discounted_prices_task(product_ids: List[int]):
     products = Product.objects.filter(pk__in=product_ids)
-    update_products_minimal_variant_prices(products)
+    update_products_discounted_prices(products)

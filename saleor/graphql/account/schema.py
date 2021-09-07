@@ -1,22 +1,12 @@
 import graphene
 
-from ...core.permissions import AccountPermissions, AppPermission
+from ...core.permissions import AccountPermissions
 from ..core.fields import FilterInputConnectionField
 from ..core.types import FilterInputObjectType
+from ..core.utils import from_global_id_or_error
+from ..core.validators import validate_one_of_args_is_in_query
 from ..decorators import one_of_permissions_required, permission_required
 from .bulk_mutations import CustomerBulkDelete, StaffBulkDelete, UserBulkSetActive
-from .deprecated.mutations_service_account import (
-    ServiceAccountClearPrivateMeta,
-    ServiceAccountCreate,
-    ServiceAccountDelete,
-    ServiceAccountTokenCreate,
-    ServiceAccountTokenDelete,
-    ServiceAccountUpdate,
-    ServiceAccountUpdatePrivateMeta,
-)
-from .deprecated.resolvers import resolve_service_accounts
-from .deprecated.sorters import ServiceAccountSortingInput
-from .deprecated.types import ServiceAccount, ServiceAccountFilterInput
 from .enums import CountryCodeEnum
 from .filters import CustomerFilter, PermissionGroupFilter, StaffUserFilter
 from .mutations.account import (
@@ -28,23 +18,25 @@ from .mutations.account import (
     AccountRequestDeletion,
     AccountSetDefaultAddress,
     AccountUpdate,
-    AccountUpdateMeta,
     ConfirmEmailChange,
     RequestEmailChange,
+)
+from .mutations.authentication import (
+    CreateToken,
+    DeactivateAllUserTokens,
+    ExternalAuthenticationUrl,
+    ExternalLogout,
+    ExternalObtainAccessTokens,
+    ExternalRefresh,
+    ExternalVerify,
+    RefreshToken,
+    VerifyToken,
 )
 from .mutations.base import (
     ConfirmAccount,
     PasswordChange,
     RequestPasswordReset,
     SetPassword,
-    UserClearMeta,
-    UserUpdateMeta,
-)
-from .mutations.jwt import (
-    CreateToken,
-    DeactivateAllUserTokens,
-    RefreshToken,
-    VerifyToken,
 )
 from .mutations.permission_group import (
     PermissionGroupCreate,
@@ -64,13 +56,12 @@ from .mutations.staff import (
     StaffUpdate,
     UserAvatarDelete,
     UserAvatarUpdate,
-    UserClearPrivateMeta,
-    UserUpdatePrivateMeta,
 )
 from .resolvers import (
     resolve_address,
     resolve_address_validation_rules,
     resolve_customers,
+    resolve_permission_group,
     resolve_permission_groups,
     resolve_staff_users,
     resolve_user,
@@ -146,32 +137,13 @@ class AccountQueries(graphene.ObjectType):
         sort_by=UserSortingInput(description="Sort staff users."),
         description="List of the shop's staff users.",
     )
-    service_accounts = FilterInputConnectionField(
-        ServiceAccount,
-        filter=ServiceAccountFilterInput(
-            description="Filtering options for service accounts."
-        ),
-        sort_by=ServiceAccountSortingInput(description="Sort service accounts."),
-        description="List of the service accounts.",
-        deprecation_reason=(
-            "Use the `apps` query instead. This field will be removed after 2020-07-31."
-        ),
-    )
-    service_account = graphene.Field(
-        ServiceAccount,
-        id=graphene.Argument(
-            graphene.ID, description="ID of the service account.", required=True
-        ),
-        description="Look up a service account by ID.",
-        deprecation_reason=(
-            "Use the `app` query instead. This field will be removed after 2020-07-31."
-        ),
-    )
-
     user = graphene.Field(
         User,
-        id=graphene.Argument(graphene.ID, description="ID of the user.", required=True),
-        description="Look up a user by ID.",
+        id=graphene.Argument(graphene.ID, description="ID of the user."),
+        email=graphene.Argument(
+            graphene.String, description="Email address of the user."
+        ),
+        description="Look up a user by ID or email address.",
     )
 
     def resolve_address_validation_rules(
@@ -185,39 +157,33 @@ class AccountQueries(graphene.ObjectType):
             city_area=city_area,
         )
 
-    @permission_required(AppPermission.MANAGE_APPS)
-    def resolve_service_accounts(self, info, **kwargs):
-        return resolve_service_accounts(info, **kwargs)
-
-    @permission_required(AppPermission.MANAGE_APPS)
-    def resolve_service_account(self, info, id):
-        return graphene.Node.get_node_from_global_id(info, id, ServiceAccount)
-
     @permission_required(AccountPermissions.MANAGE_USERS)
-    def resolve_customers(self, info, query=None, **kwargs):
-        return resolve_customers(info, query=query, **kwargs)
+    def resolve_customers(self, info, **kwargs):
+        return resolve_customers(info, **kwargs)
 
     @permission_required(AccountPermissions.MANAGE_STAFF)
-    def resolve_permission_groups(self, info, query=None, **kwargs):
-        return resolve_permission_groups(info, query=query, **kwargs)
+    def resolve_permission_groups(self, info, **kwargs):
+        return resolve_permission_groups(info, **kwargs)
 
     @permission_required(AccountPermissions.MANAGE_STAFF)
     def resolve_permission_group(self, info, id):
-        return graphene.Node.get_node_from_global_id(info, id, Group)
+        _, id = from_global_id_or_error(id, Group)
+        return resolve_permission_group(id)
 
     def resolve_me(self, info):
         user = info.context.user
         return user if user.is_authenticated else None
 
     @permission_required(AccountPermissions.MANAGE_STAFF)
-    def resolve_staff_users(self, info, query=None, **kwargs):
-        return resolve_staff_users(info, query=query, **kwargs)
+    def resolve_staff_users(self, info, **kwargs):
+        return resolve_staff_users(info, **kwargs)
 
     @one_of_permissions_required(
         [AccountPermissions.MANAGE_STAFF, AccountPermissions.MANAGE_USERS]
     )
-    def resolve_user(self, info, id):
-        return resolve_user(info, id)
+    def resolve_user(self, info, id=None, email=None):
+        validate_one_of_args_is_in_query("id", id, "email", email)
+        return resolve_user(info, id, email)
 
     def resolve_address(self, info, id):
         return resolve_address(info, id)
@@ -229,6 +195,13 @@ class AccountMutations(graphene.ObjectType):
     token_refresh = RefreshToken.Field()
     token_verify = VerifyToken.Field()
     tokens_deactivate_all = DeactivateAllUserTokens.Field()
+
+    external_authentication_url = ExternalAuthenticationUrl.Field()
+    external_obtain_access_tokens = ExternalObtainAccessTokens.Field()
+
+    external_refresh = ExternalRefresh.Field()
+    external_logout = ExternalLogout.Field()
+    external_verify = ExternalVerify.Field()
 
     request_password_reset = RequestPasswordReset.Field()
     confirm_account = ConfirmAccount.Field()
@@ -247,13 +220,6 @@ class AccountMutations(graphene.ObjectType):
     account_update = AccountUpdate.Field()
     account_request_deletion = AccountRequestDeletion.Field()
     account_delete = AccountDelete.Field()
-
-    account_update_meta = AccountUpdateMeta.Field(
-        deprecation_reason=(
-            "Use the `updateMetadata` mutation. This field will be removed after "
-            "2020-07-31."
-        )
-    )
 
     # Staff mutations
     address_create = AddressCreate.Field()
@@ -274,77 +240,6 @@ class AccountMutations(graphene.ObjectType):
     user_avatar_update = UserAvatarUpdate.Field()
     user_avatar_delete = UserAvatarDelete.Field()
     user_bulk_set_active = UserBulkSetActive.Field()
-
-    user_update_metadata = UserUpdateMeta.Field(
-        deprecation_reason=(
-            "Use the `updateMetadata` mutation. This field will be removed after "
-            "2020-07-31."
-        )
-    )
-    user_clear_metadata = UserClearMeta.Field(
-        deprecation_reason=(
-            "Use the `deleteMetadata` mutation. This field will be removed after "
-            "2020-07-31."
-        )
-    )
-
-    user_update_private_metadata = UserUpdatePrivateMeta.Field(
-        deprecation_reason=(
-            "Use the `updatePrivateMetadata` mutation. This field will be removed "
-            "after 2020-07-31."
-        )
-    )
-    user_clear_private_metadata = UserClearPrivateMeta.Field(
-        deprecation_reason=(
-            "Use the `deletePrivateMetadata` mutation. This field will be removed "
-            "after 2020-07-31."
-        )
-    )
-
-    service_account_create = ServiceAccountCreate.Field(
-        deprecation_reason=(
-            "Use the `appCreate` mutation instead. This field will be removed after "
-            "2020-07-31."
-        )
-    )
-    service_account_update = ServiceAccountUpdate.Field(
-        deprecation_reason=(
-            "Use the `appUpdate` mutation instead. This field will be removed after "
-            "2020-07-31."
-        )
-    )
-    service_account_delete = ServiceAccountDelete.Field(
-        deprecation_reason=(
-            "Use the `appDelete` mutation instead. This field will be removed after "
-            "2020-07-31."
-        )
-    )
-
-    service_account_update_private_metadata = ServiceAccountUpdatePrivateMeta.Field(
-        deprecation_reason=(
-            "Use the `updatePrivateMetadata` mutation with App instead."
-            "This field will be removed after 2020-07-31."
-        )
-    )
-    service_account_clear_private_metadata = ServiceAccountClearPrivateMeta.Field(
-        deprecation_reason=(
-            "Use the `deletePrivateMetadata` mutation with App instead."
-            "This field will be removed after 2020-07-31."
-        )
-    )
-
-    service_account_token_create = ServiceAccountTokenCreate.Field(
-        deprecation_reason=(
-            "Use the `appTokenCreate` mutation instead. This field will be removed "
-            "after 2020-07-31."
-        )
-    )
-    service_account_token_delete = ServiceAccountTokenDelete.Field(
-        deprecation_reason=(
-            "Use the `appTokenDelete` mutation instead. This field will be removed "
-            "after 2020-07-31."
-        )
-    )
 
     # Permission group mutations
     permission_group_create = PermissionGroupCreate.Field()

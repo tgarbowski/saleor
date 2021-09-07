@@ -1,10 +1,11 @@
+import random
 from datetime import date, timedelta
 
 import graphene
 import pytest
 from freezegun import freeze_time
 
-from ....product.models import Product
+from ....product.models import CollectionProduct, Product, ProductChannelListing
 from ...tests.utils import get_graphql_content
 
 COLLECTION_RESORT_QUERY = """
@@ -81,22 +82,36 @@ def test_sort_products_within_collection_invalid_product_id(
 def test_sort_products_within_collection(
     staff_api_client,
     staff_user,
-    collection,
+    published_collection,
     collection_with_products,
     permission_manage_products,
+    channel_USD,
 ):
 
     staff_api_client.user.user_permissions.add(permission_manage_products)
-    collection_id = graphene.Node.to_global_id("Collection", collection.pk)
+    collection_id = graphene.Node.to_global_id("Collection", published_collection.pk)
 
     products = collection_with_products
-    product = graphene.Node.to_global_id("Product", products[0].pk)
-    second_product = graphene.Node.to_global_id("Product", products[1].pk)
-    third_product = graphene.Node.to_global_id("Product", products[2].pk)
+    collection = products[0].collections.first()
+    collection_products = list(collection.collectionproduct.all())
+
+    collection_prod_1 = collection_products[0]
+    collection_prod_2 = collection_products[1]
+    collection_prod_3 = collection_products[2]
+
+    collection_prod_1.sort_order = 0
+    collection_prod_2.sort_order = 1
+    collection_prod_3.sort_order = 2
+
+    CollectionProduct.objects.bulk_update(collection_products, ["sort_order"])
+
+    product = graphene.Node.to_global_id("Product", collection_prod_1.product_id)
+    second_product = graphene.Node.to_global_id("Product", collection_prod_2.product_id)
+    third_product = graphene.Node.to_global_id("Product", collection_prod_3.product_id)
 
     variables = {
         "collectionId": collection_id,
-        "moves": [{"productId": product, "sortOrder": -1}],
+        "moves": [{"productId": third_product, "sortOrder": -1}],
     }
 
     content = get_graphql_content(
@@ -129,12 +144,11 @@ def test_sort_products_within_collection(
 
 
 GET_SORTED_PRODUCTS_QUERY = """
-query Products($sortBy: ProductOrder) {
-    products(first: 10, sortBy: $sortBy) {
+query Products($sortBy: ProductOrder, $channel: String) {
+    products(first: 10, sortBy: $sortBy, channel: $channel) {
       edges {
         node {
           id
-          publicationDate
         }
       }
     }
@@ -148,25 +162,68 @@ query Products($sortBy: ProductOrder) {
     (("ASC", "publication_date"), ("DESC", "-publication_date")),
 )
 def test_sort_products_by_publication_date(
-    direction, order_direction, staff_api_client, product_list
+    direction, order_direction, api_client, product_list, channel_USD
 ):
-
+    product_channel_listings = []
     for iter_value, product in enumerate(product_list):
-        product.publication_date = date.today() - timedelta(days=iter_value)
-    Product.objects.bulk_update(product_list, ["publication_date"])
+        product_channel_listing = product.channel_listings.get(channel=channel_USD)
+        product_channel_listing.publication_date = date.today() - timedelta(
+            days=iter_value
+        )
+        product_channel_listings.append(product_channel_listing)
+    ProductChannelListing.objects.bulk_update(
+        product_channel_listings, ["publication_date"]
+    )
 
     variables = {
-        "sortBy": {"direction": direction, "field": "PUBLICATION_DATE"},
+        "sortBy": {
+            "direction": direction,
+            "field": "PUBLICATION_DATE",
+        },
+        "channel": channel_USD.slug,
     }
 
     # when
-    response = staff_api_client.post_graphql(GET_SORTED_PRODUCTS_QUERY, variables)
+    response = api_client.post_graphql(GET_SORTED_PRODUCTS_QUERY, variables)
 
     # then
     content = get_graphql_content(response)
     data = content["data"]["products"]["edges"]
 
+    if direction == "ASC":
+        product_list.reverse()
+
     assert [node["node"]["id"] for node in data] == [
-        graphene.Node.to_global_id("Product", product.pk)
-        for product in Product.objects.order_by(order_direction)
+        graphene.Node.to_global_id("Product", product.pk) for product in product_list
     ]
+
+
+@pytest.mark.parametrize(
+    "direction, order_direction",
+    (("ASC", "rating"), ("DESC", "-rating")),
+)
+def test_sort_products_by_rating(
+    direction, order_direction, api_client, product_list, channel_USD
+):
+
+    for product in product_list:
+        product.rating = random.uniform(1, 10)
+    Product.objects.bulk_update(product_list, ["rating"])
+
+    variables = {
+        "sortBy": {"direction": direction, "field": "RATING"},
+        "channel": channel_USD.slug,
+    }
+
+    # when
+    response = api_client.post_graphql(GET_SORTED_PRODUCTS_QUERY, variables)
+
+    # then
+    content = get_graphql_content(response)
+    data = content["data"]["products"]["edges"]
+
+    sorted_products = Product.objects.order_by(order_direction)
+    expected_ids = [
+        graphene.Node.to_global_id("Product", product.pk) for product in sorted_products
+    ]
+    assert [node["node"]["id"] for node in data] == expected_ids

@@ -10,6 +10,7 @@ JSONType = Union[Dict[str, JSONValue], List[JSONValue]]
 class PaymentMethodInfo:
     """Uniform way to represent payment method information."""
 
+    first_4: Optional[str] = None
     last_4: Optional[str] = None
     exp_year: Optional[int] = None
     exp_month: Optional[int] = None
@@ -31,7 +32,7 @@ class GatewayResponse:
     kind: str  # use "TransactionKind" class
     amount: Decimal
     currency: str
-    transaction_id: Optional[str]
+    transaction_id: str
     error: Optional[str]
     customer_id: Optional[str] = None
     payment_method_info: Optional[PaymentMethodInfo] = None
@@ -40,7 +41,7 @@ class GatewayResponse:
     # Some gateway can process transaction asynchronously. This value define if we
     # should create new transaction based on this response
     transaction_already_processed: bool = False
-    searchable_key: Optional[str] = None
+    psp_reference: Optional[str] = None
 
 
 @dataclass
@@ -66,6 +67,7 @@ class PaymentData:
     It is required to communicate between Saleor and given payment gateway.
     """
 
+    gateway: str
     amount: Decimal
     currency: str
     billing: Optional[AddressData]
@@ -76,9 +78,10 @@ class PaymentData:
     customer_ip_address: Optional[str]
     customer_email: str
     token: Optional[str] = None
-    customer_id: Optional[str] = None
+    customer_id: Optional[str] = None  # stores payment gateway customer ID
     reuse_source: bool = False
     data: Optional[dict] = None
+    graphql_customer_id: Optional[str] = None
 
 
 @dataclass

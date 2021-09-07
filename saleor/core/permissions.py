@@ -13,11 +13,14 @@ class BasePermissionEnum(Enum):
 class AccountPermissions(BasePermissionEnum):
     MANAGE_USERS = "account.manage_users"
     MANAGE_STAFF = "account.manage_staff"
-    MANAGE_SERVICE_ACCOUNTS = "app.manage_apps"
 
 
 class AppPermission(BasePermissionEnum):
     MANAGE_APPS = "app.manage_apps"
+
+
+class ChannelPermissions(BasePermissionEnum):
+    MANAGE_CHANNELS = "channel.manage_channels"
 
 
 class DiscountPermissions(BasePermissionEnum):
@@ -44,8 +47,16 @@ class OrderPermissions(BasePermissionEnum):
     MANAGE_ORDERS = "order.manage_orders"
 
 
+class PaymentPermissions(BasePermissionEnum):
+    HANDLE_PAYMENTS = "payment.handle_payments"
+
+
 class PagePermissions(BasePermissionEnum):
     MANAGE_PAGES = "page.manage_pages"
+
+
+class PageTypePermissions(BasePermissionEnum):
+    MANAGE_PAGE_TYPES_AND_ATTRIBUTES = "page.manage_page_types_and_attributes"
 
 
 class ProductPermissions(BasePermissionEnum):
@@ -72,12 +83,15 @@ class WMSPermissions(BasePermissionEnum):
 PERMISSIONS_ENUMS = [
     AccountPermissions,
     AppPermission,
+    ChannelPermissions,
     DiscountPermissions,
     PluginsPermissions,
     GiftcardPermissions,
     MenuPermissions,
     OrderPermissions,
     PagePermissions,
+    PageTypePermissions,
+    PaymentPermissions,
     ProductPermissions,
     ProductTypePermissions,
     ShippingPermissions,
@@ -139,8 +153,12 @@ def get_permissions(permissions=None):
         codenames = get_permissions_codename()
     else:
         codenames = split_permission_codename(permissions)
+    return get_permissions_from_codenames(codenames)
+
+
+def get_permissions_from_codenames(permission_codenames: List[str]):
     return (
-        Permission.objects.filter(codename__in=codenames)
+        Permission.objects.filter(codename__in=permission_codenames)
         .prefetch_related("content_type")
         .order_by("codename")
     )

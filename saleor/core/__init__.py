@@ -1,3 +1,6 @@
+default_app_config = "saleor.core.app.CoreAppConfig"
+
+
 class JobStatus:
     PENDING = "pending"
     SUCCESS = "success"
@@ -10,3 +13,11 @@ class JobStatus:
         (FAILED, "Failed"),
         (DELETED, "Deleted"),
     ]
+
+
+class TimePeriodType:
+    DAY = "day"
+    MONTH = "month"
+    YEAR = "year"
+
+    CHOICES = [(DAY, "day"), (MONTH, "Month"), (YEAR, "Year")]

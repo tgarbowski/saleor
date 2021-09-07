@@ -3,7 +3,9 @@ import json
 from slugify import slugify
 
 from .utils import get_plugin_configuration
-from saleor.product.models import AssignedProductAttribute, AttributeValue, ProductVariant
+from saleor.attribute.models.product import AssignedProductAttribute
+from saleor.attribute.models.base import AttributeValue
+from saleor.product.models import ProductVariant
 
 
 class ParametersMapperFactory:

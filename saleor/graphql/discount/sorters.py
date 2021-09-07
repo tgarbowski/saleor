@@ -1,6 +1,7 @@
 import graphene
+from django.db.models import Min, Q, QuerySet
 
-from ..core.types import SortInputObjectType
+from ..core.types import ChannelSortInputObjectType
 
 
 class SaleSortField(graphene.Enum):
@@ -17,8 +18,17 @@ class SaleSortField(graphene.Enum):
             return f"Sort sales by {sort_name}."
         raise ValueError("Unsupported enum value: %s" % self.value)
 
+    @staticmethod
+    def qs_with_value(queryset: QuerySet, channel_slug: str) -> QuerySet:
+        return queryset.annotate(
+            value=Min(
+                "channel_listings__discount_value",
+                filter=Q(channel_listings__channel__slug=str(channel_slug)),
+            )
+        )
 
-class SaleSortingInput(SortInputObjectType):
+
+class SaleSortingInput(ChannelSortInputObjectType):
     class Meta:
         sort_enum = SaleSortField
         type_name = "sales"
@@ -40,8 +50,26 @@ class VoucherSortField(graphene.Enum):
             return f"Sort vouchers by {sort_name}."
         raise ValueError("Unsupported enum value: %s" % self.value)
 
+    @staticmethod
+    def qs_with_minimum_spent_amount(queryset: QuerySet, channel_slug: str) -> QuerySet:
+        return queryset.annotate(
+            min_spent_amount=Min(
+                "channel_listings__min_spent_amount",
+                filter=Q(channel_listings__channel__slug=str(channel_slug)),
+            )
+        )
 
-class VoucherSortingInput(SortInputObjectType):
+    @staticmethod
+    def qs_with_value(queryset: QuerySet, channel_slug: str) -> QuerySet:
+        return queryset.annotate(
+            discount_value=Min(
+                "channel_listings__discount_value",
+                filter=Q(channel_listings__channel__slug=str(channel_slug)),
+            )
+        )
+
+
+class VoucherSortingInput(ChannelSortInputObjectType):
     class Meta:
         sort_enum = VoucherSortField
         type_name = "vouchers"

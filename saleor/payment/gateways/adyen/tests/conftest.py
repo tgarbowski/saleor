@@ -1,8 +1,10 @@
+from decimal import Decimal
 from unittest import mock
 
 import pytest
 
 from .....checkout import calculations
+from .....checkout.fetch import fetch_checkout_info, fetch_checkout_lines
 from .....plugins.manager import get_plugins_manager
 from .... import TransactionKind
 from ....models import Transaction
@@ -10,8 +12,15 @@ from ....utils import create_payment
 from ..plugin import AdyenGatewayPlugin
 
 
+@pytest.fixture(scope="module")
+def vcr_config():
+    return {
+        "filter_headers": [("x-api-key", "test_key")],
+    }
+
+
 @pytest.fixture
-def adyen_plugin(settings):
+def adyen_plugin(settings, channel_USD):
     def fun(
         api_key=None,
         merchant_account=None,
@@ -35,6 +44,7 @@ def adyen_plugin(settings):
         with mock.patch("saleor.payment.gateways.adyen.utils.apple_pay.requests.post"):
             manager.save_plugin_configuration(
                 AdyenGatewayPlugin.PLUGIN_ID,
+                channel_USD.slug,
                 {
                     "active": True,
                     "configuration": [
@@ -52,7 +62,7 @@ def adyen_plugin(settings):
             )
 
         manager = get_plugins_manager()
-        return manager.plugins[0]
+        return manager.plugins_per_channel[channel_USD.slug][0]
 
     return fun
 
@@ -63,8 +73,11 @@ def payment_adyen_for_checkout(checkout_with_items, address, shipping_method):
     checkout_with_items.shipping_address = address
     checkout_with_items.shipping_method = shipping_method
     checkout_with_items.save()
+    manager = get_plugins_manager()
+    lines = fetch_checkout_lines(checkout_with_items)
+    checkout_info = fetch_checkout_info(checkout_with_items, lines, [], manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
-        checkout=checkout_with_items
+        manager, checkout_info, lines, address
     )
     payment = create_payment(
         gateway=AdyenGatewayPlugin.PLUGIN_ID,
@@ -80,13 +93,21 @@ def payment_adyen_for_checkout(checkout_with_items, address, shipping_method):
 
 
 @pytest.fixture
-def payment_adyen_for_order(payment_adyen_for_checkout, order_with_lines):
-    payment_adyen_for_checkout.checkout = None
-    payment_adyen_for_checkout.order = order_with_lines
-    payment_adyen_for_checkout.save()
+def payment_adyen_for_order(order_with_lines):
+    payment = create_payment(
+        gateway=AdyenGatewayPlugin.PLUGIN_ID,
+        payment_token="",
+        total=Decimal("80.00"),
+        currency=order_with_lines.currency,
+        email=order_with_lines.user_email,
+        customer_ip_address="",
+        checkout=None,
+        order=order_with_lines,
+        return_url="https://www.example.com",
+    )
 
     Transaction.objects.create(
-        payment=payment_adyen_for_checkout,
+        payment=payment,
         action_required=False,
         kind=TransactionKind.AUTH,
         token="token",
@@ -97,7 +118,7 @@ def payment_adyen_for_order(payment_adyen_for_checkout, order_with_lines):
         gateway_response={},
         action_required_data={},
     )
-    return payment_adyen_for_checkout
+    return payment
 
 
 @pytest.fixture()
@@ -150,4 +171,66 @@ def notification_with_hmac_signature():
         "pspReference": "test_AUTHORISATION_4",
         "reason": "REFUSED",
         "success": "false",
+    }
+
+
+@pytest.fixture
+def adyen_payment_method():
+    return {
+        "type": "scheme",
+        "encryptedCardNumber": "test_4646464646464644",
+        "encryptedExpiryMonth": "test_03",
+        "encryptedExpiryYear": "test_2030",
+        "encryptedSecurityCode": "test_737",
+    }
+
+
+@pytest.fixture
+def adyen_additional_data_for_3ds():
+    user_agent = (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)",
+        "Chrome/89.0.4389.90 Safari/537.36",
+    )
+    return {
+        "paymentMethod": {
+            "type": "scheme",
+            "encryptedCardNumber": "test_4917610000000000",
+            "encryptedExpiryMonth": "test_03",
+            "encryptedExpiryYear": "test_2030",
+            "encryptedSecurityCode": "test_737",
+            "brand": "visa",
+        },
+        "browserInfo": {
+            "acceptHeader": "*/*",
+            "colorDepth": 24,
+            "language": "en-US",
+            "javaEnabled": False,
+            "screenHeight": 1080,
+            "screenWidth": 1920,
+            "userAgent": user_agent,
+            "timeZoneOffset": -120,
+        },
+    }
+
+
+@pytest.fixture
+def adyen_additional_data_for_klarna():
+    user_agent = (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)",
+        "Chrome/89.0.4389.90 Safari/537.36",
+    )
+    return {
+        "paymentMethod": {
+            "type": "klarna_account",
+        },
+        "browserInfo": {
+            "acceptHeader": "*/*",
+            "colorDepth": 24,
+            "language": "en-US",
+            "javaEnabled": False,
+            "screenHeight": 1080,
+            "screenWidth": 1920,
+            "userAgent": user_agent,
+            "timeZoneOffset": -120,
+        },
     }

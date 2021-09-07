@@ -1,6 +1,7 @@
 import graphene
 from graphene import relay
 
+from ...core.tracing import traced_resolver
 from ...payment import models
 from ..core.connection import CountableDjangoObjectType
 from ..core.types import Money
@@ -23,6 +24,7 @@ class Transaction(CountableDjangoObjectType):
             "kind",
             "is_success",
             "error",
+            "gateway_response",
         ]
 
     @staticmethod
@@ -56,6 +58,7 @@ class PaymentSource(graphene.ObjectType):
         )
 
     gateway = graphene.String(description="Payment gateway name.", required=True)
+    payment_method_id = graphene.String(description="ID of stored payment method.")
     credit_card_info = graphene.Field(
         CreditCard, description="Stored credit card details if available."
     )
@@ -104,6 +107,7 @@ class Payment(CountableDjangoObjectType):
             "checkout",
             "order",
             "customer_ip_address",
+            "payment_method_type",
         ]
 
     @staticmethod
@@ -118,6 +122,7 @@ class Payment(CountableDjangoObjectType):
         return actions
 
     @staticmethod
+    @traced_resolver
     def resolve_total(root: models.Payment, _info):
         return root.get_total()
 
@@ -148,6 +153,10 @@ class Payment(CountableDjangoObjectType):
         data = {
             "last_digits": root.cc_last_digits,
             "brand": root.cc_brand,
+            "exp_month": root.cc_exp_month,
+            "exp_year": root.cc_exp_year,
+            "first_digits": root.cc_first_digits,
+            "last_digits": root.cc_last_digits,
         }
         if not any(data.values()):
             return None

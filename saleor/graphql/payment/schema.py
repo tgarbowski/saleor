@@ -1,11 +1,16 @@
 import graphene
 
 from ...core.permissions import OrderPermissions
-from ..core.fields import PrefetchingConnectionField
+from ..core.fields import FilterInputConnectionField
+from ..core.utils import from_global_id_or_error
 from ..decorators import permission_required
-from .mutations import PaymentCapture, PaymentInitialize, PaymentRefund, PaymentVoid
-from .resolvers import resolve_payments, resolve_generate_payment_url
+
 from .types import Payment, PaymentUrl
+from .filters import PaymentFilterInput
+from .mutations import PaymentCapture, PaymentInitialize, PaymentRefund, PaymentVoid
+from .resolvers import resolve_payment_by_id, resolve_payments, resolve_generate_payment_url
+
+
 
 
 class PaymentQueries(graphene.ObjectType):
@@ -16,7 +21,11 @@ class PaymentQueries(graphene.ObjectType):
             graphene.ID, description="ID of the payment.", required=True
         ),
     )
-    payments = PrefetchingConnectionField(Payment, description="List of payments.")
+    payments = FilterInputConnectionField(
+        Payment,
+        filter=PaymentFilterInput(description="Filtering options for payments."),
+        description="List of payments.",
+    )
 
     generate_payment_url = graphene.Field(PaymentUrl, description="Generates an url to redirect to payment gateway and complete payment",
                                           payment_id=graphene.Argument(graphene.ID,
@@ -25,11 +34,12 @@ class PaymentQueries(graphene.ObjectType):
 
     @permission_required(OrderPermissions.MANAGE_ORDERS)
     def resolve_payment(self, info, **data):
-        return graphene.Node.get_node_from_global_id(info, data.get("id"), Payment)
+        _, id = from_global_id_or_error(data["id"], Payment)
+        return resolve_payment_by_id(id)
 
     @permission_required(OrderPermissions.MANAGE_ORDERS)
-    def resolve_payments(self, info, query=None, **_kwargs):
-        return resolve_payments(info, query)
+    def resolve_payments(self, info, **_kwargs):
+        return resolve_payments(info)
 
     @staticmethod
     def resolve_generate_payment_url(self, info, **_kwargs):

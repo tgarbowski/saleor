@@ -1,47 +1,51 @@
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import graphene
 import pytest
 from django.contrib.auth.models import AnonymousUser
 
-from ....core.exceptions import InsufficientStock
-from ....core.permissions import OrderPermissions
+from ....core.exceptions import InsufficientStock, InsufficientStockData
 from ....order import OrderStatus
 from ....order.error_codes import OrderErrorCode
 from ....order.events import OrderEvents
-from ....order.models import FulfillmentStatus
+from ....order.models import Fulfillment, FulfillmentStatus
 from ....warehouse.models import Allocation, Stock
 from ...tests.utils import assert_no_permission, get_graphql_content
 
 ORDER_FULFILL_QUERY = """
-mutation fulfillOrder(
-    $order: ID, $input: OrderFulfillInput!
-) {
-    orderFulfill(
-        order: $order,
-        input: $input
+    mutation fulfillOrder(
+        $order: ID, $input: OrderFulfillInput!
     ) {
-        orderErrors {
-            field
-            code
-            message
-            warehouse
-            orderLine
+        orderFulfill(
+            order: $order,
+            input: $input
+        ) {
+            errors {
+                field
+                code
+                message
+                warehouse
+                orderLines
+            }
         }
     }
-}
 """
 
 
+@pytest.mark.parametrize("fulfillment_auto_approve", [True, False])
 @patch("saleor.graphql.order.mutations.fulfillments.create_fulfillments")
 def test_order_fulfill(
     mock_create_fulfillments,
+    fulfillment_auto_approve,
     staff_api_client,
     staff_user,
     order_with_lines,
     permission_manage_orders,
     warehouse,
+    site_settings,
 ):
+    site_settings.fulfillment_auto_approve = fulfillment_auto_approve
+    site_settings.save(update_fields=["fulfillment_auto_approve"])
     order = order_with_lines
     query = ORDER_FULFILL_QUERY
     order_id = graphene.Node.to_global_id("Order", order.id)
@@ -70,7 +74,7 @@ def test_order_fulfill(
     )
     content = get_graphql_content(response)
     data = content["data"]["orderFulfill"]
-    assert not data["orderErrors"]
+    assert not data["errors"]
 
     fulfillment_lines_for_warehouses = {
         str(warehouse.pk): [
@@ -79,7 +83,13 @@ def test_order_fulfill(
         ]
     }
     mock_create_fulfillments.assert_called_once_with(
-        staff_user, order, fulfillment_lines_for_warehouses, True
+        staff_user,
+        None,
+        order,
+        fulfillment_lines_for_warehouses,
+        ANY,
+        True,
+        approved=fulfillment_auto_approve,
     )
 
 
@@ -120,7 +130,7 @@ def test_order_fulfill_as_app(
     )
     content = get_graphql_content(response)
     data = content["data"]["orderFulfill"]
-    assert not data["orderErrors"]
+    assert not data["errors"]
 
     fulfillment_lines_for_warehouses = {
         str(warehouse.pk): [
@@ -129,7 +139,13 @@ def test_order_fulfill_as_app(
         ]
     }
     mock_create_fulfillments.assert_called_once_with(
-        AnonymousUser(), order, fulfillment_lines_for_warehouses, True
+        AnonymousUser(),
+        app_api_client.app,
+        order,
+        fulfillment_lines_for_warehouses,
+        ANY,
+        True,
+        approved=True,
     )
 
 
@@ -177,7 +193,7 @@ def test_order_fulfill_many_warehouses(
     )
     content = get_graphql_content(response)
     data = content["data"]["orderFulfill"]
-    assert not data["orderErrors"]
+    assert not data["errors"]
 
     fulfillment_lines_for_warehouses = {
         str(warehouse1.pk): [
@@ -188,7 +204,13 @@ def test_order_fulfill_many_warehouses(
     }
 
     mock_create_fulfillments.assert_called_once_with(
-        staff_user, order, fulfillment_lines_for_warehouses, True
+        staff_user,
+        None,
+        order,
+        fulfillment_lines_for_warehouses,
+        ANY,
+        True,
+        approved=True,
     )
 
 
@@ -224,13 +246,19 @@ def test_order_fulfill_without_notification(
     )
     content = get_graphql_content(response)
     data = content["data"]["orderFulfill"]
-    assert not data["orderErrors"]
+    assert not data["errors"]
 
     fulfillment_lines_for_warehouses = {
         str(warehouse.pk): [{"order_line": order_line, "quantity": 1}]
     }
     mock_create_fulfillments.assert_called_once_with(
-        staff_user, order, fulfillment_lines_for_warehouses, False
+        staff_user,
+        None,
+        order,
+        fulfillment_lines_for_warehouses,
+        ANY,
+        False,
+        approved=True,
     )
 
 
@@ -282,13 +310,19 @@ def test_order_fulfill_lines_with_empty_quantity(
     )
     content = get_graphql_content(response)
     data = content["data"]["orderFulfill"]
-    assert not data["orderErrors"]
+    assert not data["errors"]
 
     fulfillment_lines_for_warehouses = {
         str(warehouse.pk): [{"order_line": order_line2, "quantity": 2}]
     }
     mock_create_fulfillments.assert_called_once_with(
-        staff_user, order, fulfillment_lines_for_warehouses, True
+        staff_user,
+        None,
+        order,
+        fulfillment_lines_for_warehouses,
+        ANY,
+        True,
+        approved=True,
     )
 
 
@@ -322,14 +356,50 @@ def test_order_fulfill_zero_quantity(
     )
     content = get_graphql_content(response)
     data = content["data"]["orderFulfill"]
-    assert data["orderErrors"]
-    error = data["orderErrors"][0]
+    assert data["errors"]
+    error = data["errors"][0]
     assert error["field"] == "lines"
     assert error["code"] == OrderErrorCode.ZERO_QUANTITY.name
-    assert not error["orderLine"]
+    assert not error["orderLines"]
     assert not error["warehouse"]
 
     mock_create_fulfillments.assert_not_called()
+
+
+def test_order_fulfill_channel_without_shipping_zones(
+    staff_api_client,
+    order_with_lines,
+    permission_manage_orders,
+    warehouse,
+):
+    order = order_with_lines
+    order.channel.shipping_zones.clear()
+    query = ORDER_FULFILL_QUERY
+    order_id = graphene.Node.to_global_id("Order", order.id)
+    order_line = order.lines.first()
+    order_line_id = graphene.Node.to_global_id("OrderLine", order_line.id)
+    warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
+    variables = {
+        "order": order_id,
+        "input": {
+            "notifyCustomer": True,
+            "lines": [
+                {
+                    "orderLineId": order_line_id,
+                    "stocks": [{"quantity": 3, "warehouse": warehouse_id}],
+                },
+            ],
+        },
+    }
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_orders]
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["orderFulfill"]
+    assert len(data["errors"]) == 1
+    error = data["errors"][0]
+    assert error["field"] == "stocks"
+    assert error["code"] == OrderErrorCode.INSUFFICIENT_STOCK.name
 
 
 @patch("saleor.graphql.order.mutations.fulfillments.create_fulfillments")
@@ -362,12 +432,52 @@ def test_order_fulfill_fulfilled_order(
     )
     content = get_graphql_content(response)
     data = content["data"]["orderFulfill"]
-    assert data["orderErrors"]
-    error = data["orderErrors"][0]
+    assert data["errors"]
+    error = data["errors"][0]
     assert error["field"] == "orderLineId"
     assert error["code"] == OrderErrorCode.FULFILL_ORDER_LINE.name
-    assert error["orderLine"] == order_line_id
+    assert error["orderLines"] == [order_line_id]
     assert not error["warehouse"]
+
+    mock_create_fulfillments.assert_not_called()
+
+
+@patch("saleor.graphql.order.mutations.fulfillments.create_fulfillments")
+def test_order_fulfill_unpaid_order_and_disallow_unpaid(
+    mock_create_fulfillments,
+    staff_api_client,
+    order_with_lines,
+    permission_manage_orders,
+    warehouse,
+    site_settings,
+):
+    site_settings.fulfillment_allow_unpaid = False
+    site_settings.save(update_fields=["fulfillment_allow_unpaid"])
+    query = ORDER_FULFILL_QUERY
+    order_id = graphene.Node.to_global_id("Order", order_with_lines.id)
+    order_line = order_with_lines.lines.first()
+    order_line_id = graphene.Node.to_global_id("OrderLine", order_line.id)
+    warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
+    variables = {
+        "order": order_id,
+        "input": {
+            "lines": [
+                {
+                    "orderLineId": order_line_id,
+                    "stocks": [{"quantity": 100, "warehouse": warehouse_id}],
+                }
+            ]
+        },
+    }
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_orders]
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["orderFulfill"]
+    assert data["errors"]
+    error = data["errors"][0]
+    assert error["field"] == "order"
+    assert error["code"] == OrderErrorCode.CANNOT_FULFILL_UNPAID_ORDER.name
 
     mock_create_fulfillments.assert_not_called()
 
@@ -400,12 +510,14 @@ def test_order_fulfill_warehouse_with_insufficient_stock_exception(
         },
     }
 
-    error_context = {
-        "order_line": order_line,
-        "warehouse_pk": str(warehouse_no_shipping_zone.pk),
-    }
     mock_create_fulfillments.side_effect = InsufficientStock(
-        order_line.variant, error_context
+        [
+            InsufficientStockData(
+                variant=order_line.variant,
+                order_line=order_line,
+                warehouse_pk=warehouse_no_shipping_zone.pk,
+            )
+        ]
     )
 
     response = staff_api_client.post_graphql(
@@ -413,11 +525,11 @@ def test_order_fulfill_warehouse_with_insufficient_stock_exception(
     )
     content = get_graphql_content(response)
     data = content["data"]["orderFulfill"]
-    assert data["orderErrors"]
-    error = data["orderErrors"][0]
+    assert data["errors"]
+    error = data["errors"][0]
     assert error["field"] == "stocks"
     assert error["code"] == OrderErrorCode.INSUFFICIENT_STOCK.name
-    assert error["orderLine"] == order_line_id
+    assert error["orderLines"] == [order_line_id]
     assert error["warehouse"] == warehouse_id
 
 
@@ -454,11 +566,11 @@ def test_order_fulfill_warehouse_duplicated_warehouse_id(
     )
     content = get_graphql_content(response)
     data = content["data"]["orderFulfill"]
-    assert data["orderErrors"]
-    error = data["orderErrors"][0]
+    assert data["errors"]
+    error = data["errors"][0]
     assert error["field"] == "warehouse"
     assert error["code"] == OrderErrorCode.DUPLICATED_INPUT_ITEM.name
-    assert not error["orderLine"]
+    assert not error["orderLines"]
     assert error["warehouse"] == warehouse_id
     mock_create_fulfillments.assert_not_called()
 
@@ -497,16 +609,16 @@ def test_order_fulfill_warehouse_duplicated_order_line_id(
     )
     content = get_graphql_content(response)
     data = content["data"]["orderFulfill"]
-    assert data["orderErrors"]
-    error = data["orderErrors"][0]
+    assert data["errors"]
+    error = data["errors"][0]
     assert error["field"] == "orderLineId"
     assert error["code"] == OrderErrorCode.DUPLICATED_INPUT_ITEM.name
-    assert error["orderLine"] == order_line_id
+    assert error["orderLines"] == [order_line_id]
     assert not error["warehouse"]
     mock_create_fulfillments.assert_not_called()
 
 
-@patch("saleor.order.emails.send_fulfillment_update.delay")
+@patch("saleor.plugins.manager.PluginsManager.notify")
 def test_fulfillment_update_tracking(
     send_fulfillment_update_mock,
     staff_api_client,
@@ -514,13 +626,14 @@ def test_fulfillment_update_tracking(
     permission_manage_orders,
 ):
     query = """
-    mutation updateFulfillment($id: ID!, $tracking: String) {
+        mutation updateFulfillment($id: ID!, $tracking: String) {
             orderFulfillmentUpdateTracking(
-                id: $id, input: {trackingNumber: $tracking}) {
-                    fulfillment {
-                        trackingNumber
-                    }
+                id: $id, input: { trackingNumber: $tracking }
+            ) {
+                fulfillment {
+                    trackingNumber
                 }
+            }
         }
     """
     fulfillment_id = graphene.Node.to_global_id("Fulfillment", fulfillment.id)
@@ -536,19 +649,24 @@ def test_fulfillment_update_tracking(
 
 
 FULFILLMENT_UPDATE_TRACKING_WITH_SEND_NOTIFICATION_QUERY = """
-    mutation updateFulfillment($id: ID!, $tracking: String, $notifyCustomer: Boolean) {
-            orderFulfillmentUpdateTracking(
-                id: $id
-                input: {trackingNumber: $tracking, notifyCustomer: $notifyCustomer}) {
-                    fulfillment {
-                        trackingNumber
-                    }
-                }
+    mutation updateFulfillment(
+        $id: ID!
+        $tracking: String
+        $notifyCustomer: Boolean
+    ) {
+        orderFulfillmentUpdateTracking(
+            id: $id
+            input: { trackingNumber: $tracking, notifyCustomer: $notifyCustomer }
+        ) {
+            fulfillment {
+                trackingNumber
+            }
         }
-    """
+    }
+"""
 
 
-@patch("saleor.order.emails.send_fulfillment_update.delay")
+@patch("saleor.graphql.order.mutations.fulfillments.send_fulfillment_update")
 def test_fulfillment_update_tracking_send_notification_true(
     send_fulfillment_update_mock,
     staff_api_client,
@@ -567,11 +685,11 @@ def test_fulfillment_update_tracking_send_notification_true(
     data = content["data"]["orderFulfillmentUpdateTracking"]["fulfillment"]
     assert data["trackingNumber"] == tracking
     send_fulfillment_update_mock.assert_called_once_with(
-        fulfillment.order.pk, fulfillment.pk
+        fulfillment.order, fulfillment, ANY
     )
 
 
-@patch("saleor.order.emails.send_fulfillment_update.delay")
+@patch("saleor.order.notifications.send_fulfillment_update")
 def test_fulfillment_update_tracking_send_notification_false(
     send_fulfillment_update_mock,
     staff_api_client,
@@ -593,16 +711,20 @@ def test_fulfillment_update_tracking_send_notification_false(
 
 
 CANCEL_FULFILLMENT_MUTATION = """
-    mutation cancelFulfillment($id: ID!, $warehouseId: ID!) {
-            orderFulfillmentCancel(id: $id, input: {warehouseId: $warehouseId}) {
-                    fulfillment {
-                        status
-                    }
-                    order {
-                        status
-                    }
-                }
+    mutation cancelFulfillment($id: ID!, $warehouseId: ID) {
+        orderFulfillmentCancel(id: $id, input: {warehouseId: $warehouseId}) {
+            fulfillment {
+                status
+            }
+            order {
+                status
+            }
+            errors {
+                code
+                field
+            }
         }
+    }
 """
 
 
@@ -631,6 +753,105 @@ def test_cancel_fulfillment(
         "warehouse": str(warehouse.pk),
     }
     assert event_restocked_items.user == staff_user
+
+
+def test_cancel_fulfillment_no_warehouse_id(
+    staff_api_client, fulfillment, permission_manage_orders
+):
+    query = """
+        mutation cancelFulfillment($id: ID!) {
+            orderFulfillmentCancel(id: $id) {
+                fulfillment {
+                    status
+                }
+                order {
+                    status
+                }
+                errors {
+                    code
+                    field
+                }
+            }
+        }
+    """
+    fulfillment_id = graphene.Node.to_global_id("Fulfillment", fulfillment.id)
+    variables = {"id": fulfillment_id}
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_orders]
+    )
+    content = get_graphql_content(response)
+    errors = content["data"]["orderFulfillmentCancel"]["errors"]
+    assert len(errors) == 1
+    error = errors[0]
+    assert error["field"] == "warehouseId"
+    assert error["code"] == OrderErrorCode.REQUIRED.name
+
+
+def test_cancel_fulfillment_awaiting_approval(
+    staff_api_client, fulfillment, permission_manage_orders
+):
+    fulfillment.status = FulfillmentStatus.WAITING_FOR_APPROVAL
+    fulfillment.save(update_fields=["status"])
+    query = CANCEL_FULFILLMENT_MUTATION
+    fulfillment_id = graphene.Node.to_global_id("Fulfillment", fulfillment.id)
+    variables = {"id": fulfillment_id}
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_orders]
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["orderFulfillmentCancel"]
+    assert data["fulfillment"]["status"] == FulfillmentStatus.CANCELED.upper()
+    event_cancelled = fulfillment.order.events.get()
+    assert event_cancelled.type == (OrderEvents.FULFILLMENT_CANCELED)
+    assert event_cancelled.parameters == {"composed_id": fulfillment.composed_id}
+    assert event_cancelled.user == staff_api_client.user
+
+
+@patch("saleor.order.actions.restock_fulfillment_lines")
+def test_cancel_fulfillment_awaiting_approval_warehouse_specified(
+    mock_restock_lines,
+    staff_api_client,
+    fulfillment,
+    permission_manage_orders,
+    warehouse,
+):
+    fulfillment.status = FulfillmentStatus.WAITING_FOR_APPROVAL
+    fulfillment.save(update_fields=["status"])
+    query = CANCEL_FULFILLMENT_MUTATION
+    fulfillment_id = graphene.Node.to_global_id("Fulfillment", fulfillment.id)
+    warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.id)
+    variables = {"id": fulfillment_id, "warehouseId": warehouse_id}
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_orders]
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["orderFulfillmentCancel"]
+    assert data["fulfillment"]["status"] == FulfillmentStatus.CANCELED.upper()
+    mock_restock_lines.assert_not_called()
+    event_cancelled = fulfillment.order.events.get()
+    assert event_cancelled.type == (OrderEvents.FULFILLMENT_CANCELED)
+    assert event_cancelled.parameters == {"composed_id": fulfillment.composed_id}
+    assert event_cancelled.user == staff_api_client.user
+
+
+def test_cancel_fulfillment_canceled_state(
+    staff_api_client, fulfillment, permission_manage_orders, warehouse
+):
+    query = CANCEL_FULFILLMENT_MUTATION
+    fulfillment.status = FulfillmentStatus.CANCELED
+    fulfillment.save(update_fields=["status"])
+    fulfillment_id = graphene.Node.to_global_id("Fulfillment", fulfillment.id)
+    warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.id)
+    variables = {"id": fulfillment_id, "warehouseId": warehouse_id}
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_orders]
+    )
+    content = get_graphql_content(response)
+    errors = content["data"]["orderFulfillmentCancel"]["errors"]
+    assert len(errors) == 1
+    error = errors[0]
+    assert error["field"] == "fulfillment"
+    assert error["code"] == OrderErrorCode.CANNOT_CANCEL_FULFILLMENT.name
 
 
 def test_cancel_fulfillment_warehouse_without_stock(
@@ -729,265 +950,149 @@ def test_create_digital_fulfillment(
     assert mock_email_fulfillment.call_count == 1
 
 
-@pytest.fixture
-def update_metadata_mutation():
-    return """
-        mutation UpdateMeta($id: ID!, $input: MetaInput!){
-            orderFulfillmentUpdateMeta(id: $id, input: $input) {
-                errors {
-                    field
-                    message
-                }
+APPROVE_FULFILLMENT_MUTATION = """
+    mutation approveFulfillment($id: ID!, $notifyCustomer: Boolean!) {
+        orderFulfillmentApprove(id: $id, notifyCustomer: $notifyCustomer) {
+            fulfillment {
+                status
+            }
+            order {
+                status
+            }
+            errors {
+                field
+                code
             }
         }
-    """
-
-
-@pytest.fixture
-def update_private_metadata_mutation():
-    return """
-        mutation UpdatePrivateMeta($id: ID!, $input: MetaInput!){
-            orderFulfillmentUpdatePrivateMeta(id: $id, input: $input) {
-                errors {
-                    field
-                    message
-                }
-            }
-        }
-    """
-
-
-@pytest.fixture
-def clear_metadata_mutation():
-    return """
-        mutation fulfillmentClearMeta($id: ID!, $input: MetaPath!) {
-            orderFulfillmentClearMeta(id: $id, input: $input) {
-                errors {
-                    message
-                }
-            }
-        }
-    """
-
-
-@pytest.fixture
-def clear_private_metadata_mutation():
-    return """
-        mutation fulfillmentClearPrivateMeta($id: ID!, $input: MetaPath!) {
-            orderFulfillmentClearPrivateMeta(id: $id, input: $input) {
-                errors {
-                    message
-                }
-            }
-        }
-    """
-
-
-@pytest.fixture
-def clear_meta_variables(fulfillment):
-    fulfillment_id = graphene.Node.to_global_id("Fulfillment", fulfillment.id)
-    return {
-        "id": fulfillment_id,
-        "input": {"namespace": "", "clientName": "", "key": "foo"},
     }
+"""
 
 
-@pytest.fixture
-def update_metadata_variables(staff_user, fulfillment):
+@patch("saleor.order.actions.send_fulfillment_confirmation_to_customer", autospec=True)
+def test_fulfillment_approve(
+    mock_email_fulfillment,
+    staff_api_client,
+    fulfillment,
+    permission_manage_orders,
+):
+    fulfillment.status = FulfillmentStatus.WAITING_FOR_APPROVAL
+    fulfillment.save(update_fields=["status"])
+    query = APPROVE_FULFILLMENT_MUTATION
     fulfillment_id = graphene.Node.to_global_id("Fulfillment", fulfillment.id)
-    return {
-        "id": fulfillment_id,
-        "input": {
-            "namespace": "",
-            "clientName": "",
-            "key": str(staff_user),
-            "value": "bar",
-        },
-    }
-
-
-def test_fulfillment_update_metadata_user_has_no_permision(
-    staff_api_client, staff_user, update_metadata_mutation, update_metadata_variables
-):
-    assert not staff_user.has_perm(OrderPermissions.MANAGE_ORDERS)
-
+    variables = {"id": fulfillment_id, "notifyCustomer": True}
     response = staff_api_client.post_graphql(
-        update_metadata_mutation,
-        update_metadata_variables,
-        permissions=[],
-        check_no_permissions=False,
+        query, variables, permissions=[permission_manage_orders]
     )
-    assert_no_permission(response)
-
-
-def test_fulfillment_update_metadata_user_has_permission(
-    staff_api_client,
-    staff_user,
-    permission_manage_orders,
-    fulfillment,
-    update_metadata_mutation,
-    update_metadata_variables,
-):
-    staff_user.user_permissions.add(permission_manage_orders)
-    assert staff_user.has_perm(OrderPermissions.MANAGE_ORDERS)
-    response = staff_api_client.post_graphql(
-        update_metadata_mutation,
-        update_metadata_variables,
-        permissions=[permission_manage_orders],
-        check_no_permissions=False,
-    )
-    assert response.status_code == 200
     content = get_graphql_content(response)
-    errors = content["data"]["orderFulfillmentUpdateMeta"]["errors"]
-    assert len(errors) == 0
+    data = content["data"]["orderFulfillmentApprove"]
+    assert not data["errors"]
+    assert data["fulfillment"]["status"] == FulfillmentStatus.FULFILLED.upper()
+    assert data["order"]["status"] == OrderStatus.FULFILLED.upper()
     fulfillment.refresh_from_db()
-    assert fulfillment.metadata == {str(staff_user): "bar"}
+    assert fulfillment.status == FulfillmentStatus.FULFILLED
+
+    assert mock_email_fulfillment.call_count == 1
+    events = fulfillment.order.events.all()
+    assert len(events) == 1
+    event = events[0]
+    assert event.type == OrderEvents.FULFILLMENT_FULFILLED_ITEMS
+    assert event.user == staff_api_client.user
 
 
-def test_fulfillment_update_private_metadata_user_has_no_permission(
+@patch("saleor.order.actions.send_fulfillment_confirmation_to_customer", autospec=True)
+def test_fulfillment_approve_partial_order_fulfill(
+    mock_email_fulfillment,
     staff_api_client,
-    staff_user,
-    update_private_metadata_mutation,
-    update_metadata_variables,
-):
-    assert not staff_user.has_perm(OrderPermissions.MANAGE_ORDERS)
-
-    response = staff_api_client.post_graphql(
-        update_private_metadata_mutation,
-        update_metadata_variables,
-        permissions=[],
-        check_no_permissions=False,
-    )
-    assert_no_permission(response)
-
-
-def test_fulfillment_update_private_metadata_user_has_permission(
-    staff_api_client,
-    staff_user,
+    fulfillment_awaiting_approval,
     permission_manage_orders,
-    fulfillment,
-    update_private_metadata_mutation,
-    update_metadata_variables,
 ):
-    staff_user.user_permissions.add(permission_manage_orders)
-    assert staff_user.has_perm(OrderPermissions.MANAGE_ORDERS)
-    response = staff_api_client.post_graphql(
-        update_private_metadata_mutation,
-        update_metadata_variables,
-        permissions=[permission_manage_orders],
-        check_no_permissions=False,
+    query = APPROVE_FULFILLMENT_MUTATION
+    second_fulfillment = Fulfillment.objects.get(pk=fulfillment_awaiting_approval.pk)
+    second_fulfillment.pk = None
+    second_fulfillment.save()
+    fulfillment_id = graphene.Node.to_global_id(
+        "Fulfillment", fulfillment_awaiting_approval.id
     )
-    assert response.status_code == 200
+    variables = {"id": fulfillment_id, "notifyCustomer": False}
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_orders]
+    )
     content = get_graphql_content(response)
-    errors = content["data"]["orderFulfillmentUpdatePrivateMeta"]["errors"]
-    assert len(errors) == 0
-    fulfillment.refresh_from_db()
-    assert fulfillment.private_metadata == {str(staff_user): "bar"}
+    data = content["data"]["orderFulfillmentApprove"]
+    assert not data["errors"]
+    assert data["fulfillment"]["status"] == FulfillmentStatus.FULFILLED.upper()
+    assert data["order"]["status"] == "PARTIALLY_FULFILLED"
+    fulfillment_awaiting_approval.refresh_from_db()
+    assert fulfillment_awaiting_approval.status == FulfillmentStatus.FULFILLED
+
+    assert mock_email_fulfillment.call_count == 0
 
 
-def test_fulfillment_clear_meta_user_has_no_permission(
+def test_fulfillment_approve_invalid_status(
     staff_api_client,
-    staff_user,
     fulfillment,
-    clear_meta_variables,
-    clear_metadata_mutation,
-):
-    assert not staff_user.has_perm(OrderPermissions.MANAGE_ORDERS)
-    fulfillment.store_value_in_metadata(items={"foo": "bar"})
-    fulfillment.save()
-    response = staff_api_client.post_graphql(
-        clear_metadata_mutation, clear_meta_variables
-    )
-    assert_no_permission(response)
-
-
-def test_fulfillment_clear_meta_user_has_permission(
-    staff_api_client,
-    staff_user,
     permission_manage_orders,
-    fulfillment,
-    clear_meta_variables,
-    clear_metadata_mutation,
 ):
-    staff_user.user_permissions.add(permission_manage_orders)
-    assert staff_user.has_perm(OrderPermissions.MANAGE_ORDERS)
-    fulfillment.store_value_in_metadata(items={"foo": "bar"})
-    fulfillment.save()
-    fulfillment.refresh_from_db()
+    query = APPROVE_FULFILLMENT_MUTATION
+    fulfillment_id = graphene.Node.to_global_id("Fulfillment", fulfillment.id)
+    variables = {"id": fulfillment_id, "notifyCustomer": True}
     response = staff_api_client.post_graphql(
-        clear_metadata_mutation, clear_meta_variables
+        query, variables, permissions=[permission_manage_orders]
     )
-    assert response.status_code == 200
     content = get_graphql_content(response)
-    assert content.get("errors") is None
-    fulfillment.refresh_from_db()
-    assert not fulfillment.get_value_from_metadata(key="foo")
+    data = content["data"]["orderFulfillmentApprove"]
+    assert data["errors"][0]["code"] == OrderErrorCode.INVALID.name
 
 
-def test_fulfillment_clear_private_meta_user_has_no_permission(
+def test_fulfillment_approve_order_unpaid(
     staff_api_client,
-    staff_user,
     fulfillment,
-    clear_meta_variables,
-    clear_private_metadata_mutation,
-):
-    assert not staff_user.has_perm(OrderPermissions.MANAGE_ORDERS)
-    fulfillment.store_value_in_private_metadata(items={"foo": "bar"})
-    fulfillment.save()
-    response = staff_api_client.post_graphql(
-        clear_private_metadata_mutation, clear_meta_variables
-    )
-    assert_no_permission(response)
-
-
-def test_fulfillment_clear_private_meta_user_has_permission(
-    staff_api_client,
-    staff_user,
+    site_settings,
     permission_manage_orders,
-    fulfillment,
-    clear_meta_variables,
-    clear_private_metadata_mutation,
 ):
-    staff_user.user_permissions.add(permission_manage_orders)
-    assert staff_user.has_perm(OrderPermissions.MANAGE_ORDERS)
-    fulfillment.store_value_in_private_metadata(items={"foo": "bar"})
-    fulfillment.save()
-    fulfillment.refresh_from_db()
+    site_settings.fulfillment_allow_unpaid = False
+    site_settings.save(update_fields=["fulfillment_allow_unpaid"])
+    fulfillment.status = FulfillmentStatus.WAITING_FOR_APPROVAL
+    fulfillment.save(update_fields=["status"])
+    query = APPROVE_FULFILLMENT_MUTATION
+    fulfillment_id = graphene.Node.to_global_id("Fulfillment", fulfillment.id)
+    variables = {"id": fulfillment_id, "notifyCustomer": True}
     response = staff_api_client.post_graphql(
-        clear_private_metadata_mutation, clear_meta_variables
+        query, variables, permissions=[permission_manage_orders]
     )
-    assert response.status_code == 200
     content = get_graphql_content(response)
-    assert content.get("errors") is None
-    fulfillment.refresh_from_db()
-    assert not fulfillment.get_value_from_private_metadata(key="foo")
+    data = content["data"]["orderFulfillmentApprove"]
+    assert data["errors"][0]["code"] == OrderErrorCode.CANNOT_FULFILL_UNPAID_ORDER.name
 
 
 QUERY_FULFILLMENT = """
-query fulfillment($id: ID!){
-    order(id: $id){
-        fulfillments{
-            id
-            fulfillmentOrder
-            status
-            trackingNumber
-            warehouse{
+    query fulfillment($id: ID!) {
+        order(id: $id) {
+            fulfillments {
                 id
-            }
-            lines{
-                orderLine{
+                fulfillmentOrder
+                status
+                trackingNumber
+                warehouse {
                     id
                 }
-                quantity
+                lines {
+                    orderLine {
+                        id
+                    }
+                    quantity
+                }
             }
         }
     }
-}
 """
 
 
 def test_fulfillment_query(
-    staff_api_client, fulfilled_order, warehouse, permission_manage_orders,
+    staff_api_client,
+    fulfilled_order,
+    warehouse,
+    permission_manage_orders,
 ):
     order = fulfilled_order
     order_line_1, order_line_2 = order.lines.all()
@@ -1020,22 +1125,22 @@ def test_fulfillment_query(
 
 
 QUERY_ORDER_FULFILL_DATA = """
-query OrderFulfillData($id: ID!) {
-    order(id: $id) {
-        id
-        lines {
-            variant {
-                stocks {
-                    warehouse {
-                        id
+    query OrderFulfillData($id: ID!) {
+        order(id: $id) {
+            id
+            lines {
+                variant {
+                    stocks {
+                        warehouse {
+                            id
+                        }
+                        quantity
+                        quantityAllocated
                     }
-                    quantity
-                    quantityAllocated
                 }
             }
         }
     }
-}
 """
 
 

@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
         ("product", "0127_auto_20201001_0933"),
     ]
 
-    # operations = [
-    #     migrations.RunPython(set_missing_product_publication_date),
-    #     migrations.RunPython(set_missing_collection_publication_date),
-    # ]
+    operations = [
+        migrations.RunPython(set_missing_product_publication_date),
+        migrations.RunPython(set_missing_collection_publication_date),
+    ]

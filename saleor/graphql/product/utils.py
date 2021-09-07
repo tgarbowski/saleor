@@ -1,3 +1,5 @@
+from collections import defaultdict, namedtuple
+from typing import TYPE_CHECKING, Dict, Iterable, List
 from collections import defaultdict
 import json
 import os
@@ -9,17 +11,20 @@ from typing import TYPE_CHECKING, Dict, List, Tuple
 import boto3
 import graphene
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django.db.utils import IntegrityError
 from io import BytesIO
 from PIL import Image
 
-from ...product import AttributeInputType
+from ...attribute import AttributeInputType
 from ...product.error_codes import ProductErrorCode
-from ...product.models import ProductImage
+from ...product.models import ProductMedia
 from ...product.thumbnails import create_product_thumbnails
+from ...core.tracing import traced_atomic_transaction
+from ...order import OrderStatus
+from ...order import models as order_models
 from ...warehouse.models import Stock
-from ...product.models import Attribute, ProductVariant
+from ...product.models import ProductVariant
+from ...attribute.models.base import Attribute
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
@@ -101,21 +106,7 @@ def validate_attributes_input_for_variant(
             attribute_errors[error_more_than_one_value_given].append(attribute_id)
             continue
 
-        if values[0] is None or not values[0].strip():
-            attribute_errors[error_blank_value].append(attribute_id)
-
-    return prepare_error_list_from_error_attribute_mapping(attribute_errors)
-
-
-def prepare_error_list_from_error_attribute_mapping(
-    attribute_errors: Dict[ValidationError, List[str]]
-):
-    errors = []
-    for error, attributes in attribute_errors.items():
-        error.params = {"attributes": attributes}
-        errors.append(error)
-
-    return errors
+    from ...product.models import ProductVariant
 
 
 def get_used_attribute_values_for_variant(variant):
@@ -131,8 +122,8 @@ def get_used_attribute_values_for_variant(variant):
     for assigned_variant_attribute in variant.attributes.all():
         attribute = assigned_variant_attribute.attribute
         attribute_id = graphene.Node.to_global_id("Attribute", attribute.id)
-        for variant in assigned_variant_attribute.values.all():
-            attribute_values[attribute_id].append(variant.slug)
+        for attr_value in assigned_variant_attribute.values.all():
+            attribute_values[attribute_id].append(attr_value.slug)
     return attribute_values
 
 
@@ -164,7 +155,7 @@ def get_used_variants_attribute_values(product):
     return used_attribute_values
 
 
-@transaction.atomic
+@traced_atomic_transaction()
 def create_stocks(
     variant: "ProductVariant", stocks_data: List[Dict[str, str]], warehouses: "QuerySet"
 ):
@@ -335,3 +326,27 @@ def generate_description_json_for_megapack(bundle_content):
     description_json["blocks"] = blocks
     description_json["entityMap"] = {}
     return description_json
+
+
+DraftOrderLinesData = namedtuple(
+    "DraftOrderLinesData", ["order_to_lines_mapping", "line_pks", "order_pks"]
+)
+
+
+def get_draft_order_lines_data_for_variants(
+    variant_ids: Iterable[int],
+):
+    lines = order_models.OrderLine.objects.filter(
+        variant__id__in=variant_ids, order__status=OrderStatus.DRAFT
+    ).select_related("order")
+    order_to_lines_mapping: Dict[
+        order_models.Order, List[order_models.OrderLine]
+    ] = defaultdict(list)
+    line_pks = set()
+    order_pks = set()
+    for line in lines:
+        order_to_lines_mapping[line.order].append(line)
+        line_pks.add(line.pk)
+        order_pks.add(line.order_id)
+
+    return DraftOrderLinesData(order_to_lines_mapping, line_pks, order_pks)

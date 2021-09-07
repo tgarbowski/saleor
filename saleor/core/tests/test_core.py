@@ -4,27 +4,29 @@ from unittest.mock import Mock, patch
 from urllib.parse import urljoin
 
 import pytest
+from django.core.files.storage import default_storage
 from django.core.management import CommandError, call_command
 from django.db.utils import DataError
 from django.templatetags.static import static
 from django.test import RequestFactory, override_settings
+from django_countries.fields import Country
 
 from ...account.models import Address, User
 from ...account.utils import create_superuser
-from ...discount.models import Sale, Voucher
+from ...channel.models import Channel
+from ...discount.models import Sale, SaleChannelListing, Voucher, VoucherChannelListing
 from ...giftcard.models import GiftCard
 from ...order.models import Order
-from ...product.models import ProductImage, ProductType
+from ...product.models import ProductMedia, ProductType
 from ...shipping.models import ShippingZone
 from ..storages import S3MediaStorage
 from ..templatetags.placeholder import placeholder
 from ..utils import (
-    Country,
     build_absolute_uri,
     create_thumbnails,
+    delete_versatile_image,
     generate_unique_slug,
     get_client_ip,
-    get_country_by_ip,
     get_currency_for_country,
     random_data,
 )
@@ -41,24 +43,6 @@ type_schema = {
         "is_shipping_required": True,
     }
 }
-
-
-@pytest.mark.parametrize(
-    "ip_data, expected_country",
-    [
-        ({"country": {"iso_code": "PL"}}, Country("PL")),
-        ({"country": {"iso_code": "UNKNOWN"}}, None),
-        (None, None),
-        ({}, None),
-        ({"country": {}}, None),
-    ],
-)
-def test_get_country_by_ip(ip_data, expected_country, monkeypatch):
-    monkeypatch.setattr(
-        "saleor.core.utils._get_geo_data_by_ip", Mock(return_value=ip_data)
-    )
-    country = get_country_by_ip("127.0.0.1")
-    assert country == expected_country
 
 
 @pytest.mark.parametrize(
@@ -87,7 +71,7 @@ def test_get_client_ip(ip_address, expected_ip):
     [(Country("PL"), "PLN"), (Country("US"), "USD"), (Country("GB"), "GBP")],
 )
 def test_get_currency_for_country(country, expected_currency, monkeypatch):
-    currency = get_currency_for_country(country)
+    currency = get_currency_for_country(country.code)
     assert currency == expected_currency
 
 
@@ -112,9 +96,26 @@ def test_create_shipping_zones(db):
     assert ShippingZone.objects.all().count() == 5
 
 
+def test_create_channels(db):
+    assert Channel.objects.all().count() == 0
+    for _ in random_data.create_channels():
+        pass
+    assert Channel.objects.all().count() == 2
+    assert Channel.objects.get(slug="channel-pln")
+
+
+@override_settings(DEFAULT_CHANNEL_SLUG="test-slug")
+def test_create_channels_with_default_channel_slug(db):
+    assert Channel.objects.all().count() == 0
+    for _ in random_data.create_channels():
+        pass
+    assert Channel.objects.all().count() == 2
+    assert Channel.objects.get(slug="test-slug")
+
+
 def test_create_fake_user(db):
     assert User.objects.all().count() == 0
-    random_data.create_fake_user()
+    random_data.create_fake_user("password")
     assert User.objects.all().count() == 1
     user = User.objects.all().first()
     assert not user.is_superuser
@@ -122,7 +123,7 @@ def test_create_fake_user(db):
 
 def test_create_fake_users(db):
     how_many = 5
-    for _ in random_data.create_users(how_many):
+    for _ in random_data.create_users("password", how_many):
         pass
     assert User.objects.all().count() == 5
 
@@ -138,9 +139,15 @@ def test_create_fake_order(db, monkeypatch, image, media_root, warehouse):
     monkeypatch.setattr(
         "saleor.core.utils.random_data.get_image", Mock(return_value=image)
     )
+    for _ in random_data.create_channels():
+        pass
     for _ in random_data.create_shipping_zones():
         pass
-    for _ in random_data.create_users(3):
+    for _ in random_data.create_users("password", 3):
+        pass
+    for msg in random_data.create_page_type():
+        pass
+    for msg in random_data.create_pages():
         pass
     random_data.create_products_by_schema("/", False)
     how_many = 2
@@ -151,16 +158,25 @@ def test_create_fake_order(db, monkeypatch, image, media_root, warehouse):
 
 def test_create_product_sales(db):
     how_many = 5
+    channel_count = 0
+    for _ in random_data.create_channels():
+        channel_count += 1
     for _ in random_data.create_product_sales(how_many):
         pass
-    assert Sale.objects.all().count() == 5
+    assert Sale.objects.all().count() == how_many
+    assert SaleChannelListing.objects.all().count() == how_many * channel_count
 
 
 def test_create_vouchers(db):
+    voucher_count = 3
+    channel_count = 0
+    for _ in random_data.create_channels():
+        channel_count += 1
     assert Voucher.objects.all().count() == 0
     for _ in random_data.create_vouchers():
         pass
-    assert Voucher.objects.all().count() == 3
+    assert Voucher.objects.all().count() == voucher_count
+    assert VoucherChannelListing.objects.all().count() == voucher_count * channel_count
 
 
 def test_create_gift_card(db):
@@ -174,7 +190,7 @@ def test_create_gift_card(db):
 def test_create_thumbnails(product_with_image, settings, monkeypatch):
     monkeypatch.setattr("django.core.cache.cache.get", Mock(return_value=None))
     sizeset = settings.VERSATILEIMAGEFIELD_RENDITION_KEY_SETS["products"]
-    product_image = product_with_image.images.first()
+    product_image = product_with_image.media.first()
 
     # There's no way to list images created by versatile prewarmer
     # So we delete all created thumbnails/crops and count them
@@ -185,7 +201,7 @@ def test_create_thumbnails(product_with_image, settings, monkeypatch):
     # Image didn't have any thumbnails/crops created, so there's no log
     assert not log_deleted_images
 
-    create_thumbnails(product_image.pk, ProductImage, "products")
+    create_thumbnails(product_image.pk, ProductMedia, "products")
     log_deleted_images = io.StringIO()
     with redirect_stdout(log_deleted_images):
         product_image.image.delete_all_created_images()
@@ -325,3 +341,23 @@ def test_cleardb_preserves_data(admin_user, app, site_settings, staff_user):
     app.refresh_from_db()
     site_settings.refresh_from_db()
     staff_user.refresh_from_db()
+
+
+def test_delete_versatile_image(product_with_image, media_root):
+    # given
+    media = product_with_image.media.first()
+    thumb_200x200 = media.image.thumbnail["200x200"].name
+    thumb_400x400 = media.image.thumbnail["400x400"].name
+    img_name = media.image.name
+
+    assert default_storage.exists(img_name)
+    assert default_storage.exists(thumb_200x200)
+    assert default_storage.exists(thumb_400x400)
+
+    # when
+    delete_versatile_image(media.image)
+
+    # then
+    assert not default_storage.exists(img_name)
+    assert not default_storage.exists(thumb_400x400)
+    assert not default_storage.exists(thumb_400x400)

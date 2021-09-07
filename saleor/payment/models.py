@@ -2,6 +2,7 @@ from decimal import Decimal
 from operator import attrgetter
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -9,9 +10,9 @@ from django.db.models import JSONField  # type: ignore
 from prices import Money
 
 from ..checkout.models import Checkout
+from ..core.permissions import PaymentPermissions
 from ..core.taxes import zero_money
-from ..order.models import Order
-from . import ChargeStatus, CustomPaymentChoices, TransactionError, TransactionKind
+from . import ChargeStatus, CustomPaymentChoices, TransactionKind
 
 
 class Payment(models.Model):
@@ -56,7 +57,7 @@ class Payment(models.Model):
         Checkout, null=True, related_name="payments", on_delete=models.SET_NULL
     )
     order = models.ForeignKey(
-        Order, null=True, related_name="payments", on_delete=models.PROTECT
+        "order.Order", null=True, related_name="payments", on_delete=models.PROTECT
     )
 
     billing_email = models.EmailField(blank=True)
@@ -86,9 +87,22 @@ class Payment(models.Model):
     customer_ip_address = models.GenericIPAddressField(blank=True, null=True)
     extra_data = models.TextField(blank=True, default="")
     return_url = models.URLField(blank=True, null=True)
+    psp_reference = models.CharField(
+        max_length=512, null=True, blank=True, db_index=True
+    )
 
     class Meta:
         ordering = ("pk",)
+        permissions = (
+            (
+                PaymentPermissions.HANDLE_PAYMENTS.codename,
+                "Handle payments",
+            ),
+        )
+        indexes = [
+            # Orders filtering by status index
+            GinIndex(fields=["order_id", "is_active", "charge_status"]),
+        ]
 
     def __repr__(self):
         return "Payment(gateway=%s, is_active=%s, created=%s, charge_status=%s)" % (
@@ -102,10 +116,10 @@ class Payment(models.Model):
         return max(self.transactions.all(), default=None, key=attrgetter("pk"))
 
     def get_total(self):
-        return Money(self.total, self.currency or settings.DEFAULT_CURRENCY)
+        return Money(self.total, self.currency)
 
     def get_authorized_amount(self):
-        money = zero_money()
+        money = zero_money(self.currency)
 
         # Query all the transactions which should be prefetched
         # to optimize db queries
@@ -132,14 +146,14 @@ class Payment(models.Model):
 
         # Calculate authorized amount from all succeeded auth transactions
         for txn in authorized_txns:
-            money += Money(txn.amount, self.currency or settings.DEFAULT_CURRENCY)
+            money += Money(txn.amount, self.currency)
 
         # If multiple partial capture is supported later though it's unlikely,
         # the authorized amount should exclude the already captured amount here
         return money
 
     def get_captured_amount(self):
-        return Money(self.captured_amount, self.currency or settings.DEFAULT_CURRENCY)
+        return Money(self.captured_amount, self.currency)
 
     def get_charge_amount(self):
         """Retrieve the maximum capture possible."""
@@ -177,14 +191,13 @@ class Payment(models.Model):
             ChargeStatus.FULLY_CHARGED,
             ChargeStatus.PARTIALLY_REFUNDED,
         )
-        return (
-            self.is_active
-            and self.charge_status in can_refund_charge_status
-            and self.gateway != CustomPaymentChoices.MANUAL
-        )
+        return self.is_active and self.charge_status in can_refund_charge_status
 
     def can_confirm(self):
         return self.is_active and self.not_charged
+
+    def is_manual(self):
+        return self.gateway == CustomPaymentChoices.MANUAL
 
 
 class Transaction(models.Model):
@@ -212,14 +225,12 @@ class Transaction(models.Model):
         default=Decimal("0.0"),
     )
     error = models.CharField(
-        choices=[(tag, tag.value) for tag in TransactionError],
         max_length=256,
         null=True,
     )
     customer_id = models.CharField(max_length=256, null=True)
     gateway_response = JSONField(encoder=DjangoJSONEncoder)
     already_processed = models.BooleanField(default=False)
-    searchable_key = models.CharField(max_length=512, null=True, blank=True)
 
     class Meta:
         ordering = ("pk",)
@@ -232,4 +243,4 @@ class Transaction(models.Model):
         )
 
     def get_amount(self):
-        return Money(self.amount, self.currency or settings.DEFAULT_CURRENCY)
+        return Money(self.amount, self.currency)

@@ -3,7 +3,8 @@ from django.utils.text import slugify
 
 from ...account.models import Address
 from ...graphql.product.filters import product_search
-from ...product.models import Product
+from ...product.models import Product, ProductChannelListing
+from ...tests.utils import dummy_editorjs
 
 PRODUCTS = [
     ("Arabica Coffee", "The best grains in galactic"),
@@ -13,15 +14,19 @@ PRODUCTS = [
 
 
 @pytest.fixture
-def named_products(category, product_type):
+def named_products(category, product_type, channel_USD):
     def gen_product(name, description):
         product = Product.objects.create(
             name=name,
             slug=slugify(name),
-            description=description,
+            description=dummy_editorjs(description),
             description_plaintext=description,
             product_type=product_type,
             category=category,
+        )
+        ProductChannelListing.objects.create(
+            product=product,
+            channel=channel_USD,
             is_published=True,
         )
         return product
@@ -30,8 +35,9 @@ def named_products(category, product_type):
 
 
 def execute_search(phrase):
-    """Execute product search."""
-    return product_search(phrase)
+    """Execute storefront search."""
+    qs = Product.objects.all()
+    return product_search(qs, phrase)
 
 
 @pytest.mark.parametrize(
@@ -44,12 +50,6 @@ def test_storefront_product_fuzzy_name_search(named_products, phrase, product_nu
     results = execute_search(phrase)
     assert 1 == len(results)
     assert named_products[product_num] in results
-
-
-def unpublish_product(product):
-    prod_to_unpublish = product
-    prod_to_unpublish.is_published = False
-    prod_to_unpublish.save()
 
 
 USERS = [

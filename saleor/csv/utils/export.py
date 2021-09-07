@@ -1,3 +1,5 @@
+import secrets
+from datetime import date, datetime
 from tempfile import NamedTemporaryFile
 from typing import IO, TYPE_CHECKING, Any, Dict, List, Set, Union
 
@@ -6,12 +8,14 @@ from django.utils import timezone
 
 from ...product.models import Product
 from .. import FileTypes
-from ..emails import send_email_with_link_to_download_file
-from .products_data import get_export_fields_and_headers_info, get_products_data
+from ..notifications import send_export_download_link_notification
+from .product_headers import get_export_fields_and_headers_info
+from .products_data import get_products_data
 
 if TYPE_CHECKING:
     # flake8: noqa
     from django.db.models import QuerySet
+
     from ..models import ExportFile
 
 
@@ -47,16 +51,40 @@ def export_products(
     save_csv_file_in_export_file(export_file, temporary_file, file_name)
     temporary_file.close()
 
-    if export_file.user:
-        send_email_with_link_to_download_file(
-            export_file, export_file.user.email, "export_products_success"
-        )
+    send_export_download_link_notification(export_file)
 
 
 def get_filename(model_name: str, file_type: str) -> str:
-    return "{}_data_{}.{}".format(
-        model_name, timezone.now().strftime("%d_%m_%Y"), file_type
+    hash = secrets.token_hex(nbytes=3)
+    return "{}_data_{}_{}.{}".format(
+        model_name, timezone.now().strftime("%d_%m_%Y_%H_%M_%S"), hash, file_type
     )
+
+
+def parse_input(data: Any) -> Dict[str, Union[str, dict]]:
+    """Parse input to correct data types, since scope coming from celery will be parsed to strings."""
+    if "attributes" in data:
+        serialized_attributes = []
+
+        for attr in data.get("attributes") or []:
+            if "date_time" in attr:
+                if gte := attr["date_time"].get("gte"):
+                    attr["date_time"]["gte"] = datetime.fromisoformat(gte)
+                if lte := attr["date_time"].get("lte"):
+                    attr["date_time"]["lte"] = datetime.fromisoformat(lte)
+
+            if "date" in attr:
+                if gte := attr["date"].get("gte"):
+                    attr["date"]["gte"] = date.fromisoformat(gte)
+                if lte := attr["date"].get("lte"):
+                    attr["date"]["lte"] = date.fromisoformat(lte)
+
+            serialized_attributes.append(attr)
+
+        if serialized_attributes:
+            data["attributes"] = serialized_attributes
+
+    return data
 
 
 def get_product_queryset(scope: Dict[str, Union[str, dict]]) -> "QuerySet":
@@ -68,7 +96,9 @@ def get_product_queryset(scope: Dict[str, Union[str, dict]]) -> "QuerySet":
     if "ids" in scope:
         queryset = Product.objects.filter(pk__in=scope["ids"])
     elif "filter" in scope:
-        queryset = ProductFilter(data=scope["filter"], queryset=queryset).qs
+        queryset = ProductFilter(
+            data=parse_input(scope["filter"]), queryset=queryset
+        ).qs
 
     queryset = queryset.order_by("pk")
 
@@ -105,19 +135,20 @@ def export_products_in_batches(
 ):
     warehouses = export_info.get("warehouses")
     attributes = export_info.get("attributes")
+    channels = export_info.get("channels")
 
     for batch_pks in queryset_in_batches(queryset):
         product_batch = Product.objects.filter(pk__in=batch_pks).prefetch_related(
             "attributes",
             "variants",
             "collections",
-            "images",
+            "media",
             "product_type",
             "category",
         )
 
         export_data = get_products_data(
-            product_batch, export_fields, attributes, warehouses
+            product_batch, export_fields, attributes, warehouses, channels
         )
 
         append_to_file(export_data, headers, temporary_file, file_type, delimiter)

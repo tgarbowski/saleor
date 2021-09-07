@@ -1,11 +1,13 @@
 from typing import TYPE_CHECKING
 
+from ...core.tracing import traced_resolver
 from ...wishlist.models import Wishlist
 
 if TYPE_CHECKING:
     # pylint: disable=unused-import
     from django.db.models.query import QuerySet
     from graphene.types import ResolveInfo
+
     from ...account.models import User
     from ...wishlist.models import WishlistItem
 
@@ -16,6 +18,7 @@ def resolve_wishlist_from_user(user: "User") -> Wishlist:
     return wishlist
 
 
+@traced_resolver
 def resolve_wishlist_from_info(info: "ResolveInfo") -> Wishlist:
     """Return wishlist of the logged in user."""
     user = info.context.user

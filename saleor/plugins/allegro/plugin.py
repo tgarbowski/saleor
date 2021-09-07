@@ -13,7 +13,7 @@ from django.shortcuts import redirect
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
-from saleor.product.models import ProductImage
+from saleor.product.models import ProductMedia
 from . import ProductPublishState
 
 logger = logging.getLogger(__name__)

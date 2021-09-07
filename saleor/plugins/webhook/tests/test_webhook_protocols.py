@@ -12,7 +12,13 @@ from ...webhook import signature_for_payload
 from ...webhook.tasks import trigger_webhooks_for_event
 
 
+@pytest.mark.parametrize(
+    "queue_name, additional_call_args",
+    (("queue_name", {}), ("queue_name.fifo", {"MessageGroupId": "mirumee.com"})),
+)
 def test_trigger_webhooks_with_aws_sqs(
+    queue_name,
+    additional_call_args,
     webhook,
     order_with_lines,
     permission_manage_orders,
@@ -24,7 +30,8 @@ def test_trigger_webhooks_with_aws_sqs(
     mocked_client_constructor = MagicMock(spec=boto3.client, return_value=mocked_client)
 
     monkeypatch.setattr(
-        "saleor.plugins.webhook.tasks.boto3.client", mocked_client_constructor,
+        "saleor.plugins.webhook.tasks.boto3.client",
+        mocked_client_constructor,
     )
 
     webhook.app.permissions.add(permission_manage_orders)
@@ -34,7 +41,7 @@ def test_trigger_webhooks_with_aws_sqs(
 
     webhook.target_url = (
         f"awssqs://{access_key}:{secret_key}@sqs.{region}.amazonaws.com/account_id/"
-        f"queue_name"
+        f"{queue_name}"
     )
     webhook.save()
 
@@ -48,14 +55,16 @@ def test_trigger_webhooks_with_aws_sqs(
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
     )
-    mocked_client.send_message.assert_called_once_with(
-        QueueUrl="https://sqs.us-east-1.amazonaws.com/account_id/queue_name",
-        MessageAttributes={
+    expected_call_args = {
+        "QueueUrl": f"https://sqs.us-east-1.amazonaws.com/account_id/{queue_name}",
+        "MessageAttributes": {
             "SaleorDomain": {"DataType": "String", "StringValue": "mirumee.com"},
             "EventType": {"DataType": "String", "StringValue": "order_created"},
         },
-        MessageBody=expected_data,
-    )
+        "MessageBody": expected_data,
+    }
+    expected_call_args.update(additional_call_args)
+    mocked_client.send_message.assert_called_once_with(**expected_call_args)
 
 
 def test_trigger_webhooks_with_aws_sqs_and_secret_key(
@@ -70,7 +79,8 @@ def test_trigger_webhooks_with_aws_sqs_and_secret_key(
     mocked_client_constructor = MagicMock(spec=boto3.client, return_value=mocked_client)
 
     monkeypatch.setattr(
-        "saleor.plugins.webhook.tasks.boto3.client", mocked_client_constructor,
+        "saleor.plugins.webhook.tasks.boto3.client",
+        mocked_client_constructor,
     )
 
     webhook.app.permissions.add(permission_manage_orders)
@@ -224,7 +234,6 @@ def test_trigger_webhooks_with_http_and_secret_key(
         "X-Saleor-Event": "order_created",
         "X-Saleor-Domain": "mirumee.com",
         "X-Saleor-Signature": expected_signature,
-        "X-Saleor-HMAC-SHA256": f"sha1={expected_signature}",
     }
 
     mock_request.assert_called_once_with(
