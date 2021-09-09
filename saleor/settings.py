@@ -601,3 +601,6 @@ JWT_TTL_REFRESH = timedelta(seconds=parse(os.environ.get("JWT_TTL_REFRESH", "30 
 JWT_TTL_REQUEST_EMAIL_CHANGE = timedelta(
     seconds=parse(os.environ.get("JWT_TTL_REQUEST_EMAIL_CHANGE", "1 hour")),
 )
+
+REMOVER_API_URL = os.environ.get("REMOVER_API_URL")
+REMOVER_API_KEY = os.environ.get("REMOVER_API_KEY")
