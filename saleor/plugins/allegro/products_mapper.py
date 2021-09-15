@@ -130,8 +130,8 @@ class AllegroProductMapper:
 
     @staticmethod
     def parse_list_to_map(list_in):
-        return {item['text'].split(":")[0]: item['text'].split(":")[1].strip() for item
-                in list_in[1:] if len(item['text'].split(':')) > 1}
+        return {item['data']['text'].split(":")[0]: item['data']['text'].split(":")[1].strip() for item
+                in list_in[1:] if len(item['data']['text'].split(':')) > 1}
 
     def set_description(self, product):
         product_sections = []
@@ -140,7 +140,7 @@ class AllegroProductMapper:
             'url': self.saleor_images[0]
         }]
 
-        product_description = self.parse_list_to_map(product.description_json['blocks'])
+        product_description = self.parse_list_to_map(product.description['blocks'])
 
         product_items.append({
             'type': 'TEXT',
@@ -174,7 +174,7 @@ class AllegroProductMapper:
 
         product_items = [{
             'type': 'TEXT',
-            'content': '<p>' + product.description_json['blocks'][0]['text'].replace(
+            'content': '<p>' + product.description['blocks'][0]['data']['text'].replace(
                 '&', '&amp;') + '</p>'
         }]
 
@@ -262,8 +262,10 @@ class AllegroProductMapper:
             return name
         else:
             name = re.sub("POLIESTER", "", name)
+            print('xDDDDD')
+            print(self.saleor_product.description['blocks'])
             description_blocks = self.parse_list_to_map(
-                self.saleor_product.description_json['blocks'])
+                self.saleor_product.description['blocks'])
             if description_blocks.get('Kolor') and description_blocks.get('Kolor')\
                     .upper() != 'INNY':
                 if self.calculate_name_length(name) + len(' ' + description_blocks.
@@ -342,9 +344,15 @@ class AllegroProductMapper:
         if self.get_offer_type() == 'BUY_NOW':
             product_variant = ProductVariant.objects.filter(
                 product=self.saleor_product).first()
+            from saleor.product.models import ProductVariantChannelListing
+            product_variant_channel_listing = ProductVariantChannelListing.objects.get(
+                variant_id=product_variant.id,
+                channel_id=3
+            )
+
             self.set_price_amount(
-                str(product_variant.price_amount))
-            self.set_price_currency(product_variant.currency)
+                str(product_variant_channel_listing.price_amount))
+            self.set_price_currency(product_variant_channel_listing.currency)
             self.set_publication_republish('False')
         else:
             product_variant = ProductVariant.objects.filter(

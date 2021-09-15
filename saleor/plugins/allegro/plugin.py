@@ -276,17 +276,19 @@ class AllegroPlugin(BasePlugin):
             errors.append('002: stan magazynowy produktu wynosi 0')
         if product_variant.private_metadata.get('location') is None:
             errors.append('003: brak lokacji magazynowej dla produktu')
+        '''
         if product_variant.price_amount == 0:
             errors.append('003: cena produktu wynosi 0')
         if product_variant.cost_price_amount == 0 \
                 or product_variant.cost_price_amount is None:
             errors.append('003: cena zakupowa produktu wynosi 0')
+        '''
         AllegroAPI(None, None).update_errors_in_private_metadata(product, errors)
         return errors
 
-    def product_published(self, product_with_params: Any, previous_value: Any) -> Any:
+    def product_published(self, product_with_params: Any) -> Any:
         product = product_with_params.get('product')
-        product_images = ProductImage.objects.filter(product=product)
+        product_images = ProductMedia.objects.filter(product=product)
         product_images = [product_image.image.url for product_image in product_images]
         products_bulk_ids = product_with_params.get('products_bulk_ids')
 
@@ -295,7 +297,7 @@ class AllegroPlugin(BasePlugin):
         product.save()
 
         if len(self.product_validate(product)) == 0:
-            async_product_publish.delay(product_id=product.id,
+            async_product_publish(product_id=product.id,
                                         offer_type=product_with_params.get('offer_type'),
                                         starting_at=product_with_params.get('starting_at'),
                                         product_images=product_images,
@@ -416,7 +418,7 @@ class AllegroAuth:
 
         AllegroPlugin.save_plugin_configuration(
             plugin_configuration=PluginConfiguration.objects.get(
-                identifier=AllegroPlugin.PLUGIN_ID), cleaned_data=cleaned_data, )
+                identifier=AllegroPlugin.PLUGIN_ID, channel_id=3), cleaned_data=cleaned_data, )
 
     def resolve_auth(request):
         manager = get_plugins_manager()
