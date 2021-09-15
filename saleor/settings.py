@@ -41,6 +41,7 @@ def get_bool_from_env(name, default_value):
 APP_ENVIRONMENT = os.environ.get("APP_ENVIRONMENT")
 
 DEBUG = get_bool_from_env("DEBUG", True)
+DEBUG = False
 
 SITE_ID = 1
 
@@ -486,6 +487,13 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", None)
 
+CELERY_BEAT_SCHEDULE = {
+    "delete-empty-allocations": {
+        "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
+        "schedule": timedelta(days=1),
+    },
+}
+'''
 if APP_ENVIRONMENT in ['production', 'development']:
     CELERY_BEAT_SCHEDULE = {
         'refresh_token_task': {
@@ -501,6 +509,7 @@ if APP_ENVIRONMENT in ['production', 'development']:
             "schedule": timedelta(days=1),
         },
     }
+'''
 # Change this value if your application is running behind a proxy,
 # e.g. HTTP_CF_Connecting_IP for Cloudflare or X_FORWARDED_FOR
 REAL_IP_ENVIRON = os.environ.get("REAL_IP_ENVIRON", "REMOTE_ADDR")
@@ -559,7 +568,8 @@ BUILTIN_PLUGINS = [
     "saleor.plugins.sumi.plugin.SumiPlugin",
     "saleor.plugins.allegroSync.plugin.AllegroSyncPlugin",
     "saleor.plugins.wms.plugin.WMSPlugin",
-    "saleor.plugins.dpd.plugin.DpdPlugin"
+    "saleor.plugins.dpd.plugin.DpdPlugin",
+    "saleor.plugins.allegro.plugin.AllegroPlugin",
 ]
 
 # Plugin discovery

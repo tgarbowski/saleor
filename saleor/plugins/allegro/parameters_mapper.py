@@ -57,10 +57,12 @@ class BaseParametersMapper:
 
         for assigned_product_attribute in assigned_product_attributes:
             try:
+                attribute_id = assigned_product_attribute.assignment.attribute_id
+
                 attributes[slugify(
                     str(assigned_product_attribute.assignment.attribute.slug))] = \
-                    str(AttributeValue.objects.get(
-                        assignedproductattribute=assigned_product_attribute))
+                    str(AttributeValue.objects.filter(
+                        attribute_id=attribute_id))
 
             except AttributeValue.DoesNotExist:
                 pass

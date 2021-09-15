@@ -28,7 +28,7 @@ def email_errors(products_bulk_ids):
 
 def get_plugin_configuration():
     manager = get_plugins_manager()
-    plugin = manager.get_plugin('allegro')
+    plugin = manager.get_plugin('allegro', 'channel-pln')
     configuration = {item["name"]: item["value"] for item in plugin.configuration}
     return configuration
 
@@ -146,13 +146,15 @@ def can_publish(instance, data):
         ]
     )
 
-    if (    not instance.is_published
+    if (    not product_is_published(instance.id)
         and data.get('starting_at')
         and data.get('offer_type')
         and publish_status_verify
         and not is_bundled
     ):
         can_be_published = True
+
+    return True
 
     return can_be_published
 
@@ -172,3 +174,11 @@ def update_allegro_purchased_error(skus, allegro_data):
         products_to_update.append(product)
 
     Product.objects.bulk_update(products_to_update, ['private_metadata'])
+
+
+def product_is_published(product_id):
+    from saleor.product.models import ProductChannelListing
+
+    published_product  = ProductChannelListing.objects.filter(product_id=product_id)
+
+    if not published_product: return True

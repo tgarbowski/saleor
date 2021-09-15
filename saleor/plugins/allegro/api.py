@@ -160,7 +160,6 @@ class AllegroAPI:
                        'Content-Type': f'application/vnd.allegro.{api_version}+json'}
 
             logger.info("Post request url: " + str(url))
-            logger.info("Post request headers: " + str(headers))
 
             response = requests.post(url, data=json.dumps(data), headers=headers)
 
@@ -184,7 +183,6 @@ class AllegroAPI:
                        'Content-Type': f'application/vnd.allegro.{api_version}+json'}
 
             logger.info("Patch request url: " + str(url))
-            logger.info("Patch request headers: " + str(headers))
 
             response = requests.patch(url, data=json.dumps(data), headers=headers)
 
@@ -200,7 +198,6 @@ class AllegroAPI:
         return response
 
     def get_request(self, endpoint, params=None):
-
         try:
             url = self.env + '/' + endpoint
 
@@ -209,7 +206,6 @@ class AllegroAPI:
                        'Content-Type': 'application/vnd.allegro.public.v1+json'}
 
             logger.info(f'GET request url: {url}')
-            #logger.info(self.token)
 
             response = requests.get(url, headers=headers, params=params)
 
@@ -235,6 +231,7 @@ class AllegroAPI:
             logger.info(f'PUT request url: {url}')
 
             response = requests.put(url, data=json.dumps(data), headers=headers)
+
         except TypeError as err:
             self.errors.append('PUT request error: ' + str(err))
             logger.error('PUT request error: ' + str(err))
@@ -370,7 +367,8 @@ class AllegroAPI:
         else:
             product.is_published = True
             product.store_value_in_private_metadata({'publish.allegro.errors': []})
-        product.save(update_fields=["private_metadata", "is_published"])
+        #product.save(update_fields=["private_metadata", "is_published"])
+        product.save(update_fields=["private_metadata"])
 
     def update_product_errors_in_private_metadata(self, product, errors):
         product.store_value_in_private_metadata({'publish.allegro.errors': errors})
