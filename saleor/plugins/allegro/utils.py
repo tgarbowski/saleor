@@ -6,7 +6,7 @@ from django.core.mail import EmailMultiAlternatives
 from saleor.plugins.allegro.enums import AllegroErrors
 from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import Product, ProductVariant, Category
+from saleor.product.models import Product, ProductVariant, Category, ProductChannelListing
 
 
 def email_errors(products_bulk_ids):
@@ -28,7 +28,7 @@ def email_errors(products_bulk_ids):
 
 def get_plugin_configuration():
     manager = get_plugins_manager()
-    plugin = manager.get_plugin('allegro', 'channel-pln')
+    plugin = manager.get_plugin('allegro', 'allegro')
     configuration = {item["name"]: item["value"] for item in plugin.configuration}
     return configuration
 
@@ -177,8 +177,6 @@ def update_allegro_purchased_error(skus, allegro_data):
 
 
 def product_is_published(product_id):
-    from saleor.product.models import ProductChannelListing
-
-    published_product  = ProductChannelListing.objects.filter(product_id=product_id)
+    published_product = ProductChannelListing.objects.filter(product_id=product_id)
 
     if not published_product: return True

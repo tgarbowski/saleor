@@ -262,8 +262,6 @@ class AllegroProductMapper:
             return name
         else:
             name = re.sub("POLIESTER", "", name)
-            print('xDDDDD')
-            print(self.saleor_product.description['blocks'])
             description_blocks = self.parse_list_to_map(
                 self.saleor_product.description['blocks'])
             if description_blocks.get('Kolor') and description_blocks.get('Kolor')\
