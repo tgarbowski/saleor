@@ -13,7 +13,8 @@ from django.shortcuts import redirect
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
-from saleor.product.models import ProductMedia
+from saleor.product.models import ProductMedia, ProductChannelListing, ProductVariantChannelListing
+from saleor.channel.models import Channel
 from . import ProductPublishState
 
 logger = logging.getLogger(__name__)
@@ -267,6 +268,7 @@ class AllegroPlugin(BasePlugin):
         errors = []
 
         product_variant = product.variants.first()
+        product_variant_channel_listing = ProductVariantChannelListing(variant=product_variant)
 
         if not self.active:
             errors.append('003: plugin jest nieaktywny')
@@ -276,13 +278,11 @@ class AllegroPlugin(BasePlugin):
             errors.append('002: stan magazynowy produktu wynosi 0')
         if product_variant.private_metadata.get('location') is None:
             errors.append('003: brak lokacji magazynowej dla produktu')
-        '''
-        if product_variant.price_amount == 0:
+        if product_variant_channel_listing.price_amount == 0:
             errors.append('003: cena produktu wynosi 0')
-        if product_variant.cost_price_amount == 0 \
-                or product_variant.cost_price_amount is None:
+        if product_variant_channel_listing.cost_price_amount == 0 \
+                or product_variant_channel_listing.cost_price_amount is None:
             errors.append('003: cena zakupowa produktu wynosi 0')
-        '''
         AllegroAPI(None, None).update_errors_in_private_metadata(product, errors)
         return errors
 
@@ -293,7 +293,13 @@ class AllegroPlugin(BasePlugin):
         products_bulk_ids = product_with_params.get('products_bulk_ids')
 
         product.delete_value_from_private_metadata('publish.allegro.errors')
-        product.is_published = True
+
+        allegro_channel = Channel.objects.get(name='Allegro')
+        product_channel_listing = ProductChannelListing.objects.get(
+            channel=allegro_channel)
+        product_channel_listing.is_published = True
+
+        product_channel_listing.save()
         product.save()
 
         if len(self.product_validate(product)) == 0:

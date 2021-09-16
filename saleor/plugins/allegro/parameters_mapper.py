@@ -51,7 +51,7 @@ class BaseParametersMapper:
         return self
 
     def get_product_attributes(self):
-
+        from saleor.attribute.models import AssignedProductAttributeValue
         assigned_product_attributes = AssignedProductAttribute.objects.filter(
             product=self.product)
 
@@ -59,12 +59,10 @@ class BaseParametersMapper:
 
         for assigned_product_attribute in assigned_product_attributes:
             try:
-                attribute_id = assigned_product_attribute.assignment.attribute_id
-
                 attributes[slugify(
                     str(assigned_product_attribute.assignment.attribute.slug))] = \
-                    str(AttributeValue.objects.filter(
-                        attribute_id=attribute_id))
+                    str(AssignedProductAttributeValue.objects.get(
+                        assignment=assigned_product_attribute).value)
 
             except AttributeValue.DoesNotExist:
                 pass
