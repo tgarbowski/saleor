@@ -14,7 +14,8 @@ from .products_mapper import ProductMapperFactory
 from .parameters_mapper import ParametersMapperFactory
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
-from saleor.product.models import ProductVariant
+from saleor.product.models import ProductChannelListing, ProductVariant
+from saleor.channel.models import Channel
 from .utils import get_plugin_configuration
 
 logger = logging.getLogger(__name__)
@@ -160,7 +161,6 @@ class AllegroAPI:
                        'Content-Type': f'application/vnd.allegro.{api_version}+json'}
 
             logger.info("Post request url: " + str(url))
-            logger.info("Post request headers: " + str(headers))
 
             response = requests.post(url, data=json.dumps(data), headers=headers)
 
@@ -184,7 +184,6 @@ class AllegroAPI:
                        'Content-Type': f'application/vnd.allegro.{api_version}+json'}
 
             logger.info("Patch request url: " + str(url))
-            logger.info("Patch request headers: " + str(headers))
 
             response = requests.patch(url, data=json.dumps(data), headers=headers)
 
@@ -200,7 +199,6 @@ class AllegroAPI:
         return response
 
     def get_request(self, endpoint, params=None):
-
         try:
             url = self.env + '/' + endpoint
 
@@ -209,7 +207,6 @@ class AllegroAPI:
                        'Content-Type': 'application/vnd.allegro.public.v1+json'}
 
             logger.info(f'GET request url: {url}')
-            #logger.info(self.token)
 
             response = requests.get(url, headers=headers, params=params)
 
@@ -233,8 +230,10 @@ class AllegroAPI:
                        'Content-Type': 'application/vnd.allegro.public.v1+json'}
 
             logger.info(f'PUT request url: {url}')
-
+            print('TOKEN', self.token)
+            print('DANE', json.dumps(data))
             response = requests.put(url, data=json.dumps(data), headers=headers)
+
         except TypeError as err:
             self.errors.append('PUT request error: ' + str(err))
             logger.error('PUT request error: ' + str(err))
@@ -276,7 +275,7 @@ class AllegroAPI:
         }
 
         manager = get_plugins_manager()
-        plugin = manager.get_plugin('allegro')
+        plugin = manager.get_plugin('allegro', 'allegro')
 
         plugin.save_plugin_configuration(
             plugin_configuration=PluginConfiguration.objects.get(
@@ -363,14 +362,18 @@ class AllegroAPI:
 
     @staticmethod
     def update_errors_in_private_metadata(product, errors):
+        allegro_channel = Channel.objects.get(name='Allegro')
+        product_channel_listing = ProductChannelListing.objects.get(channel=allegro_channel)
+
         if errors:
-            product.is_published = False
+            product_channel_listing.is_published = False
             logger.error(str(product.variants.first()) + ' ' + str(errors))
             product.store_value_in_private_metadata({'publish.allegro.errors': errors})
         else:
-            product.is_published = True
+            product_channel_listing.is_published = True
             product.store_value_in_private_metadata({'publish.allegro.errors': []})
-        product.save(update_fields=["private_metadata", "is_published"])
+        product_channel_listing.save(update_fields=["is_published"])
+        product.save(update_fields=["private_metadata"])
 
     def update_product_errors_in_private_metadata(self, product, errors):
         product.store_value_in_private_metadata({'publish.allegro.errors': errors})

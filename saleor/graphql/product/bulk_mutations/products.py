@@ -891,5 +891,40 @@ class ProductBulkPublish(BaseBulkMutation):
         error_type_field = "product_errors"
 
     @classmethod
-    def bulk_action(cls, queryset, is_published):
-        queryset.update(is_published=is_published)
+    def bulk_action(cls, info, instances, **data):
+        from saleor.plugins.allegro.utils import can_publish
+        import math
+        from datetime import datetime, timedelta
+        from saleor.plugins.manager import get_plugins_manager
+
+        manager = get_plugins_manager()
+        plugin = manager.get_plugin('allegro')
+
+        #interval, chunks = info.context.plugins.get_intervals_and_chunks()
+        interval, chunks = [5, 13]
+
+        step = math.ceil(len(instances) / (chunks))
+        start = 0
+
+        instances_ids = []
+        for i, instance in enumerate(instances):
+            instance.refresh_from_db()
+            instances_ids.append(instance.id)
+
+            if can_publish(instance, data):
+                starting_at = (datetime.strptime(data.get('starting_at'),
+                                                 '%Y-%m-%d %H:%M') + timedelta(
+                    minutes=(start))).strftime("%Y-%m-%d %H:%M")
+                if i == len(instances) - 1:
+                    plugin.product_published(
+                        {"product": instance, "offer_type": data.get('offer_type'),
+                         "starting_at": starting_at,
+                         "products_bulk_ids": instances_ids})
+                else:
+                    plugin.product_published(
+                        {"product": instance, "offer_type": data.get('offer_type'),
+                         "starting_at": starting_at, "products_bulk_ids": None})
+
+                if (i + 1) % step == 0:
+                    start += interval
+

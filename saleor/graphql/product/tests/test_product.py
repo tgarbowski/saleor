@@ -9334,6 +9334,44 @@ def test_product_variant_price_no_address(
     )
 
 
+QUERY_GET_PRODUCT_VARIANTS_PRICING_NO_ADDRESS = """
+    query getProductVariants($id: ID!, $channel: String) {
+        product(id: $id, channel: $channel) {
+            variants {
+                id
+                pricing {
+                    priceUndiscounted {
+                        gross {
+                            amount
+                        }
+                    }
+                }
+            }
+        }
+    }
+"""
+
+
+@mock.patch(
+    "saleor.graphql.product.types.products.get_variant_availability",
+    wraps=get_variant_availability,
+)
+def test_product_variant_price_no_address(
+    mock_get_variant_availability, user_api_client, variant, stock, channel_USD
+):
+    channel_USD.default_country = "FR"
+    channel_USD.save()
+    product_id = graphene.Node.to_global_id("Product", variant.product.id)
+    variables = {"id": product_id, "channel": channel_USD.slug}
+    user_api_client.post_graphql(
+        QUERY_GET_PRODUCT_VARIANTS_PRICING_NO_ADDRESS, variables
+    )
+    assert (
+        mock_get_variant_availability.call_args[1]["country"]
+        == channel_USD.default_country
+    )
+
+
 QUERY_REPORT_PRODUCT_SALES = """
 query TopProducts($period: ReportingPeriod!, $channel: String!) {
     reportProductSales(period: $period, first: 20, channel: $channel) {

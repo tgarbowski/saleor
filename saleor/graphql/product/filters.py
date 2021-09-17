@@ -464,8 +464,6 @@ def product_search(qs, phrase):
 def filter_search(qs, _, value):
     if value:
         qs = product_search(qs, value)
-        print(value)
-        print(qs)
         qs = qs.distinct() & product_search(qs=qs, phrase=value).distinct()
     return qs
 
