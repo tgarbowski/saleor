@@ -1886,21 +1886,24 @@ input DpdCreateProtocolInput {
 }
 
 type DpdLabelCreate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
   label: String
+  shippingErrors: [ShippingError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [ShippingError!]!
 }
 
 type DpdPackageCreate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
   packageId: Int
   parcelIds: [Int]
   waybills: [String]
   status: String
+  shippingErrors: [ShippingError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [ShippingError!]!
 }
 
 type DpdProtocolCreate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
   protocol: String
+  shippingErrors: [ShippingError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [ShippingError!]!
 }
 
 type DraftOrderBulkDelete {
@@ -3534,6 +3537,9 @@ type Mutation {
   shippingZoneDelete(id: ID!): ShippingZoneDelete
   shippingZoneBulkDelete(ids: [ID]!): ShippingZoneBulkDelete
   shippingZoneUpdate(id: ID!, input: ShippingZoneUpdateInput!): ShippingZoneUpdate
+  dpdPackageCreate(input: DpdCreatePackageInput!): DpdPackageCreate
+  dpdLabelCreate(input: DpdCreateLabelInput!): DpdLabelCreate
+  dpdProtocolCreate(input: DpdCreateProtocolInput!): DpdProtocolCreate
   productAttributeAssign(operations: [ProductAttributeAssignInput]!, productTypeId: ID!): ProductAttributeAssign
   productAttributeUnassign(attributeIds: [ID]!, productTypeId: ID!): ProductAttributeUnassign
   dpdPackageCreate(input: DpdCreatePackageInput!): DpdPackageCreate
@@ -3564,7 +3570,7 @@ type Mutation {
   productMediaCreate(input: ProductMediaCreateInput!): ProductMediaCreate
   productVariantReorder(moves: [ReorderInput]!, productId: ID!): ProductVariantReorder
   productMediaDelete(id: ID!): ProductMediaDelete
-  productMediaBulkDelete(ids: [ID]!): ProductMediaBulkDelete
+  productMediaBulkDelete(ids: [ID]!, offerType: String, startingAt: String): ProductMediaBulkDelete
   productMediaReorder(mediaIds: [ID]!, productId: ID!): ProductMediaReorder
   productMediaUpdate(id: ID!, input: ProductMediaUpdateInput!): ProductMediaUpdate
   productTypeCreate(input: ProductTypeInput!): ProductTypeCreate
@@ -4993,7 +4999,20 @@ type ProductAttributeUnassign {
   errors: [ProductError!]!
 }
 
+type ProductBulkClearWarehouseLocation {
+  count: Int!
+  productVariants: [ProductVariant!]!
+  productErrors: [ProductError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [ProductError!]!
+}
+
 type ProductBulkDelete {
+  count: Int!
+  productErrors: [ProductError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [ProductError!]!
+}
+
+type ProductBulkPublish {
   count: Int!
   productErrors: [ProductError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
   errors: [ProductError!]!
@@ -5132,6 +5151,7 @@ input ProductFilterInput {
   hasCategory: Boolean
   attributes: [AttributeInput]
   stockAvailability: StockAvailability
+  productType: ID
   stocks: ProductStockFilterInput
   search: String
   allegroStatus: String
@@ -5224,6 +5244,11 @@ type ProductMediaUpdate {
 
 input ProductMediaUpdateInput {
   alt: String
+}
+
+input ProductMetadataFilterInput {
+  privateMetadata: MetadataInput
+  metadata: MetadataInput
 }
 
 input ProductOrder {
@@ -5593,6 +5618,11 @@ type Query {
   wmsDocumentPdf(id: ID!): String
   wmsActionsReport(startDate: Date!, endDate: Date!): GenericScalar
   wmsProductsReport(startDate: Date!, endDate: Date!): GenericScalar
+  productTypeWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): ProductType
+  productTypesWithMetadata(filter: ProductTypeMetadataFilterInput, before: String, after: String, first: Int, last: Int): ProductTypeCountableConnection
+  userWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): User
+  productWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): Product
+  productsWithMetadata(filter: ProductMetadataFilterInput, before: String, after: String, first: Int, last: Int): ProductCountableConnection
   webhook(id: ID!): Webhook
   webhookEvents: [WebhookEvent]
   webhookSamplePayload(eventType: WebhookSampleEventTypeEnum!): JSONString
@@ -5617,6 +5647,7 @@ type Query {
   productType(id: ID!): ProductType
   productTypes(filter: ProductTypeFilterInput, sortBy: ProductTypeSortingInput, before: String, after: String, first: Int, last: Int): ProductTypeCountableConnection
   productVariant(id: ID, sku: String, channel: String): ProductVariant
+  productVariantsSkus(sku: String, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   productVariants(ids: [ID], channel: String, filter: ProductVariantFilterInput, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   reportProductSales(period: ReportingPeriod!, channel: String!, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   productVariant(id: ID, sku: String): ProductVariant
@@ -5625,7 +5656,6 @@ type Query {
   reportProductSales(period: ReportingPeriod!, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   payment(id: ID!): Payment
   payments(filter: PaymentFilterInput, before: String, after: String, first: Int, last: Int): PaymentCountableConnection
-  payments(before: String, after: String, first: Int, last: Int): PaymentCountableConnection
   generatePaymentUrl(paymentId: ID!): PaymentUrl
   page(id: ID, slug: String): Page
   pages(sortBy: PageSortingInput, filter: PageFilterInput, before: String, after: String, first: Int, last: Int): PageCountableConnection
@@ -5880,6 +5910,10 @@ input SenderDataInput {
 input SeoInput {
   title: String
   description: String
+}
+
+input ServiceDataInput {
+  dox: Boolean
 }
 
 type SetPassword {
@@ -7363,14 +7397,14 @@ enum WmsDelivererCountry {
 }
 
 type WmsDelivererCreate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WmsDocumentError!]!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [WmsDocumentError!]!
   wmsDeliverer: WmsDeliverer
 }
 
 type WmsDelivererDelete {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WmsDocumentError!]!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [WmsDocumentError!]!
   wmsDeliverer: WmsDeliverer
 }
 
@@ -7392,8 +7426,8 @@ input WmsDelivererInput {
 }
 
 type WmsDelivererUpdate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WmsDocumentError!]!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [WmsDocumentError!]!
   wmsDeliverer: WmsDeliverer
 }
 
@@ -7417,14 +7451,14 @@ type WmsDocPositionCountableEdge {
 }
 
 type WmsDocPositionCreate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WmsDocumentError!]!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [WmsDocumentError!]!
   wmsDocPosition: WmsDocPosition
 }
 
 type WmsDocPositionDelete {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WmsDocumentError!]!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [WmsDocumentError!]!
   wmsDocPosition: WmsDocPosition
 }
 
@@ -7440,8 +7474,8 @@ input WmsDocPositionInput {
 }
 
 type WmsDocPositionUpdate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WmsDocumentError!]!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [WmsDocumentError!]!
   wmsDocPosition: WmsDocPosition
 }
 
@@ -7472,14 +7506,14 @@ type WmsDocumentCountableEdge {
 }
 
 type WmsDocumentCreate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WmsDocumentError!]!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [WmsDocumentError!]!
   wmsDocument: WmsDocument
 }
 
 type WmsDocumentDelete {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WmsDocumentError!]!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [WmsDocumentError!]!
   wmsDocument: WmsDocument
 }
 
@@ -7540,8 +7574,8 @@ enum WmsDocumentTypeFilter {
 }
 
 type WmsDocumentUpdate {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  wmsErrors: [WmsDocumentError!]!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [WmsDocumentError!]!
   wmsDocument: WmsDocument
 }
 
@@ -7555,7 +7589,7 @@ enum WmsErrorCode {
 
 scalar _Any
 
-union _Entity = App | Address | User | Group | ProductVariant | Product | ProductType | Collection | Category | ProductMedia | ProductImage | PageType
+union _Entity = App | Address | User | Group | ProductVariant | Product | ProductType | Collection | Category | ProductMedia | ProductImage | PageType | WmsDocument | WmsDocPosition | WmsDeliverer
 
 type _Service {
   sdl: String

@@ -580,6 +580,10 @@ def filter_created_at_range(qs, _, value):
     return filter_range_field(qs, "created_at__date", value)
 
 
+def filter_created_at_range(qs, _, value):
+    return filter_range_field(qs, "created_at__date", value)
+
+
 def filter_warehouse_location(qs, _, value):
     return filter_by_warehouse_locations(qs, warehouse_from=value.get("lte"), warehouse_to=value.get("gte"))
 
