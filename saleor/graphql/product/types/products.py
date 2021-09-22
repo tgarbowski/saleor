@@ -588,6 +588,7 @@ class Product(ChannelContextTypeWithMetadata, CountableDjangoObjectType):
             "seo_description",
             "seo_title",
             "updated_at",
+            "created_at",
             "weight",
             "default_variant",
             "rating",
