@@ -28,8 +28,8 @@ def email_errors(products_bulk_ids):
 
 def get_plugin_configuration():
     manager = get_plugins_manager()
-    plugin = manager.get_plugin('allegro', 'allegro')
-    configuration = {item["name"]: item["value"] for item in plugin.configuration}
+    plugin = manager.get_plugin('allegro')
+    configuration = {item["name"]: item["value"] for item in plugin.configuration if plugin.configuration}
     return configuration
 
 
