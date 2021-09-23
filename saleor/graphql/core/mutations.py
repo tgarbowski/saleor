@@ -665,10 +665,10 @@ class BaseBulkMutation(BaseMutation):
 
         if count:
             qs = instance_model.objects.filter(pk__in=clean_instance_ids)
-            #cls.bulk_action(info=info, queryset=qs, **data)
-            from saleor.graphql.product.bulk_mutations.products import ProductBulkPublish
-            if cls == ProductBulkPublish:
-                cls.bulk_action(info=info, instances=instances, **data)
+            if cls.__name__ == 'ProductBulkPublish':
+                cls.bulk_action(info=info, instances=instances, product_ids=clean_instance_ids, **data)
+            else:
+                cls.bulk_action(info=info, queryset=qs, **data)
         return count, errors
 
     @classmethod

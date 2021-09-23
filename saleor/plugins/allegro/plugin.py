@@ -268,7 +268,8 @@ class AllegroPlugin(BasePlugin):
         errors = []
 
         product_variant = product.variants.first()
-        product_variant_channel_listing = ProductVariantChannelListing(variant=product_variant)
+        product_variant_channel_listing = ProductVariantChannelListing.objects.get(
+            variant=product_variant)
 
         if not self.active:
             errors.append('003: plugin jest nieaktywny')
@@ -294,9 +295,9 @@ class AllegroPlugin(BasePlugin):
 
         product.delete_value_from_private_metadata('publish.allegro.errors')
 
-        allegro_channel = Channel.objects.get(name='Allegro')
         product_channel_listing = ProductChannelListing.objects.get(
-            channel=allegro_channel)
+            channel__slug='allegro',
+            product_id=product.id)
         product_channel_listing.is_published = True
 
         product_channel_listing.save()
@@ -322,7 +323,7 @@ class AllegroPlugin(BasePlugin):
         duration = token_expire - datetime.now()
         return divmod(duration.total_seconds(), 3600)[0]
 
-    def get_intervals_and_chunks(self, previous_value: Any):
+    def get_intervals_and_chunks(self):
         return [int(self.config.interval_for_offer_publication),
                 int(self.config.offer_publication_chunks)]
 
