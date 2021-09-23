@@ -5081,6 +5081,7 @@ type Product implements Node & ObjectWithMetadata {
   productType: ProductType!
   slug: String!
   category: Category
+  createdAt: DateTime
   updatedAt: DateTime
   chargeTaxes: Boolean!
   weight: Weight
