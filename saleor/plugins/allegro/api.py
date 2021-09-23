@@ -275,11 +275,12 @@ class AllegroAPI:
         }
 
         manager = get_plugins_manager()
-        plugin = manager.get_plugin('allegro', 'allegro')
+        plugin = manager.get_plugin(plugin_id='allegro', channel_slug='allegro')
 
         plugin.save_plugin_configuration(
             plugin_configuration=PluginConfiguration.objects.get(
-                identifier=plugin.PLUGIN_ID), cleaned_data=cleaned_data)
+                identifier=plugin.PLUGIN_ID,
+                channel__slug='allegro'), cleaned_data=cleaned_data)
 
     @staticmethod
     def auth_request(endpoint, data, client_id, client_secret, url_env):
@@ -362,8 +363,9 @@ class AllegroAPI:
 
     @staticmethod
     def update_errors_in_private_metadata(product, errors):
-        allegro_channel = Channel.objects.get(name='Allegro')
-        product_channel_listing = ProductChannelListing.objects.get(channel=allegro_channel)
+        product_channel_listing = ProductChannelListing.objects.get(
+            channel__slug='allegro',
+            product=product)
 
         if errors:
             product_channel_listing.is_published = False

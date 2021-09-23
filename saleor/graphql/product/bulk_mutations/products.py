@@ -1,4 +1,6 @@
 from collections import defaultdict
+from datetime import datetime, timedelta
+import math
 
 import graphene
 from django.core.exceptions import ValidationError
@@ -48,6 +50,8 @@ from ..utils import (
     get_draft_order_lines_data_for_variants,
     get_used_variants_attribute_values,
 )
+from saleor.plugins.allegro.utils import can_publish
+from saleor.plugins.manager import get_plugins_manager
 
 
 class CategoryBulkDelete(ModelBulkDeleteMutation):
@@ -891,40 +895,43 @@ class ProductBulkPublish(BaseBulkMutation):
         error_type_field = "product_errors"
 
     @classmethod
-    def bulk_action(cls, info, instances, **data):
-        from saleor.plugins.allegro.utils import can_publish
-        import math
-        from datetime import datetime, timedelta
-        from saleor.plugins.manager import get_plugins_manager
+    def bulk_action(cls, info, instances, product_ids, **data):
+        if data.get('is_published'):
+            cls.bulk_publish(instances, **data)
+        else:
+            cls.bulk_unpublish(product_ids)
 
+    @classmethod
+    def bulk_unpublish(cls, product_ids):
+        from saleor.plugins.allegro.tasks import bulk_allegro_unpublish
+        bulk_allegro_unpublish.delay(product_ids=product_ids)
+
+    @classmethod
+    def bulk_publish(cls, instances, **data):
         manager = get_plugins_manager()
-        plugin = manager.get_plugin('allegro')
-
-        #interval, chunks = info.context.plugins.get_intervals_and_chunks()
-        interval, chunks = [5, 13]
-
+        # TODO: parametrize channel_slug
+        plugin = manager.get_plugin(plugin_id='allegro', channel_slug='allegro')
+        interval, chunks = plugin.get_intervals_and_chunks()
         step = math.ceil(len(instances) / (chunks))
         start = 0
-
         instances_ids = []
+
         for i, instance in enumerate(instances):
             instance.refresh_from_db()
             instances_ids.append(instance.id)
 
             if can_publish(instance, data):
-                starting_at = (datetime.strptime(data.get('starting_at'),
-                                                 '%Y-%m-%d %H:%M') + timedelta(
-                    minutes=(start))).strftime("%Y-%m-%d %H:%M")
-                if i == len(instances) - 1:
-                    plugin.product_published(
-                        {"product": instance, "offer_type": data.get('offer_type'),
-                         "starting_at": starting_at,
-                         "products_bulk_ids": instances_ids})
-                else:
-                    plugin.product_published(
-                        {"product": instance, "offer_type": data.get('offer_type'),
-                         "starting_at": starting_at, "products_bulk_ids": None})
+                date_format = '%Y-%m-%d %H:%M'
+                starting_at = (datetime.strptime(data.get('starting_at'), date_format)
+                               + timedelta(minutes=start)).strftime(date_format)
+                products_bulk_ids = instances_ids if i == len(instances) - 1 else None
+
+                plugin.product_published(
+                    {"product": instance,
+                     "offer_type": data.get('offer_type'),
+                     "starting_at": starting_at,
+                     "products_bulk_ids": products_bulk_ids
+                     })
 
                 if (i + 1) % step == 0:
                     start += interval
-

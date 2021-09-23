@@ -121,14 +121,21 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
             products_to_update = []
             for variant in product_variants:
                 product = variant.product
-                product.is_published = False
+                status_date = datetime.now(pytz.timezone('Europe/Warsaw')).strftime('%Y-%m-%d %H:%M:%S')
                 product.store_value_in_private_metadata(
-                    {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
-                        .strftime('%Y-%m-%d %H:%M:%S')})
-                product.store_value_in_private_metadata(
-                    {'publish.allegro.status': ProductPublishState.MODERATED.value})
+                    {'publish.status.date': status_date,
+                     'publish.allegro.status': ProductPublishState.MODERATED.value
+                    })
                 products_to_update.append(product)
-            Product.objects.bulk_update(products_to_update, ['private_metadata', 'is_published'])
+
+            product_channel_listings = ProductChannelListing.objects.filter(
+                product__in=products_to_update,
+                channel__slug='allegro')
+            for listing in product_channel_listings:
+                listing.is_published = False
+
+            Product.objects.bulk_update(products_to_update, ['private_metadata'])
+            ProductChannelListing.objects.bulk_update(product_channel_listings, ['is_published'])
 
 
 def can_publish(instance, data):
