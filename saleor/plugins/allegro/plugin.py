@@ -425,7 +425,7 @@ class AllegroAuth:
 
         AllegroPlugin.save_plugin_configuration(
             plugin_configuration=PluginConfiguration.objects.get(
-                identifier=AllegroPlugin.PLUGIN_ID, channel_id=3), cleaned_data=cleaned_data, )
+                identifier=AllegroPlugin.PLUGIN_ID, channel__slug='allegro'), cleaned_data=cleaned_data, )
 
     def resolve_auth(request):
         manager = get_plugins_manager()
