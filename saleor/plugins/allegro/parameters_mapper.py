@@ -6,6 +6,7 @@ from .utils import get_plugin_configuration
 from saleor.attribute.models.product import AssignedProductAttribute
 from saleor.attribute.models.base import AttributeValue
 from saleor.product.models import ProductVariant
+from saleor.attribute.models import AssignedProductAttributeValue
 
 
 class ParametersMapperFactory:
@@ -51,7 +52,6 @@ class BaseParametersMapper:
         return self
 
     def get_product_attributes(self):
-        from saleor.attribute.models import AssignedProductAttributeValue
         assigned_product_attributes = AssignedProductAttribute.objects.filter(
             product=self.product)
 
