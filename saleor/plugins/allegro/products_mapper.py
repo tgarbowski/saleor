@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from .utils import get_plugin_configuration
-from saleor.product.models import ProductVariant
+from saleor.product.models import ProductVariant, ProductVariantChannelListing
 
 
 class ProductMapperFactory:
@@ -322,6 +322,15 @@ class AllegroProductMapper:
         self.set_images_product(self.saleor_images)
         return self.product
 
+    def get_pv_channel_listing(self):
+        product_variant = ProductVariant.objects.filter(
+            product=self.saleor_product).first()
+        product_variant_channel_listing = ProductVariantChannelListing.objects.get(
+            variant_id=product_variant.id,
+            channel__slug='allegro'
+        )
+        return product_variant_channel_listing
+
     def run_mapper(self):
         self.set_implied_warranty(self.get_implied_warranty())
         self.set_return_policy(self.get_return_policy())
@@ -339,25 +348,17 @@ class AllegroProductMapper:
 
         self.set_format(self.get_offer_type())
 
-        if self.get_offer_type() == 'BUY_NOW':
-            product_variant = ProductVariant.objects.filter(
-                product=self.saleor_product).first()
-            from saleor.product.models import ProductVariantChannelListing
-            product_variant_channel_listing = ProductVariantChannelListing.objects.get(
-                variant_id=product_variant.id,
-                channel_id=3
-            )
+        product_variant_channel_listing = self.get_pv_channel_listing()
 
+        if self.get_offer_type() == 'BUY_NOW':
             self.set_price_amount(
                 str(product_variant_channel_listing.price_amount))
             self.set_price_currency(product_variant_channel_listing.currency)
             self.set_publication_republish('False')
         else:
-            product_variant = ProductVariant.objects.filter(
-                product=self.saleor_product).first()
             self.set_starting_price_amount(
-                str(product_variant.price_amount))
-            self.set_starting_price_currency(product_variant.currency)
+                str(product_variant_channel_listing.price_amount))
+            self.set_starting_price_currency(product_variant_channel_listing.currency)
             self.set_publication_republish('True')
             self.set_publication_duration(self.get_publication_duration())
 
