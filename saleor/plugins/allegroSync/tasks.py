@@ -3,19 +3,18 @@ import logging
 
 from ...celeryconf import app
 from saleor.product.models import ProductVariant, Product
-from saleor.plugins.manager import PluginsManager
 from saleor.plugins.allegro.api import AllegroAPI
-from saleor.plugins.allegro.plugin import AllegroPlugin
 from .utils import valid_product, send_mail
+from saleor.plugins.manager import get_plugins_manager
 
 logger = logging.getLogger(__name__)
 
 
 @app.task()
 def synchronize_allegro_offers_task():
-    manage = PluginsManager(plugins=["saleor.plugins.allegro.plugin.AllegroPlugin"])
-    plugin_configs = manage.get_plugin(AllegroPlugin.PLUGIN_ID)
-    conf = {item["name"]: item["value"] for item in plugin_configs.configuration}
+    manager = get_plugins_manager()
+    plugin = manager.get_plugin(plugin_id='allegro', channel_slug='allegro')
+    conf = {item["name"]: item["value"] for item in plugin.configuration}
     token = conf.get('token_value')
     env = conf.get('env')
     allegro_api = AllegroAPI(token, env)
@@ -62,6 +61,6 @@ def synchronize_allegro_offers_task():
                 Product.objects.bulk_update(products_to_update, ['private_metadata'])
                 updated_amount += len(products_to_update)
 
-    html_errors_list = plugin_configs.create_table(errors)
+    html_errors_list = plugin.create_table(errors)
 
     send_mail(html_errors_list, updated_amount)
