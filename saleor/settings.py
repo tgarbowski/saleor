@@ -490,14 +490,7 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", None)
 
-CELERY_BEAT_SCHEDULE = {
-    "delete-empty-allocations": {
-        "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
-        "schedule": timedelta(days=1),
-    },
-}
-'''
-if APP_ENVIRONMENT in ['production', 'development']:
+if APP_ENVIRONMENT in ['production']:
     CELERY_BEAT_SCHEDULE = {
         'refresh_token_task': {
             'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
@@ -508,7 +501,14 @@ if APP_ENVIRONMENT in ['production', 'development']:
             'schedule': crontab(minute=0, hour=23)
         }
     }
-'''
+if APP_ENVIRONMENT in ['development']:
+    CELERY_BEAT_SCHEDULE = {
+        'refresh_token_task': {
+            'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
+            'schedule': 1800.0
+        }
+    }
+
 # Change this value if your application is running behind a proxy,
 # e.g. HTTP_CF_Connecting_IP for Cloudflare or X_FORWARDED_FOR
 REAL_IP_ENVIRON = os.environ.get("REAL_IP_ENVIRON", "REMOTE_ADDR")
