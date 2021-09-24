@@ -208,7 +208,11 @@ class BaseMetadataMutation(BaseMutation):
         product_variants = ProductVariant.objects.select_related('product').filter(sku__in=valid_skus)
         collage_images = []
         # Remove existing megapack images
-        ProductMedia.objects.filter(product=instance.pk).delete()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'DELETE FROM "product_productmedia" WHERE "product_productmedia"."product_id" = %s',
+                [instance.pk]
+            )
         # Create images
         step = int(len(product_variants) / 12)
         if step == 0: step = 1
