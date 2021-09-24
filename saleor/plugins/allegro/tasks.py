@@ -274,6 +274,7 @@ def bulk_allegro_publish_unpublished_to_auction(limit):
     manager = get_plugins_manager()
     plugin = manager.get_plugin('allegro')
     # fetch unpublished allegro BUY_NOW offers from db
+    # TODO is_publish is no longer a product_product field
     buy_now_products = Category.objects.raw('''
             select id from product_product
             where private_metadata->>'publish.type'='BUY_NOW'

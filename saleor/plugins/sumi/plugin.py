@@ -11,7 +11,7 @@ from django.http.response import JsonResponse
 from saleor.plugins.allegro.plugin import AllegroPlugin
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import ProductVariant
+from saleor.product.models import ProductVariant, ProductVariantChannelListing
 from saleor.warehouse.models import Stock
 
 logger = logging.getLogger(__name__)
@@ -128,7 +128,11 @@ class SumiPlugin(BasePlugin):
 
     @staticmethod
     @transaction.atomic
-    def sell_product(product_variant_stock, product_data=None):
+    def sell_product(
+        product_variant_stock,
+        product_variant_channel_listing,
+        product_data=None
+    ):
         try:
             SumiPlugin.update_allegro_status_in_private_metadata(
                 product_variant_stock.product_variant.product, 'sold', product_data)
@@ -142,9 +146,9 @@ class SumiPlugin(BasePlugin):
             return_object = {
                 "sku": str(product_variant_stock.product_variant),
                 "name": str(product_variant_stock.product_variant.product),
-                "netPrice": str(round(float(product_variant_stock.product_variant
+                "netPrice": str(round(float(product_variant_channel_listing
                                             .cost_price_amount) / 1.23, 2)),
-                "grossPrice": str(product_variant_stock.product_variant
+                "grossPrice": str(product_variant_channel_listing
                                   .cost_price_amount),
                 "vatRate": '23'
             }
@@ -451,10 +455,16 @@ class SumiPlugin(BasePlugin):
                 if product_variant.exists():
                     product_variant_stock = Stock.objects.filter(
                         product_variant=product_variant.first())
+                    product_variant_channel_listing = ProductVariantChannelListing.objects.get(
+                        variant=product_variant.first(),
+                        channel__slug='allegro'
+                    )
                     if Stock.objects.exists():
                         if product_variant_stock.first().quantity > 0:
                             result = SumiPlugin.sell_product(
-                                product_variant_stock.first(), product)
+                                product_variant_stock=product_variant_stock.first(),
+                                product_variant_channel_listing=product_variant_channel_listing,
+                                product_data=product)
                             if result.get('error'):
                                 results['status'] = 'error'
                                 results.get('errors').append(result.get('error'))

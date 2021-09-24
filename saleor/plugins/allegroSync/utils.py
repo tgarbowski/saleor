@@ -7,9 +7,11 @@ from django.conf import settings
 
 def valid_product(product):
     errors = []
-
+    # TODO pass is_published from ProductChannelListing
+    '''
     if not product.is_published:
         errors.append('flaga is_published jest ustawiona na false')
+    '''
     if product.private_metadata.get('publish.allegro.status') != 'published':
         errors.append('publish.allegro.status != published')
 
