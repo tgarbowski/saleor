@@ -304,7 +304,7 @@ class AllegroPlugin(BasePlugin):
         product.save()
 
         if len(self.product_validate(product)) == 0:
-            async_product_publish(product_id=product.id,
+            async_product_publish.delay(product_id=product.id,
                                         offer_type=product_with_params.get('offer_type'),
                                         starting_at=product_with_params.get('starting_at'),
                                         product_images=product_images,

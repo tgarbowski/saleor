@@ -247,11 +247,11 @@ def create_collage(images, product):
     photo_name = f'{product.name}x{rand_int}.png'
     photo_alt = product.name.upper()
     ppoi = images[0].ppoi
-    new_image = ProductImage.objects.create(product=product, ppoi=ppoi, alt=photo_alt, image='')
+    new_image = ProductMedia.objects.create(product=product, ppoi=ppoi, alt=photo_alt, image='')
     new_image.image.save(photo_name, collage_io)
     # Swap sort order
     last_photo_sort_order = new_image.sort_order
-    first_photo = ProductImage.objects.filter(product=product.pk).order_by('sort_order').first()
+    first_photo = ProductMedia.objects.filter(product=product.pk).order_by('sort_order').first()
     first_photo.sort_order = last_photo_sort_order
     first_photo.save()
     new_image.sort_order = 0
