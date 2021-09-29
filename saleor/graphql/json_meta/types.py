@@ -20,7 +20,7 @@ class ObjectWithJSONMetadata(ObjectWithMetadata):
 
     @staticmethod
     def resolve_json_private_metadata(root: ModelWithMetadata, info):
-        return resolve_json_private_metadata(root, info)
+        return resolve_json_private_metadata(root.node, info)
 
     @classmethod
     def resolve_type(cls, instance: ModelWithMetadata, _info):

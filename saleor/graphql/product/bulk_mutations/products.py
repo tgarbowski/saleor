@@ -860,7 +860,7 @@ class ProductBulkClearWarehouseLocation(BaseBulkMutation):
     @classmethod
     def perform_mutation(cls, _root, info, ids=None, **data):
 
-        product_variants = ProductVariantModel.objects.select_related('product').filter(
+        product_variants = models.ProductVariant.objects.select_related('product').filter(
             sku__in=data["skus"])
         for product_variant in product_variants:
 

@@ -105,6 +105,7 @@ from .channels import (
     ProductVariantChannelListing,
 )
 from .digital_contents import DigitalContent
+from saleor.graphql.json_meta.types import ObjectWithJSONMetadata
 
 destination_address_argument = graphene.Argument(
     account_types.AddressInput,
@@ -575,7 +576,7 @@ class Product(ChannelContextTypeWithMetadata, CountableDjangoObjectType):
     class Meta:
         default_resolver = ChannelContextType.resolver_with_context
         description = "Represents an individual item for sale in the storefront."
-        interfaces = [relay.Node, ObjectWithMetadata]
+        interfaces = [relay.Node, ObjectWithMetadata, ObjectWithJSONMetadata]
         model = models.Product
         only_fields = [
             "category",

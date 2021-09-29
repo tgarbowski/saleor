@@ -3930,6 +3930,13 @@ interface Node {
   id: ID!
 }
 
+interface ObjectWithJSONMetadata {
+  privateMetadata: [MetadataItem]!
+  metadata: [MetadataItem]!
+  jsonPrivateMetadata: JSONString!
+  jsonMetadata: JSONString!
+}
+
 interface ObjectWithMetadata {
   privateMetadata: [MetadataItem]!
   metadata: [MetadataItem]!
@@ -5072,7 +5079,7 @@ input PriceRangeInput {
   lte: Float
 }
 
-type Product implements Node & ObjectWithMetadata {
+type Product implements Node & ObjectWithMetadata & ObjectWithJSONMetadata {
   id: ID!
   seoTitle: String
   seoDescription: String
@@ -5089,6 +5096,8 @@ type Product implements Node & ObjectWithMetadata {
   rating: Float
   privateMetadata: [MetadataItem]!
   metadata: [MetadataItem]!
+  jsonPrivateMetadata: JSONString!
+  jsonMetadata: JSONString!
   descriptionJson: JSONString @deprecated(reason: "Will be removed in Saleor 4.0. Use the `description` field instead.")
   thumbnail(size: Int): Image
   pricing(address: AddressInput): ProductPricingInfo

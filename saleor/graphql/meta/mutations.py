@@ -363,7 +363,7 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def create_description_json_for_megapack(cls, instance):
         description_json = generate_description_json_for_megapack(instance.private_metadata.get("bundle.content"))
-        instance.description_json = description_json
+        instance.description = description_json
 
 
 class MetadataInput(graphene.InputObjectType):
