@@ -32,6 +32,8 @@ class ChannelContextType(DjangoObjectType):
 
     @classmethod
     def is_type_of(cls, root: ChannelContext, info):
+        print(info)
+        print(root)
         return super().is_type_of(root.node, info)
 
     @staticmethod
