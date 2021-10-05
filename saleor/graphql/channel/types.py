@@ -35,7 +35,7 @@ class ChannelContextType(DjangoObjectType):
 
     @classmethod
     def is_type_of(cls, root: ChannelContext, info):
-        return super().is_type_of(root, info)
+        return super().is_type_of(root.node, info)
 
     @staticmethod
     def resolve_translation(root: ChannelContext, info, language_code):
