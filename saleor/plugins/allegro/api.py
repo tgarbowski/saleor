@@ -230,8 +230,7 @@ class AllegroAPI:
                        'Content-Type': 'application/vnd.allegro.public.v1+json'}
 
             logger.info(f'PUT request url: {url}')
-            print('TOKEN', self.token)
-            print('DANE', json.dumps(data))
+
             response = requests.put(url, data=json.dumps(data), headers=headers)
 
         except TypeError as err:
