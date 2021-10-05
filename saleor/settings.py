@@ -41,7 +41,6 @@ def get_bool_from_env(name, default_value):
 APP_ENVIRONMENT = os.environ.get("APP_ENVIRONMENT")
 
 DEBUG = get_bool_from_env("DEBUG", True)
-DEBUG = True
 
 SITE_ID = 1
 
@@ -402,7 +401,7 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 # See https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html
 AWS_ACCESS_KEY_ID = "AKIAJH75OEFQX6HYPARA"
 AWS_LOCATION = os.environ.get("AWS_LOCATION", "")
-AWS_MEDIA_BUCKET_NAME = "saleor-test-media"
+AWS_MEDIA_BUCKET_NAME = os.environ.get("AWS_MEDIA_BUCKET_NAME")
 AWS_MEDIA_CUSTOM_DOMAIN = os.environ.get("AWS_MEDIA_CUSTOM_DOMAIN")
 AWS_QUERYSTRING_AUTH = get_bool_from_env("AWS_QUERYSTRING_AUTH", False)
 AWS_QUERYSTRING_EXPIRE = get_bool_from_env("AWS_QUERYSTRING_EXPIRE", 3600)
