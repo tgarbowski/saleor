@@ -175,25 +175,6 @@ def create_stocks(
         raise ValidationError(msg)
 
 
-def can_exclude_distinct(parameters):
-    join_filters = ['collections', 'attributes', 'stock_availability', 'allegro_status',
-                    'price', 'stock_availability']
-    join_sort_by = 'min_variants_price_amount'
-
-    for filter in join_filters:
-        if parameters.get('filter').get(filter):
-            return False
-
-    try:
-        sort_by_fields = parameters['sort_by']['field']
-        if join_sort_by in sort_by_fields:
-            return False
-    except (KeyError, TypeError):
-        return True
-
-    return True
-
-
 def create_collage(images, product):
     s3 = boto3.resource('s3')
     bucket_name = os.environ.get("AWS_MEDIA_BUCKET_NAME")
@@ -296,31 +277,31 @@ def generate_key_id():
 def generate_description_json_for_megapack(bundle_content):
     description_json = {}
     blocks = []
-    description_values = {"key": generate_key_id(), "data": {},
-                          "text": "Zawartość megapaki: ", "type": "header-two",
-                          'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
+    description_values = {"data": {"text": "Zawartość megapaki: ", "level": 2},
+                          "type": "header"}
     blocks.append(description_values)
     products_amount = 0
     products_weight = 0
     if bundle_content:
         for section in bundle_content:
-            list_fragment = {"key": generate_key_id(), "data": {},
-                            "type": "unordered-list-item",
-                            'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
+            list_fragment = {"data": {"style": "unorder", "items": []}, "type": "list"}
             if section[0] == "Mężczyzna":
-                list_fragment["text"] = f'  ubrania męskie: {section[1]} szt., {section[2]} kg'
+                clothes_type = 'męskie'
             elif section[0] == "Dziecko":
-                list_fragment["text"] = f'  ubrania dziecięce: {section[1]} szt., {section[2]} kg'
+                clothes_type = 'dziecięce'
             else:
-                list_fragment["text"] = f'  ubrania damskie: {section[1]} szt., {section[2]} kg'
+                clothes_type = 'damskie'
+
+            txt = f'  ubrania {clothes_type}: {section[1]} szt., {section[2]} kg'
+            list_fragment["data"]["items"].append(txt)
 
             products_amount += section[1]
             products_weight += section[2]
             blocks.append(list_fragment)
 
-    list_fragment = {"key": generate_key_id(), "data": {}, "type": "unordered-list-item",
-                     'depth': 0, 'entityRanges': [], 'inlineStyleRanges': []}
-    list_fragment["text"] = f'  razem: {products_amount} szt., {round(products_weight, 2)} kg'
+    list_fragment = {"data": {"style": "unorder", "items": []}, "type": "list"}
+    summary_txt = f'  razem: {products_amount} szt., {round(products_weight, 2)} kg'
+    list_fragment["data"]["items"].append(summary_txt)
     blocks.append(list_fragment)
 
     description_json["blocks"] = blocks
