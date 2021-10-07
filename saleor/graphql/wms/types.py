@@ -3,6 +3,7 @@ from graphene_federation import key
 from saleor.graphql.core.connection import CountableDjangoObjectType
 from saleor.wms import models
 from saleor.graphql.account.enums import CountryCodeEnum
+from saleor.graphql.channel import ChannelContext
 
 
 class WmsDocumentInput(graphene.InputObjectType):
@@ -36,6 +37,10 @@ class WmsDocPosition(CountableDjangoObjectType):
         model = models.WmsDocPosition
         interfaces = [graphene.relay.Node]
         only_fields = ["product_variant", "quantity", "weight", "document", "id"]
+
+    @staticmethod
+    def resolve_product_variant(root: models.WmsDocPosition, info):
+        return ChannelContext(node=root.product_variant, channel_slug=None)
 
 
 class WmsDocPositionInput(graphene.InputObjectType):
