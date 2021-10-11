@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-import pytz
 import requests
 from django.core.mail import EmailMultiAlternatives
 from django.shortcuts import redirect
@@ -14,8 +13,8 @@ from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
 from saleor.product.models import ProductMedia, ProductChannelListing, ProductVariantChannelListing
-from saleor.channel.models import Channel
 from . import ProductPublishState
+from .utils import get_datetime_now
 
 logger = logging.getLogger(__name__)
 
@@ -264,7 +263,7 @@ class AllegroPlugin(BasePlugin):
 
         return plugin_configuration
 
-    def product_validate(self, product):
+    def product_validate(self, product, channel):
         errors = []
 
         product_variant = product.variants.first()
@@ -284,7 +283,7 @@ class AllegroPlugin(BasePlugin):
         if product_variant_channel_listing.cost_price_amount == 0 \
                 or product_variant_channel_listing.cost_price_amount is None:
             errors.append('003: cena zakupowa produktu wynosi 0')
-        AllegroAPI(None, None).update_errors_in_private_metadata(product, errors)
+        AllegroAPI(channel=channel).update_errors_in_private_metadata(product, errors)
         return errors
 
     def product_published(self, product_with_params: Any) -> Any:
@@ -296,26 +295,25 @@ class AllegroPlugin(BasePlugin):
         product.delete_value_from_private_metadata('publish.allegro.errors')
 
         product_channel_listing = ProductChannelListing.objects.get(
-            channel__slug='allegro',
+            channel__slug=product_with_params.get('channel'),
             product_id=product.id)
         product_channel_listing.is_published = True
 
         product_channel_listing.save()
         product.save()
 
-        if len(self.product_validate(product)) == 0:
+        if not self.product_validate(product, channel=product_with_params.get('channel')):
             async_product_publish.delay(product_id=product.id,
                                         offer_type=product_with_params.get('offer_type'),
                                         starting_at=product_with_params.get('starting_at'),
                                         product_images=product_images,
-                                        products_bulk_ids=products_bulk_ids)
+                                        products_bulk_ids=products_bulk_ids,
+                                        channel=product_with_params.get('channel'))
 
         else:
             product.store_value_in_private_metadata(
-                {'publish.allegro.status': ProductPublishState.MODERATED.value})
-            product.store_value_in_private_metadata(
-                {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
-                    .strftime('%Y-%m-%d %H:%M:%S')})
+                {'publish.allegro.status': ProductPublishState.MODERATED.value,
+                 'publish.status.date': get_datetime_now()})
             product.save(update_fields=["private_metadata"])
 
     def calculate_hours_to_token_expire(self):
@@ -376,6 +374,8 @@ class AllegroPlugin(BasePlugin):
 
 
 class AllegroAuth:
+    def __init__(self, channel):
+        self.channel = channel
 
     @staticmethod
     def get_access_code(client_id, api_key, redirect_uri,
@@ -413,8 +413,7 @@ class AllegroAuth:
 
         return response.json()
 
-    @staticmethod
-    def save_token_in_plugin_configuration(access_token, refresh_token, expires_in):
+    def save_token_in_plugin_configuration(self, access_token, refresh_token, expires_in):
         cleaned_data = {
             "configuration": [{"name": "token_value", "value": access_token},
                               {"name": "token_access",
@@ -425,11 +424,11 @@ class AllegroAuth:
 
         AllegroPlugin.save_plugin_configuration(
             plugin_configuration=PluginConfiguration.objects.get(
-                identifier=AllegroPlugin.PLUGIN_ID, channel__slug='allegro'), cleaned_data=cleaned_data, )
+                identifier=AllegroPlugin.PLUGIN_ID, channel__slug=self.channel), cleaned_data=cleaned_data, )
 
     def resolve_auth(request):
         manager = get_plugins_manager()
-        plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID)
+        plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID, channel_slug=channel)
         allegro_auth = AllegroAuth()
 
         access_code = request.GET["code"]

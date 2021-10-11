@@ -12,8 +12,9 @@ from saleor.attribute.models import AssignedProductAttributeValue
 class ParametersMapperFactory:
 
     @staticmethod
-    def get_mapper():
+    def get_mapper(channel):
         mapper = ParametersMapper(AllegroParametersMapper).mapper()
+        #mapper = ParametersMapper(asd).mapper()
         return mapper
 
 
@@ -27,11 +28,11 @@ class ParametersMapper:
 
 
 class BaseParametersMapper:
-
+    '''
     def __init__(self):
         self.mapped_parameters = []
         self.plugin_config = get_plugin_configuration()
-
+    '''
     def map(self):
         return self
 
@@ -137,6 +138,9 @@ class BaseParametersMapper:
 
 
 class AllegroParametersMapper(BaseParametersMapper):
+    def __init__(self, channel):
+        self.mapped_parameters = []
+        self.plugin_config = get_plugin_configuration(channel)
 
     def map(self):
         return self

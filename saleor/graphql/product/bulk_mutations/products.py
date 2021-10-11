@@ -930,7 +930,8 @@ class ProductBulkPublish(BaseBulkMutation):
                     {"product": instance,
                      "offer_type": data.get('offer_type'),
                      "starting_at": starting_at,
-                     "products_bulk_ids": products_bulk_ids
+                     "products_bulk_ids": products_bulk_ids,
+                     "channel": "allegro"
                      })
 
                 if (i + 1) % step == 0:

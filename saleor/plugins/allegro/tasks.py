@@ -1,14 +1,14 @@
 import logging
 from datetime import datetime, timedelta
 import math
-import pytz
 
 from ...celeryconf import app
 from .api import AllegroAPI
 from .enums import AllegroErrors
 from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish_message,
                     get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished,
-                    can_publish, update_allegro_purchased_error, email_bulk_unpublish_result)
+                    can_publish, update_allegro_purchased_error, email_bulk_unpublish_result,
+                    get_datetime_now)
 from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
@@ -18,21 +18,19 @@ logger = logging.getLogger(__name__)
 
 @app.task()
 def refresh_token_task():
-    config = get_plugin_configuration()
-    token_expiration = config.get('token_access')
+    channels = ['allegro', 'salingo-man', 'salingo-woman', 'salingo-kids']
     HOURS_BEFORE_WE_REFRESH_TOKEN = 6
 
-    if config['token_access']:
-        if AllegroAPI.calculate_hours_to_token_expire(token_expiration) < HOURS_BEFORE_WE_REFRESH_TOKEN:
-            access_token, refresh_token, expires_in = AllegroAPI(
-                'expiredToken', config['env']).refresh_token(
-                    config['refresh_token'],
-                    config['client_id'],
-                    config['client_secret'],
-                    config['saleor_redirect_url'],
-                    config['auth_env']) or (None, None, None)
-            if access_token and refresh_token and expires_in is not None:
-                AllegroAPI.save_token_in_plugin_configuration(access_token, refresh_token, expires_in)
+    for channel in channels:
+        config = get_plugin_configuration(channel)
+        token_expiration = config.get('token_access')
+
+        if config['token_access']:
+            if AllegroAPI.calculate_hours_to_token_expire(token_expiration) < HOURS_BEFORE_WE_REFRESH_TOKEN:
+                allegro_api = AllegroAPI(channel=channel)
+                access_token, refresh_token, expires_in = allegro_api.refresh_token() or (None, None, None)
+                if access_token and refresh_token and expires_in is not None:
+                    AllegroAPI.save_token_in_plugin_configuration(access_token, refresh_token, expires_in)
 
 
 @app.task()
@@ -57,18 +55,13 @@ def check_bulk_unpublish_status_task(unique_id):
 
 
 @app.task()
-def async_product_publish(product_id, offer_type, starting_at, product_images, products_bulk_ids):
-    config = get_plugin_configuration()
-    access_token = config.get('token_value')
-    env = config.get('env')
-    allegro_api_instance = AllegroAPI(access_token, env)
+def async_product_publish(product_id, offer_type, starting_at, product_images, products_bulk_ids, channel):
+    allegro_api_instance = AllegroAPI(channel)
     saleor_product = Product.objects.get(pk=product_id)
     saleor_product.store_value_in_private_metadata(
-        {'publish.allegro.status': ProductPublishState.MODERATED.value})
-    saleor_product.store_value_in_private_metadata(
-        {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
-            .strftime('%Y-%m-%d %H:%M:%S')})
-    saleor_product.store_value_in_private_metadata({'publish.type': offer_type})
+        {'publish.allegro.status': ProductPublishState.MODERATED.value,
+         'publish.type': offer_type,
+         'publish.status.date': get_datetime_now()})
     # New offer
     if saleor_product.get_value_from_private_metadata(
             'publish.allegro.status') == ProductPublishState.MODERATED.value and \
