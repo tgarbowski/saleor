@@ -26,9 +26,11 @@ def email_errors(products_bulk_ids):
         plugin.send_mail_with_publish_errors(publish_errors, None)
 
 
-def get_plugin_configuration():
+def get_plugin_configuration(channel):
     manager = get_plugins_manager()
-    plugin = manager.get_plugin('allegro')
+    plugin = manager.get_plugin(
+        plugin_id='allegro',
+        channel_slug=channel)
     configuration = {item["name"]: item["value"] for item in plugin.configuration if plugin.configuration}
     return configuration
 
@@ -129,8 +131,7 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
                 products_to_update.append(product)
 
             product_channel_listings = ProductChannelListing.objects.filter(
-                product__in=products_to_update,
-                channel__slug='allegro')
+                product__in=products_to_update)
             for listing in product_channel_listings:
                 listing.is_published = False
 
@@ -186,3 +187,7 @@ def product_is_published(product_id):
     published_product = ProductChannelListing.objects.filter(product_id=product_id)
 
     if not published_product: return True
+
+
+def get_datetime_now():
+    return datetime.now(pytz.timezone('Europe/Warsaw')).strftime('%Y-%m-%d %H:%M:%S')

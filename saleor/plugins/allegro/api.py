@@ -6,7 +6,6 @@ import uuid
 from datetime import datetime, timedelta
 from math import ceil
 
-import pytz
 import requests
 
 from .enums import AllegroErrors
@@ -15,8 +14,7 @@ from .parameters_mapper import ParametersMapperFactory
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
 from saleor.product.models import ProductChannelListing, ProductVariant
-from saleor.channel.models import Channel
-from .utils import get_plugin_configuration
+from .utils import get_datetime_now
 
 logger = logging.getLogger(__name__)
 
@@ -25,30 +23,42 @@ class AllegroAPI:
     api_public = 'public.v1'
     api_beta = 'beta.v2'
 
-    def __init__(self, token, env):
-        self.token = token
+    def __init__(self, channel):
+        self.channel = channel
         self.errors = []
         self.product_errors = []
-        self.env = env
         self.require_parameters = []
-        self.plugin_config = get_plugin_configuration()
+        self.set_config()
 
-    def refresh_token(self, refresh_token, client_id, client_secret,
-                      saleor_redirect_url, url_env):
+    def set_config(self):
+        config = self.get_plugin_config(self.channel)
+        self.plugin_config = config
+        self.token = config.get('token_value')
+        self.env = config.get('env')
 
+    def get_plugin_config(self, channel):
+        manager = get_plugins_manager()
+        plugin = manager.get_plugin(
+            plugin_id='allegro',
+            channel_slug=channel)
+        configuration = {item["name"]: item["value"] for item in plugin.configuration if
+                         plugin.configuration}
+        return configuration
+
+    def refresh_token(self):
+        conf = self.plugin_config
         logger.info('Refresh token')
 
-        endpoint = 'auth/oauth/token?grant_type=refresh_token&refresh_token=' + \
-                   refresh_token + '&redirect_uri=' + str(saleor_redirect_url)
+        endpoint = (f'auth/oauth/token?grant_type=refresh_token&refresh_token={conf["refresh_token"]}'
+                    f'&redirect_uri={conf["saleor_redirect_url"]}')
 
         data = {
             'grant_type': 'refresh_token',
-            'refresh_token': refresh_token,
-            'redirect_uri': str(saleor_redirect_url),
+            'refresh_token': conf['refresh_token'],
+            'redirect_uri': conf['saleor_redirect_url']
         }
 
-        response = self.auth_request(endpoint=endpoint, data=data, client_id=client_id,
-                                     client_secret=client_secret, url_env=url_env)
+        response = self.auth_request(endpoint=endpoint, data=data)
 
         if response.status_code == 200:
             return json.loads(response.text)['access_token'], json.loads(response.text)[
@@ -68,7 +78,7 @@ class AllegroAPI:
         category_id = saleor_product.product_type.metadata.get(
             'allegro.mapping.categoryId')
         require_parameters = self.get_require_parameters(category_id, parameters_type)
-        parameters_mapper = ParametersMapperFactory().get_mapper()
+        parameters_mapper = ParametersMapperFactory().get_mapper(self.channel)
         parameters = parameters_mapper.set_product(
             saleor_product).set_require_parameters(require_parameters).run_mapper(parameters_type)
         product_mapper = ProductMapperFactory().get_mapper()
@@ -245,26 +255,16 @@ class AllegroAPI:
         return response
 
     def is_unauthorized(self, response):
-        allegro_plugin_config = self.plugin_config
-
         if response.reason == 'Unauthorized':
-            access_token, refresh_token, expires_in = self.refresh_token(
-                allegro_plugin_config.get('refresh_token'),
-                allegro_plugin_config.get('client_id'),
-                allegro_plugin_config.get('client_secret'),
-                allegro_plugin_config.get('saleor_redirect_url'),
-                allegro_plugin_config.get('auth_env')) or (None, None, None)
+            access_token, refresh_token, expires_in = self.refresh_token() or (None, None, None)
             if access_token and refresh_token and expires_in is not None:
                 self.token = access_token
-                self.save_token_in_plugin_configuration(access_token,
-                                                               refresh_token,
-                                                               expires_in)
+                self.save_token_in_plugin_configuration(access_token, refresh_token, expires_in)
             return True
         else:
             return False
 
-    @staticmethod
-    def save_token_in_plugin_configuration(access_token, refresh_token, expires_in):
+    def save_token_in_plugin_configuration(self, access_token, refresh_token, expires_in):
         cleaned_data = {
             "configuration": [{"name": "token_value", "value": access_token},
                               {"name": "token_access",
@@ -274,21 +274,20 @@ class AllegroAPI:
         }
 
         manager = get_plugins_manager()
-        plugin = manager.get_plugin(plugin_id='allegro', channel_slug='allegro')
+        plugin = manager.get_plugin(plugin_id='allegro', channel_slug=self.channel)
 
         plugin.save_plugin_configuration(
             plugin_configuration=PluginConfiguration.objects.get(
                 identifier=plugin.PLUGIN_ID,
-                channel__slug='allegro'), cleaned_data=cleaned_data)
+                channel__slug=self.channel), cleaned_data=cleaned_data)
 
-    @staticmethod
-    def auth_request(endpoint, data, client_id, client_secret, url_env):
+    def auth_request(self, endpoint, data):
+        url = f'{self.plugin_config["auth_env"]}/{endpoint}'
 
-        url = url_env + '/' + endpoint
-
-        response = requests.post(url, auth=requests.auth.HTTPBasicAuth(client_id,
-                                                                       client_secret),
-                                 data=json.dumps(data))
+        response = requests.post(
+            url,
+            auth=requests.auth.HTTPBasicAuth(self.plugin_config['client_id'], self.plugin_config['client_secret']),
+            data=json.dumps(data))
 
         return response
 
@@ -350,13 +349,9 @@ class AllegroAPI:
                                                            errors):
         product.store_value_in_private_metadata({'publish.allegro.status': status})
         product.store_value_in_private_metadata(
-            {'publish.allegro.date': datetime.now(pytz.timezone('Europe/Warsaw'))
-                .strftime('%Y-%m-%d %H:%M:%S')})
-        product.store_value_in_private_metadata(
-            {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
-                .strftime('%Y-%m-%d %H:%M:%S')})
-        product.store_value_in_private_metadata(
-            {'publish.allegro.id': str(allegro_offer_id)})
+            {'publish.allegro.date': get_datetime_now(),
+             'publish.status.date': get_datetime_now(),
+             'publish.allegro.id': str(allegro_offer_id)})
         self.update_errors_in_private_metadata(product, errors)
         product.save()
 
