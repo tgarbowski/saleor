@@ -17,7 +17,7 @@ from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from ..product.utils import create_collage
 from ...plugins.allegro.api import AllegroAPI
 from ...plugins.allegro.utils import get_plugin_configuration
-from ...product.models import ProductVariant, ProductImage
+from ...product.models import Product, ProductVariant, ProductImage
 from .types import ObjectWithMetadata
 
 logger = logging.getLogger(__name__)
@@ -257,7 +257,17 @@ class BaseMetadataMutation(BaseMutation):
             logger.error("Fetch allegro data error" + str(allegro_data['message']))
             return {'errors': allegro_data['errors']}
 
-        return products_allegro_sold_or_auctioned
+        skus_sold_status = list(
+            ProductVariant.objects.filter(
+                product__private_metadata__contains={"publish.allegro.status": "sold"},
+                sku__in=data_skus
+            ).values_list('sku', flat=True)
+        )
+        # merge skus with db status sold and allegro response sold/bid
+        allegro_sold_products = list(
+            set(products_allegro_sold_or_auctioned) | set(skus_sold_status))
+
+        return allegro_sold_products
 
     @classmethod
     def delete_products_sold_from_data(cls, data, allegro_sold_products):
