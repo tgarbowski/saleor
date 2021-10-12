@@ -124,9 +124,10 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
                 product.is_published = False
                 product.store_value_in_private_metadata(
                     {'publish.status.date': datetime.now(pytz.timezone('Europe/Warsaw'))
-                        .strftime('%Y-%m-%d %H:%M:%S')})
-                product.store_value_in_private_metadata(
-                    {'publish.allegro.status': ProductPublishState.MODERATED.value})
+                        .strftime('%Y-%m-%d %H:%M:%S'),
+                     'publish.allegro.status': ProductPublishState.MODERATED.value,
+                     'publish.allegro.errors': []
+                    })
                 products_to_update.append(product)
             Product.objects.bulk_update(products_to_update, ['private_metadata', 'is_published'])
 
@@ -156,14 +157,18 @@ def can_publish(instance, data):
     return can_be_published
 
 
-def update_allegro_purchased_error(skus):
+def update_allegro_purchased_error(skus, allegro_data):
     product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
     products_to_update = []
 
+    if allegro_data['message'] == AllegroErrors.ALLEGRO_ERROR:
+        error_message = allegro_data['errors']
+    else:
+        error_message = 'Produkt sprzedany lub licytowany'
+
     for variant in product_variants:
         product = variant.product
-        product.store_value_in_private_metadata(
-            {'publish.allegro.errors': ["Wycofanie produktu zakończone niepowodzeniem"]})
+        product.store_value_in_private_metadata({'publish.allegro.errors': [error_message]})
         products_to_update.append(product)
 
     Product.objects.bulk_update(products_to_update, ['private_metadata'])
