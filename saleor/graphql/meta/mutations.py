@@ -226,11 +226,11 @@ class BaseMetadataMutation(BaseMutation):
                     )
                 })
         else:
-            instance.private_metadata["publish.allegro.errors"] = [products_published]
+            instance.private_metadata["publish.allegro.errors"] = products_published['errors']
             instance.save()
             raise ValidationError({
                 "megapack": ValidationError(
-                    message=products_published,
+                    message=products_published['errors'],
                     code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
                 )
             })
@@ -255,7 +255,7 @@ class BaseMetadataMutation(BaseMutation):
 
         if allegro_data['status'] == "ERROR":
             logger.error("Fetch allegro data error" + str(allegro_data['message']))
-            return "Błąd podczas przetwarzania danych na allegro"
+            return {'errors': allegro_data['errors']}
 
         return products_allegro_sold_or_auctioned
 
