@@ -383,11 +383,10 @@ class AllegroAPI:
         return json.loads(response.text)
 
     def bulk_offer_unpublish(self, skus):
-        # Get offers by sku codes
         offers = self.get_offers_by_skus(skus)
         if not isinstance(offers, list):
             logger.error('Error with fetching offers')
-            return {'status': 'ERROR', 'message': AllegroErrors.ALLEGRO_ERROR, 'errors': ['Error with fetching offers']}
+            return {'status': 'ERROR', 'message': AllegroErrors.ALLEGRO_ERROR, 'errors': 'Error with fetching allegro offers'}
         if not offers:
             logger.info('No offers found')
             return {'status': 'OK', 'message': AllegroErrors.NO_OFFERS_FOUND, 'errors': []}
@@ -426,8 +425,9 @@ class AllegroAPI:
         logger.info('Offer Ending: ' + str(response.json()))
 
         if response.status_code != 201:
+            error_message = 'Błąd wycofania oferty z allegro: ' + response.json()['errors'][0]['userMessage']
             return {'status': 'ERROR', 'uuid': unique_id, 'message': AllegroErrors.ALLEGRO_ERROR,
-                    'errors': response.json()}
+                    'errors': error_message}
 
         if offers_bid_or_purchased:
             logger.info('Some offers were terminated and some offers are purchased or bid')
