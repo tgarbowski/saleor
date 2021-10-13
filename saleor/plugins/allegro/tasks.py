@@ -311,11 +311,9 @@ def bulk_allegro_publish_unpublished_to_auction(limit):
 def bulk_allegro_unpublish(product_ids):
     config = get_plugin_configuration()
     allegro_api = AllegroAPI(config['token_value'], config['env'])
-    # Exclude products with publish.allegro.status == sold
     skus = list(
         ProductVariant.objects
             .filter(product_id__in=product_ids)
-            .exclude(product__private_metadata__contains={"publish.allegro.status": "sold"})
             .values_list("sku", flat=True)
     )
     logger.info(f'SKUS TO UNPUBLISH{skus}')
