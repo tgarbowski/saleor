@@ -117,7 +117,7 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
         for offset in range(0, total_count, limit):
             update_skus = unpublished_skus[offset:offset + limit]
             product_variants = ProductVariant.objects.select_related('product').filter(
-                sku__in=update_skus)
+                sku__in=update_skus).exclude(product__private_metadata__contains={"publish.allegro.status": "sold"})
             products_to_update = []
             for variant in product_variants:
                 product = variant.product

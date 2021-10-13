@@ -205,18 +205,18 @@ class BaseMetadataMutation(BaseMutation):
             allegro_sold_or_bid_product_variants = ProductVariant.objects.select_related('product').filter(
                 sku__in=products_published)
             for removed_product_variant in allegro_sold_or_bid_product_variants:
-                location = removed_product_variant.private_metadata["location"] if removed_product_variant.private_metadata["location"] else ""
+                location = removed_product_variant.private_metadata["location"] if removed_product_variant.private_metadata["location"] else "brak lokacji"
                 allegro_products.append(f'{removed_product_variant.sku}: {location}')
             if (products_not_exist and products_not_exist != [""]) or products_already_assigned or products_published:
                 if products_not_exist:
-                    products_not_exist_str = " ".join(products_not_exist)
-                    validation_message += f'Produkty nie istnieją:  {products_not_exist_str}\n'
+                    products_not_exist_str = ", ".join(products_not_exist)
+                    validation_message += f'Produkty nie istnieją:  {products_not_exist_str}.'
                 if products_published:
-                    products_published_str = " ".join(allegro_products)
-                    validation_message += f'Produkty sprzedane lub licytowane:  {products_published_str}\n'
+                    products_published_str = ", ".join(allegro_products)
+                    validation_message += f'Produkty sprzedane lub licytowane:  {products_published_str}.'
                 if products_already_assigned:
-                    products_already_assigned_str = " ".join(products_already_assigned)
-                    validation_message += f'Produkty już przypisane do megapaki:  {products_already_assigned_str}\n'
+                    products_already_assigned_str = ", ".join(products_already_assigned)
+                    validation_message += f'Produkty już przypisane do megapaki:  {products_already_assigned_str}.'
                 instance.private_metadata["publish.allegro.errors"] = [validation_message]
                 instance.save()
                 raise ValidationError({
@@ -257,17 +257,7 @@ class BaseMetadataMutation(BaseMutation):
             logger.error("Fetch allegro data error" + str(allegro_data['message']))
             return {'errors': allegro_data['errors']}
 
-        skus_sold_status = list(
-            ProductVariant.objects.filter(
-                product__private_metadata__contains={"publish.allegro.status": "sold"},
-                sku__in=data_skus
-            ).values_list('sku', flat=True)
-        )
-        # merge skus with db status sold and allegro response sold/bid
-        allegro_sold_products = list(
-            set(products_allegro_sold_or_auctioned) | set(skus_sold_status))
-
-        return allegro_sold_products
+        return products_allegro_sold_or_auctioned
 
     @classmethod
     def delete_products_sold_from_data(cls, data, allegro_sold_products):
