@@ -13,21 +13,22 @@ class ParametersMapperFactory:
 
     @staticmethod
     def get_mapper(channel):
-        mapper = ParametersMapper(AllegroParametersMapper).mapper()
-        #mapper = ParametersMapper(asd).mapper()
+        mapper = ParametersMapper(mapper=AllegroParametersMapper, channel=channel).mapper()
         return mapper
 
 
 class ParametersMapper:
 
-    def __init__(self, mapper):
+    def __init__(self, mapper, channel):
         self.mapper = mapper
+        self.mapper.channel = channel
 
     def mapper(self):
         return self.mapper.map()
 
 
 class BaseParametersMapper:
+    # TODO: check this init
     '''
     def __init__(self):
         self.mapped_parameters = []
@@ -138,9 +139,9 @@ class BaseParametersMapper:
 
 
 class AllegroParametersMapper(BaseParametersMapper):
-    def __init__(self, channel):
+    def __init__(self):
         self.mapped_parameters = []
-        self.plugin_config = get_plugin_configuration(channel)
+        self.plugin_config = get_plugin_configuration(self.channel)
 
     def map(self):
         return self

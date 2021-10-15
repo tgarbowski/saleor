@@ -40,7 +40,7 @@ urlpatterns = [
         handle_plugin_webhook,
         name="plugins",
     ),
-    url(r'^allegro?$', AllegroAuth.resolve_auth),
+    url(r'^allegro/(?P<channel_slug>[.0-9A-Za-z_\-]+)?$', AllegroAuth.resolve_auth),
     url(r'^sumi/reserve', SumiPlugin.create_reservation),
     url(r'^sumi/cancel', SumiPlugin.cancel_reservation),
     url(r'^sumi/sell', SumiPlugin.sell_products),
