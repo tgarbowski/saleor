@@ -30,7 +30,7 @@ def refresh_token_task():
                 allegro_api = AllegroAPI(channel=channel)
                 access_token, refresh_token, expires_in = allegro_api.refresh_token() or (None, None, None)
                 if access_token and refresh_token and expires_in is not None:
-                    AllegroAPI.save_token_in_plugin_configuration(access_token, refresh_token, expires_in)
+                    allegro_api.save_token_in_plugin_configuration(access_token, refresh_token, expires_in)
 
 
 @app.task()

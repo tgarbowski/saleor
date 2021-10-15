@@ -81,7 +81,7 @@ class AllegroAPI:
         parameters_mapper = ParametersMapperFactory().get_mapper(self.channel)
         parameters = parameters_mapper.set_product(
             saleor_product).set_require_parameters(require_parameters).run_mapper(parameters_type)
-        product_mapper = ProductMapperFactory().get_mapper()
+        product_mapper = ProductMapperFactory().get_mapper(self.channel)
 
         try:
             product = product_mapper.set_saleor_product(saleor_product) \
@@ -93,7 +93,9 @@ class AllegroAPI:
             self.errors.append(str(err))
             self.update_errors_in_private_metadata(
                 saleor_product,
-                [error for error in self.errors])
+                [error for error in self.errors],
+                self.channel
+            )
 
         return product
 
@@ -352,13 +354,13 @@ class AllegroAPI:
             {'publish.allegro.date': get_datetime_now(),
              'publish.status.date': get_datetime_now(),
              'publish.allegro.id': str(allegro_offer_id)})
-        self.update_errors_in_private_metadata(product, errors)
+        self.update_errors_in_private_metadata(product, errors, self.channel)
         product.save()
 
     @staticmethod
-    def update_errors_in_private_metadata(product, errors):
+    def update_errors_in_private_metadata(product, errors, channel):
         product_channel_listing = ProductChannelListing.objects.get(
-            channel__slug='allegro',
+            channel__slug=channel,
             product=product)
 
         if errors:
@@ -623,12 +625,15 @@ class AllegroAPI:
             self.errors.append(offer.get('error_description'))
             self.update_errors_in_private_metadata(
                 saleor_product,
-                [error for error in self.errors])
+                [error for error in self.errors],
+                self.channel
+            )
         elif 'errors' in offer:
             self.errors += offer['errors']
             self.update_errors_in_private_metadata(
                 saleor_product,
-                [error.get('message') for error in self.errors])
+                [error.get('message') for error in self.errors],
+                self.channel)
         elif offer['validation'].get('errors') is not None:
             if len(offer['validation'].get('errors')) > 0:
                 for error in offer['validation'].get('errors'):

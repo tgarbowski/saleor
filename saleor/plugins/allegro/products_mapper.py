@@ -9,15 +9,16 @@ from saleor.product.models import ProductVariant, ProductVariantChannelListing
 class ProductMapperFactory:
 
     @staticmethod
-    def get_mapper():
-        mapper = ProductMapper(AllegroProductMapper).mapper()
+    def get_mapper(channel):
+        mapper = ProductMapper(mapper=AllegroProductMapper, channel=channel).mapper()
         return mapper
 
 
 class ProductMapper:
 
-    def __init__(self, mapper):
+    def __init__(self, mapper, channel):
         self.mapper = mapper
+        self.mapper.channel = channel
 
     def mapper(self):
         return self.mapper.map()
@@ -29,7 +30,7 @@ class AllegroProductMapper:
         nested_dict = lambda: defaultdict(nested_dict)
         nest = nested_dict()
         self.product = nest
-        self.plugin_config = get_plugin_configuration()
+        self.plugin_config = get_plugin_configuration(self.channel)
 
     def map(self):
         return self
@@ -327,7 +328,7 @@ class AllegroProductMapper:
             product=self.saleor_product).first()
         product_variant_channel_listing = ProductVariantChannelListing.objects.get(
             variant_id=product_variant.id,
-            channel__slug='allegro'
+            channel__slug=self.channel
         )
         return product_variant_channel_listing
 
