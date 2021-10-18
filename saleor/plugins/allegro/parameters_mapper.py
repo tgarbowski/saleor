@@ -28,12 +28,6 @@ class ParametersMapper:
 
 
 class BaseParametersMapper:
-    # TODO: check this init
-    '''
-    def __init__(self):
-        self.mapped_parameters = []
-        self.plugin_config = get_plugin_configuration()
-    '''
     def map(self):
         return self
 

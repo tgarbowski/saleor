@@ -1,3 +1,4 @@
+import json
 import logging
 import webbrowser
 
@@ -7,12 +8,15 @@ from typing import Any
 
 import requests
 from django.core.mail import EmailMultiAlternatives
+from django.db import connection
 from django.shortcuts import redirect
 
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
 from saleor.product.models import ProductMedia, ProductChannelListing, ProductVariantChannelListing
+from saleor.channel.models import Channel
+from saleor.product.models import ProductVariant
 from . import ProductPublishState
 from .utils import get_datetime_now
 
@@ -44,6 +48,7 @@ class AllegroConfiguration:
     interval_for_offer_publication: str
     offer_publication_chunks: str
     offer_description_footer: str
+    channel_slug: str
 
 
 class AllegroPlugin(BasePlugin):
@@ -77,7 +82,8 @@ class AllegroPlugin(BasePlugin):
                              {"name": "auction_format", "value": 'AUCTION'},
                              {"name": "interval_for_offer_publication", "value": '5'},
                              {"name": "offer_publication_chunks", "value": '13'},
-                             {"name": "offer_description_footer", "value": ''}, ]
+                             {"name": "offer_description_footer", "value": ''},
+                             {"name": "channel_slug", "value": ''}]
     CONFIG_STRUCTURE = {
         "redirect_url": {
             "type": ConfigurationTypeField.STRING,
@@ -182,6 +188,11 @@ class AllegroPlugin(BasePlugin):
             "type": ConfigurationTypeField.STRING,
             "help_text": "Podaj tekst który będzie widoczny na dole opisu oferty.",
             "label": "offer_description_footer",
+        },
+        "channel_slug": {
+            "type": ConfigurationTypeField.STRING,
+            "help_text": "Channel slug.",
+            "label": "channel_slug",
         }
     }
 
@@ -220,7 +231,10 @@ class AllegroPlugin(BasePlugin):
                                            offer_publication_chunks=configuration[
                                                "offer_publication_chunks"],
                                            offer_description_footer=configuration[
-                                               "offer_description_footer"])
+                                               "offer_description_footer"],
+                                           channel_slug=configuration[
+                                               "channel_slug"]
+                                           )
 
 
     @classmethod
@@ -255,7 +269,7 @@ class AllegroPlugin(BasePlugin):
         if (plugin_configuration.active == True and not configuration[
             'token_value'] and bool(configuration['client_id']) and bool(
             configuration['client_secret'])):
-            allegro_auth = AllegroAuth()
+            allegro_auth = AllegroAuth(configuration['channel_slug'])
             allegro_auth.get_access_code(configuration['client_id'],
                                          configuration['client_secret'],
                                          configuration['callback_url'],
@@ -283,32 +297,64 @@ class AllegroPlugin(BasePlugin):
         if product_variant_channel_listing.cost_price_amount == 0 \
                 or product_variant_channel_listing.cost_price_amount is None:
             errors.append('003: cena zakupowa produktu wynosi 0')
-        AllegroAPI(channel=channel).update_errors_in_private_metadata(product, errors)
+        AllegroAPI(channel=channel).update_errors_in_private_metadata(product, errors, channel)
         return errors
+
+    @staticmethod
+    def calculate_prices(product_id):
+        with connection.cursor() as cursor:
+            cursor.execute('select calculate_prices(%s)', [product_id])
+            data = cursor.fetchall()
+        return json.loads(data[0][0])
+
+    def create_product_channel_listing(self, product, channel):
+        product_channel_listing = ProductChannelListing.objects.create(
+            product=product,
+            channel=channel,
+            currency=channel.currency_code
+        )
+        product_channel_listing.save()
+        return product_channel_listing
+
+    def create_product_variant_channel_listing(self, product, channel):
+        product_variant = ProductVariant.objects.get(product=product)
+        prices = self.calculate_prices(product.id)
+
+        productvariant_channel_listing = ProductVariantChannelListing.objects.create(
+            variant=product_variant,
+            channel=channel,
+            currency=channel.currency_code,
+            price_amount=prices['price'],
+            cost_price_amount=prices['cost_price'],
+        )
+        productvariant_channel_listing.save()
+        return productvariant_channel_listing
 
     def product_published(self, product_with_params: Any) -> Any:
         product = product_with_params.get('product')
-        product_images = ProductMedia.objects.filter(product=product)
-        product_images = [product_image.image.url for product_image in product_images]
         products_bulk_ids = product_with_params.get('products_bulk_ids')
-
+        product_images = list(ProductMedia.objects.filter(product=product).values_list('image', flat=True))
         product.delete_value_from_private_metadata('publish.allegro.errors')
+        try:
+            product_channel_listing = ProductChannelListing.objects.get(product_id=product.id)
+            channel_slug = product_channel_listing.channel.slug
+        except ProductChannelListing.DoesNotExist:
+            channel_slug = product.product_type.get_value_from_metadata('channel')
+            channel = Channel.objects.get(slug=channel_slug)
+            product_channel_listing = self.create_product_channel_listing(product, channel)
+            self.create_product_variant_channel_listing(product, channel)
 
-        product_channel_listing = ProductChannelListing.objects.get(
-            channel__slug=product_with_params.get('channel'),
-            product_id=product.id)
         product_channel_listing.is_published = True
-
         product_channel_listing.save()
         product.save()
 
-        if not self.product_validate(product, channel=product_with_params.get('channel')):
+        if not self.product_validate(product, channel_slug):
             async_product_publish.delay(product_id=product.id,
                                         offer_type=product_with_params.get('offer_type'),
                                         starting_at=product_with_params.get('starting_at'),
                                         product_images=product_images,
                                         products_bulk_ids=products_bulk_ids,
-                                        channel=product_with_params.get('channel'))
+                                        channel=channel_slug)
 
         else:
             product.store_value_in_private_metadata(
@@ -426,10 +472,10 @@ class AllegroAuth:
             plugin_configuration=PluginConfiguration.objects.get(
                 identifier=AllegroPlugin.PLUGIN_ID, channel__slug=self.channel), cleaned_data=cleaned_data, )
 
-    def resolve_auth(request):
+    def resolve_auth(request, channel_slug):
         manager = get_plugins_manager()
-        plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID, channel_slug=channel)
-        allegro_auth = AllegroAuth()
+        plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID, channel_slug=channel_slug)
+        allegro_auth = AllegroAuth(channel=channel_slug)
 
         access_code = request.GET["code"]
 
