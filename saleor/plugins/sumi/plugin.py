@@ -5,7 +5,7 @@ from json import JSONDecodeError
 
 import pytz
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseNotFound
 from django.http.response import JsonResponse
 
 from saleor.plugins.allegro.plugin import AllegroPlugin
@@ -99,11 +99,13 @@ class SumiPlugin(BasePlugin):
             return http_response
 
     @staticmethod
-    def get_allegro_token(request):
+    def get_allegro_token(request, channel_slug):
         if SumiPlugin.is_auth(request.headers.get('X-API-KEY')) and \
                 request.method == 'GET':
             manager = get_plugins_manager()
-            plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID)
+            plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID, channel_slug=channel_slug)
+            if plugin is None:
+                return HttpResponseNotFound()
             configuration = {item["name"]: item["value"] for item in
                              plugin.configuration}
             valid_till = datetime.strptime(configuration.get('token_access'),
@@ -456,8 +458,7 @@ class SumiPlugin(BasePlugin):
                     product_variant_stock = Stock.objects.filter(
                         product_variant=product_variant.first())
                     product_variant_channel_listing = ProductVariantChannelListing.objects.get(
-                        variant=product_variant.first(),
-                        channel__slug='allegro'
+                        variant=product_variant.first()
                     )
                     if Stock.objects.exists():
                         if product_variant_stock.first().quantity > 0:

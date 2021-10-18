@@ -3,6 +3,7 @@ from django.conf.urls import include, url
 from django.conf.urls.static import static
 from django.contrib.staticfiles.views import serve
 from django.views.decorators.csrf import csrf_exempt
+from django.urls import path
 
 from .graphql.api import schema
 from .graphql.views import GraphQLView
@@ -45,7 +46,7 @@ urlpatterns = [
     url(r'^sumi/cancel', SumiPlugin.cancel_reservation),
     url(r'^sumi/sell', SumiPlugin.sell_products),
     url(r'^sumi/v2/sell', SumiPlugin.sell_products_v2),
-    url(r'^sumi/token', SumiPlugin.get_allegro_token),
+    path('sumi/token/<str:channel_slug>', SumiPlugin.get_allegro_token),
     url(r'^sumi/locate', SumiPlugin.locate_products),
 ]
 
