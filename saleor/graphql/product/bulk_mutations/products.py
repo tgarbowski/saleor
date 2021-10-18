@@ -909,9 +909,11 @@ class ProductBulkPublish(BaseBulkMutation):
     @classmethod
     def bulk_publish(cls, instances, **data):
         manager = get_plugins_manager()
-        # TODO: parametrize channel_slug
-        plugin = manager.get_plugin(plugin_id='allegro', channel_slug='allegro')
-        interval, chunks = plugin.get_intervals_and_chunks()
+        # TODO: parametrize channel_slug, interval/chunks
+        plugin = manager.get_plugin(plugin_id='allegro')
+        #interval, chunks = plugin.get_intervals_and_chunks()
+        interval = 5
+        chunks = 13
         step = math.ceil(len(instances) / (chunks))
         start = 0
         instances_ids = []
@@ -930,8 +932,7 @@ class ProductBulkPublish(BaseBulkMutation):
                     {"product": instance,
                      "offer_type": data.get('offer_type'),
                      "starting_at": starting_at,
-                     "products_bulk_ids": products_bulk_ids,
-                     "channel": "allegro"
+                     "products_bulk_ids": products_bulk_ids
                      })
 
                 if (i + 1) % step == 0:

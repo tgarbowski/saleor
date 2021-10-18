@@ -12,13 +12,16 @@ from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish
 from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
+from saleor.plugins.models import PluginConfiguration
 
 logger = logging.getLogger(__name__)
 
 
 @app.task()
 def refresh_token_task():
-    channels = ['allegro', 'salingo-man', 'salingo-woman', 'salingo-kids']
+    channels = list(PluginConfiguration.objects.filter(identifier='allegro').values_list(
+        'channel__slug', flat=True))
+
     HOURS_BEFORE_WE_REFRESH_TOKEN = 6
 
     for channel in channels:
@@ -62,12 +65,9 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
         {'publish.allegro.status': ProductPublishState.MODERATED.value,
          'publish.type': offer_type,
          'publish.status.date': get_datetime_now()})
+    publication_date = saleor_product.get_value_from_private_metadata("publish.allegro.date")
     # New offer
-    if saleor_product.get_value_from_private_metadata(
-            'publish.allegro.status') == ProductPublishState.MODERATED.value and \
-            saleor_product.get_value_from_private_metadata(
-                "publish.allegro.date") is None:
-
+    if not publication_date:
         product = allegro_api_instance.prepare_offer(saleor_product, starting_at, offer_type, product_images, 'required')
         logger.info('New offer: ' + str(product.get('external').get('id')))
         offer = allegro_api_instance.publish_to_allegro(allegro_product=product)
@@ -121,11 +121,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
             email_errors(products_bulk_ids)
         return
     # Update offer
-    if saleor_product.get_value_from_private_metadata('publish.allegro.status') == \
-            ProductPublishState.MODERATED.value and \
-            saleor_product.get_value_from_private_metadata(
-                'publish.allegro.date') is not None:
-
+    if publication_date:
         offer_id = saleor_product.private_metadata.get('publish.allegro.id')
 
         if offer_id:
