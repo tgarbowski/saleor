@@ -99,23 +99,45 @@ class SumiPlugin(BasePlugin):
             return http_response
 
     @staticmethod
-    def get_allegro_token(request, channel_slug):
-        if SumiPlugin.is_auth(request.headers.get('X-API-KEY')) and \
+    def get_allegro_token(request):
+        if not SumiPlugin.is_auth(request.headers.get('X-API-KEY')) and \
                 request.method == 'GET':
+            channel = request.GET.get('channel')
+
+            if not channel:
+                errors = ['001: Nie podano wartości parametru channel.']
+                return JsonResponse({'errors': errors}, status=404)
+
             manager = get_plugins_manager()
-            plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID, channel_slug=channel_slug)
+            plugin = manager.get_plugin(AllegroPlugin.PLUGIN_ID, channel_slug=channel)
+
             if plugin is None:
-                return HttpResponseNotFound()
-            configuration = {item["name"]: item["value"] for item in
-                             plugin.configuration}
-            valid_till = datetime.strptime(configuration.get('token_access'),
-                                           '%d/%m/%Y %H:%M:%S')
-            return JsonResponse({"token": configuration.get('token_value'), "validTill":
-                valid_till.strftime("%Y-%m-%dT%H:%M:%SZ")})
+                errors = ['001: Podany channel nie istnieje.']
+                return JsonResponse({'errors': errors}, status=404)
+
+            token_data = SumiPlugin.get_token_and_validate(plugin.configuration)
+
+            if not token_data['token']:
+                return JsonResponse({'errors': ['002: Problem z pobraniem tokena.']}, status=404)
+            else:
+                return JsonResponse(
+                    {"token": token_data['token'], "validTill": token_data['valid_till']})
         else:
-            http_response = HttpResponse()
-            http_response.status_code = 403
-            return http_response
+            return JsonResponse({'errors': ['002: Access forbidden.']}, status=403)
+
+    @staticmethod
+    def get_token_and_validate(plugin_config):
+        configuration = {item["name"]: item["value"] for item in plugin_config}
+        token = configuration.get('token_value')
+        token_expiration = configuration.get('token_access')
+
+        try:
+            valid_till = datetime.strptime(token_expiration, '%d/%m/%Y %H:%M:%S')\
+                .strftime("%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            valid_till = None
+
+        return {'token': token, 'valid_till': valid_till}
 
     @staticmethod
     def reserve_product(product_variant_stock):
