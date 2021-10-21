@@ -24,7 +24,7 @@ INVOICE_REQUEST_MUTATION = """
                 number
                 url
             }
-            invoiceErrors {
+            errors {
                 field
                 code
             }
@@ -41,7 +41,7 @@ def setup_dummy_gateways(settings):
     return settings
 
 
-@patch("saleor.plugins.base_plugin.BasePlugin.invoice_request")
+@patch("saleor.plugins.manager.PluginsManager.invoice_request")
 def test_invoice_request(
     plugin_mock, staff_api_client, permission_manage_orders, order
 ):
@@ -61,7 +61,7 @@ def test_invoice_request(
         number=number, order=order.pk, status=JobStatus.PENDING
     ).first()
     assert invoice
-    plugin_mock.assert_called_once_with(order, invoice, number, previous_value=None)
+    plugin_mock.assert_called_once_with(order=order, invoice=invoice, number=number)
     assert InvoiceEvent.objects.filter(
         type=InvoiceEvents.REQUESTED,
         user=staff_api_client.user,
@@ -78,8 +78,11 @@ def test_invoice_request(
     ).exists()
 
 
-def test_invoice_request_draft_order(staff_api_client, permission_manage_orders, order):
-    order.status = OrderStatus.DRAFT
+@pytest.mark.parametrize("status", (OrderStatus.DRAFT, OrderStatus.UNCONFIRMED))
+def test_invoice_request_invalid_order_status(
+    status, staff_api_client, permission_manage_orders, order
+):
+    order.status = status
     order.save()
     number = "01/12/2020/TEST"
     variables = {
@@ -91,7 +94,7 @@ def test_invoice_request_draft_order(staff_api_client, permission_manage_orders,
     )
     content = get_graphql_content(response)
     assert not Invoice.objects.filter(number=number, order=order.pk).exists()
-    error = content["data"]["invoiceRequest"]["invoiceErrors"][0]
+    error = content["data"]["invoiceRequest"]["errors"][0]
     assert error["field"] == "orderId"
     assert error["code"] == InvoiceErrorCode.INVALID_STATUS.name
     assert not OrderEvent.objects.filter(type=OrderEvents.INVOICE_REQUESTED).exists()
@@ -112,7 +115,7 @@ def test_invoice_request_no_billing_address(
     )
     content = get_graphql_content(response)
     assert not Invoice.objects.filter(number=number, order=order.pk).exists()
-    error = content["data"]["invoiceRequest"]["invoiceErrors"][0]
+    error = content["data"]["invoiceRequest"]["errors"][0]
     assert error["field"] == "orderId"
     assert error["code"] == InvoiceErrorCode.NOT_READY.name
     assert not OrderEvent.objects.filter(type=OrderEvents.INVOICE_REQUESTED).exists()
@@ -128,12 +131,12 @@ def test_invoice_request_no_number(staff_api_client, permission_manage_orders, o
     assert not OrderEvent.objects.filter(type=OrderEvents.INVOICE_REQUESTED).exists()
 
 
-def test_invoice_request_invalid_order(staff_api_client, permission_manage_orders):
+def test_invoice_request_invalid_id(staff_api_client, permission_manage_orders):
     variables = {"orderId": "T3JkZXI6MTMzNzEzMzc=", "number": "01/12/2020/TEST"}
     response = staff_api_client.post_graphql(
         INVOICE_REQUEST_MUTATION, variables, permissions=[permission_manage_orders]
     )
     content = get_graphql_content(response)
-    error = content["data"]["invoiceRequest"]["invoiceErrors"][0]
+    error = content["data"]["invoiceRequest"]["errors"][0]
     assert error["code"] == InvoiceErrorCode.NOT_FOUND.name
     assert error["field"] == "orderId"

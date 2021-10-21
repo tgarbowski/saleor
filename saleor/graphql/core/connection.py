@@ -1,8 +1,10 @@
 import json
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, List, Tuple, Union
 
 import graphene
-from django.db.models import Model as DjangoModel, Q, QuerySet
+from django.db.models import Model as DjangoModel
+from django.db.models import Q, QuerySet
 from graphene.relay.connection import Connection
 from graphene_django.types import DjangoObjectType
 from graphql.error import GraphQLError
@@ -12,6 +14,8 @@ from graphql_relay.utils import base64, unbase64
 from ..core.enums import OrderDirection
 
 ConnectionArguments = Dict[str, Any]
+
+EPSILON = Decimal("0.000001")
 
 
 def to_global_cursor(values):
@@ -31,11 +35,33 @@ def get_field_value(instance: DjangoModel, field_name: str):
     field_path = field_name.split("__")
     attr = instance
     for elem in field_path:
-        attr = getattr(attr, elem)
+        attr = getattr(attr, elem, None)
 
     if callable(attr):
         return "%s" % attr()
     return attr
+
+
+def _prepare_filter_by_rank_expression(
+    cursor: List[str],
+    sorting_direction: str,
+) -> Q:
+    try:
+        rank = Decimal(cursor[0])
+        int(cursor[1])
+    except (InvalidOperation, ValueError, TypeError, KeyError):
+        raise ValueError("Invalid cursor for sorting by rank.")
+
+    # Because rank is float number, it gets mangled by PostgreSQL's query parser
+    # making equal comparisons impossible. Instead we compare rank against small
+    # range of values, constructed using epsilon.
+    if sorting_direction == "gt":
+        return Q(rank__range=(rank - EPSILON, rank + EPSILON), id__lt=cursor[1]) | Q(
+            rank__gt=rank + EPSILON
+        )
+    return Q(rank__range=(rank - EPSILON, rank + EPSILON), id__gt=cursor[1]) | Q(
+        rank__lt=rank - EPSILON
+    )
 
 
 def _prepare_filter_expression(
@@ -79,6 +105,10 @@ def _prepare_filter(
                 ('first_field', 'first_value_form_cursor'))
         )
     """
+    if sorting_fields == ["rank", "id"]:
+        # Fast path for filtering by rank
+        return _prepare_filter_by_rank_expression(cursor, sorting_direction)
+
     filter_kwargs = Q()
     for index, field_name in enumerate(sorting_fields):
         if cursor[index] is None and sorting_direction == "gt":
@@ -222,7 +252,10 @@ def connection_from_queryset_slice(
     qs = qs[:end_margin]
     edges, page_info = _get_edges_for_connection(edge_type, qs, args, sorting_fields)
 
-    return connection_type(edges=edges, page_info=pageinfo_type(**page_info),)
+    return connection_type(
+        edges=edges,
+        page_info=pageinfo_type(**page_info),
+    )
 
 
 class NonNullConnection(Connection):

@@ -1,7 +1,9 @@
+import os
+import secrets
 import math
 from datetime import datetime, timedelta
 from itertools import chain
-from typing import Tuple, Union
+from typing import Iterable, Tuple, Union
 
 import graphene
 from django.core.exceptions import (
@@ -9,19 +11,24 @@ from django.core.exceptions import (
     ImproperlyConfigured,
     ValidationError,
 )
+from django.core.files.storage import default_storage
 from django.db.models.fields.files import FileField
 from graphene import ObjectType
 from graphene.types.mutation import MutationOptions
 from graphene_django.registry import get_global_registry
 from graphql.error import GraphQLError
 
+from ...core.exceptions import PermissionDenied
+from ...core.permissions import AccountPermissions
+from ..decorators import staff_member_or_app_required
+from ..utils import get_nodes, resolve_global_ids_to_primary_keys
+from .types import File, Upload
+from .types.common import UploadError
+from .utils import from_global_id_or_error, snake_to_camel_case
 from saleor.product.models import Product
 from .types import Error, Upload
 from .utils import from_global_id_strict_type, snake_to_camel_case
 from .utils.error_codes import get_error_code_from_error
-from ..utils import get_nodes
-from ...core.exceptions import PermissionDenied
-from ...core.permissions import AccountPermissions
 
 registry = get_global_registry()
 
@@ -32,45 +39,58 @@ def get_model_name(model):
     return model_name[:1].lower() + model_name[1:]
 
 
-def get_error_fields(error_type_class, error_type_field):
-    return {
-        error_type_field: graphene.Field(
-            graphene.List(
-                graphene.NonNull(error_type_class),
-                description="List of errors that occurred executing the mutation.",
-            ),
-            default_value=[],
-            required=True,
-        )
-    }
+def get_error_fields(error_type_class, error_type_field, deprecation_reason=None):
+    error_field = graphene.Field(
+        graphene.List(
+            graphene.NonNull(error_type_class),
+            description="List of errors that occurred executing the mutation.",
+        ),
+        default_value=[],
+        required=True,
+    )
+    if deprecation_reason is not None:
+        error_field.deprecation_reason = deprecation_reason
+    return {error_type_field: error_field}
 
 
-def validation_error_to_error_type(validation_error: ValidationError) -> list:
+def validation_error_to_error_type(
+    validation_error: ValidationError, error_type_class
+) -> list:
     """Convert a ValidationError into a list of Error types."""
     err_list = []
+    error_class_fields = set(error_type_class._meta.fields.keys())
     if hasattr(validation_error, "error_dict"):
         # convert field errors
         for field, field_errors in validation_error.error_dict.items():
             field = None if field == NON_FIELD_ERRORS else snake_to_camel_case(field)
             for err in field_errors:
-                err_list.append(
-                    (
-                        Error(field=field, message=err.messages[0]),
-                        get_error_code_from_error(err),
-                        err.params,
-                    )
+                error = error_type_class(
+                    field=field,
+                    message=err.messages[0],
+                    code=get_error_code_from_error(err),
                 )
+                attach_error_params(error, err.params, error_class_fields)
+                err_list.append(error)
     else:
         # convert non-field errors
         for err in validation_error.error_list:
-            err_list.append(
-                (
-                    Error(message=err.messages[0]),
-                    get_error_code_from_error(err),
-                    err.params,
-                )
+            error = error_type_class(
+                message=err.messages[0],
+                code=get_error_code_from_error(err),
             )
+            attach_error_params(error, err.params, error_class_fields)
+            err_list.append(error)
     return err_list
+
+
+def attach_error_params(error, params: dict, error_class_fields: set):
+    if not params:
+        return {}
+    # If some of the params key overlap with error class fields
+    # attach param value to the error
+    error_fields_in_params = set(params.keys()) & error_class_fields
+    for error_field in error_fields_in_params:
+        setattr(error, error_field, params[error_field])
 
 
 class ModelMutationOptions(MutationOptions):
@@ -80,16 +100,6 @@ class ModelMutationOptions(MutationOptions):
 
 
 class BaseMutation(graphene.Mutation):
-    errors = graphene.List(
-        graphene.NonNull(Error),
-        description="List of errors that occurred executing the mutation.",
-        deprecation_reason=(
-            "Use typed errors with error codes. This field will be removed after "
-            "2020-07-31."
-        ),
-        required=True,
-    )
-
     class Meta:
         abstract = True
 
@@ -110,6 +120,9 @@ class BaseMutation(graphene.Mutation):
         if not description:
             raise ImproperlyConfigured("No description provided in Meta")
 
+        if not error_type_class:
+            raise ImproperlyConfigured("No error_type_class provided in Meta.")
+
         if isinstance(permissions, str):
             permissions = (permissions,)
 
@@ -121,14 +134,21 @@ class BaseMutation(graphene.Mutation):
         _meta.permissions = permissions
         _meta.error_type_class = error_type_class
         _meta.error_type_field = error_type_field
-        _meta.errors_mapping = errors_mapping
         super().__init_subclass_with_meta__(
             description=description, _meta=_meta, **options
         )
-        if error_type_class and error_type_field:
-            cls._meta.fields.update(
-                get_error_fields(error_type_class, error_type_field)
+        if error_type_field:
+            deprecated_msg = (
+                "Use errors field instead. This field will be removed in Saleor 4.0."
             )
+            cls._meta.fields.update(
+                get_error_fields(
+                    error_type_class,
+                    error_type_field,
+                    deprecated_msg,
+                )
+            )
+        cls._meta.fields.update(get_error_fields(error_type_class, "errors"))
 
     @classmethod
     def _update_mutation_arguments_and_fields(cls, arguments, fields):
@@ -136,7 +156,7 @@ class BaseMutation(graphene.Mutation):
         cls._meta.fields.update(fields)
 
     @classmethod
-    def get_node_by_pk(
+    def _get_node_by_pk(
         cls, info, graphene_type: ObjectType, pk: Union[int, str], qs=None
     ):
         """Attempt to resolve a node from the given internal ID.
@@ -151,21 +171,31 @@ class BaseMutation(graphene.Mutation):
         return None
 
     @classmethod
+    def get_global_id_or_error(
+        cls, id: str, only_type: Union[ObjectType, str] = None, field: str = "id"
+    ):
+        try:
+            _object_type, pk = from_global_id_or_error(id, only_type, raise_error=True)
+        except GraphQLError as e:
+            raise ValidationError(
+                {field: ValidationError(str(e), code="graphql_error")}
+            )
+        return pk
+
+    @classmethod
     def get_node_or_error(cls, info, node_id, field="id", only_type=None, qs=None):
         if not node_id:
             return None
 
         try:
-            if only_type is not None:
-                pk = from_global_id_strict_type(node_id, only_type, field=field)
-            else:
-                # FIXME: warn when supplied only_type is None?
-                only_type, pk = graphene.Node.from_global_id(node_id)
+            object_type, pk = from_global_id_or_error(
+                node_id, only_type, raise_error=True
+            )
 
-            if isinstance(only_type, str):
-                only_type = info.schema.get_type(only_type).graphene_type
+            if isinstance(object_type, str):
+                object_type = info.schema.get_type(object_type).graphene_type
 
-            node = cls.get_node_by_pk(info, graphene_type=only_type, pk=pk, qs=qs)
+            node = cls._get_node_by_pk(info, graphene_type=object_type, pk=pk, qs=qs)
         except (AssertionError, GraphQLError) as e:
             raise ValidationError(
                 {field: ValidationError(str(e), code="graphql_error")}
@@ -182,6 +212,23 @@ class BaseMutation(graphene.Mutation):
         return node
 
     @classmethod
+    def get_global_ids_or_error(
+        cls,
+        ids: Iterable[str],
+        only_type: Union[ObjectType, str] = None,
+        field: str = "ids",
+    ):
+        try:
+            _nodes_type, pks = resolve_global_ids_to_primary_keys(
+                ids, only_type, raise_error=True
+            )
+        except GraphQLError as e:
+            raise ValidationError(
+                {field: ValidationError(str(e), code="graphql_error")}
+            )
+        return pks
+
+    @classmethod
     def get_nodes_or_error(cls, ids, field, only_type=None, qs=None):
         try:
             instances = get_nodes(ids, only_type, qs=qs)
@@ -193,7 +240,7 @@ class BaseMutation(graphene.Mutation):
 
     @staticmethod
     def remap_error_fields(validation_error, field_map):
-        """Rename validation_error fields accoring to provided field_map.
+        """Rename validation_error fields according to provided field_map.
 
         Skips renaming fields from field_map that are not on validation_error.
         """
@@ -307,32 +354,15 @@ class BaseMutation(graphene.Mutation):
 
     @classmethod
     def handle_errors(cls, error: ValidationError, **extra):
-        errors = validation_error_to_error_type(error)
-        return cls.handle_typed_errors(errors, **extra)
+        error_list = validation_error_to_error_type(error, cls._meta.error_type_class)
+        return cls.handle_typed_errors(error_list, **extra)
 
     @classmethod
     def handle_typed_errors(cls, errors: list, **extra):
         """Return class instance with errors."""
-        if (
-            cls._meta.error_type_class is not None
-            and cls._meta.error_type_field is not None
-        ):
-            typed_errors = []
-            error_class_fields = set(cls._meta.error_type_class._meta.fields.keys())
-            for e, code, params in errors:
-                error_instance = cls._meta.error_type_class(
-                    field=e.field, message=e.message, code=code
-                )
-                if params:
-                    # If some of the params key overlap with error class fields
-                    # attach param value to the error
-                    error_fields_in_params = set(params.keys()) & error_class_fields
-                    for error_field in error_fields_in_params:
-                        setattr(error_instance, error_field, params[error_field])
-                typed_errors.append(error_instance)
-
-            extra.update({cls._meta.error_type_field: typed_errors})
-        return cls(errors=[e[0] for e in errors], **extra)
+        if cls._meta.error_type_field is not None:
+            extra.update({cls._meta.error_type_field: errors})
+        return cls(errors=errors, **extra)
 
 
 class ModelMutation(BaseMutation):
@@ -468,9 +498,12 @@ class ModelMutation(BaseMutation):
         The expected graphene type can be lazy (str).
         """
         object_id = data.get("id")
+        qs = data.get("qs")
         if object_id:
             model_type = cls.get_type_for_model()
-            instance = cls.get_node_or_error(info, object_id, only_type=model_type)
+            instance = cls.get_node_or_error(
+                info, object_id, only_type=model_type, qs=qs
+            )
         else:
             instance = cls._meta.model()
         return instance
@@ -561,7 +594,7 @@ class BaseBulkMutation(BaseMutation):
         """
 
     @classmethod
-    def bulk_action(cls, queryset, **kwargs):
+    def bulk_action(cls, info, queryset, **kwargs):
         """Implement action performed on queryset."""
         raise NotImplementedError
 
@@ -603,6 +636,10 @@ class BaseBulkMutation(BaseMutation):
 
             data.pop('offer_type', None)
             data.pop('starting_at', None)
+        try:
+            instances = cls.get_nodes_or_error(ids, "id", model_type)
+        except ValidationError as error:
+            return 0, error
         for instance, node_id in zip(instances, ids):
             instance_errors = []
 
@@ -652,5 +689,39 @@ class ModelBulkDeleteMutation(BaseBulkMutation):
         abstract = True
 
     @classmethod
-    def bulk_action(cls, queryset):
+    def bulk_action(cls, info, queryset):
         queryset.delete()
+
+
+class FileUpload(BaseMutation):
+    uploaded_file = graphene.Field(File)
+
+    class Arguments:
+        file = Upload(
+            required=True, description="Represents a file in a multipart request."
+        )
+
+    class Meta:
+        description = (
+            "Upload a file. This mutation must be sent as a `multipart` "
+            "request. More detailed specs of the upload format can be found here: "
+            "https://github.com/jaydenseric/graphql-multipart-request-spec"
+        )
+        error_type_class = UploadError
+        error_type_field = "upload_errors"
+
+    @classmethod
+    @staff_member_or_app_required
+    def perform_mutation(cls, _root, info, **data):
+        file_data = info.context.FILES.get(data["file"])
+
+        # add unique text fragment to the file name to prevent file overriding
+        file_name, format = os.path.splitext(file_data._name)
+        hash = secrets.token_hex(nbytes=4)
+        new_name = f"file_upload/{file_name}_{hash}{format}"
+
+        path = default_storage.save(new_name, file_data.file)
+
+        return FileUpload(
+            uploaded_file=File(url=path, content_type=file_data.content_type)
+        )

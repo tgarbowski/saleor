@@ -6,7 +6,11 @@ import pytest
 from ....app.models import App
 from ....webhook.event_types import WebhookEventType
 from ....webhook.models import Webhook
-from ...tests.utils import assert_no_permission, get_graphql_content
+from ...tests.utils import (
+    assert_no_permission,
+    get_graphql_content,
+    get_graphql_content_from_response,
+)
 from ..enums import WebhookEventTypeEnum, WebhookSampleEventTypeEnum
 
 WEBHOOK_CREATE_BY_APP = """
@@ -110,7 +114,10 @@ WEBHOOK_CREATE_BY_STAFF = """
 
 
 def test_webhook_create_by_staff(
-    staff_api_client, app, permission_manage_apps, permission_manage_orders,
+    staff_api_client,
+    app,
+    permission_manage_apps,
+    permission_manage_orders,
 ):
     query = WEBHOOK_CREATE_BY_STAFF
     app.permissions.add(permission_manage_orders)
@@ -161,7 +168,7 @@ def test_webhook_create_by_staff_without_permission(staff_api_client, app):
 WEBHOOK_DELETE_BY_APP = """
     mutation webhookDelete($id: ID!){
       webhookDelete(id: $id){
-        webhookErrors{
+        errors{
           field
           message
           code
@@ -205,7 +212,7 @@ def test_webhook_delete_by_app_and_missing_webhook(app_api_client, webhook):
 
     response = app_api_client.post_graphql(query, variables=variables)
     content = get_graphql_content(response)
-    errors = content["data"]["webhookDelete"]["webhookErrors"]
+    errors = content["data"]["webhookDelete"]["errors"]
     assert errors[0]["code"] == "GRAPHQL_ERROR"
 
 
@@ -299,161 +306,6 @@ def test_webhook_update_by_staff_without_permission(staff_api_client, app, webho
     assert_no_permission(response)
 
 
-QUERY_WEBHOOKS = """
-    query webhooks($filter: WebhookFilterInput){
-      webhooks(first:5, filter: $filter){
-        edges{
-          node{
-            app{
-              id
-            }
-            targetUrl
-            id
-            events{
-              eventType
-            }
-          }
-        }
-      }
-    }
-"""
-
-
-def test_query_webhooks_by_staff(staff_api_client, webhook, permission_manage_apps):
-    query = QUERY_WEBHOOKS
-    webhook.id = None
-    webhook.save()
-    variables = {"filter": {}}
-    staff_api_client.user.user_permissions.add(permission_manage_apps)
-    response = staff_api_client.post_graphql(query, variables=variables)
-    content = get_graphql_content(response)
-    webhooks = content["data"]["webhooks"]["edges"]
-    assert len(webhooks) == 2
-
-
-def test_query_webhooks_by_staff_without_permission(staff_api_client, webhook):
-    query = QUERY_WEBHOOKS
-    variables = {"filter": {}}
-    response = staff_api_client.post_graphql(query, variables=variables)
-    assert_no_permission(response)
-
-
-def test_query_webhooks_by_app(app_api_client, webhook):
-    second_app = App.objects.create(name="Sample app", is_active=True)
-    second_webhook = Webhook.objects.create(
-        app=second_app, target_url="http://www.example.com/test"
-    )
-    second_webhook.events.create(event_type="order_created")
-
-    query = QUERY_WEBHOOKS
-    variables = {"filter": {}}
-    response = app_api_client.post_graphql(query, variables=variables)
-    content = get_graphql_content(response)
-    webhooks = content["data"]["webhooks"]["edges"]
-    assert len(webhooks) == 1
-    webhook_data = webhooks[0]
-    webhook_id = webhook_data["node"]["id"]
-    _, webhook_id = graphene.Node.from_global_id(webhook_id)
-    assert webhook_id == str(webhook.id)
-
-
-@pytest.mark.parametrize(
-    "webhook_filter",
-    [
-        {"isActive": False},
-        {"search": "Sample"},
-        {"isActive": False, "search": "Sample"},
-    ],
-)
-def test_query_webhooks_with_filters(
-    webhook_filter, staff_api_client, webhook, permission_manage_apps
-):
-    second_app = App.objects.create(name="Second sample app account", is_active=False)
-    second_webhook = Webhook.objects.create(
-        app=second_app,
-        target_url="http://www.example.com/test",
-        is_active=False,
-        name="Sample webhook",
-    )
-    second_webhook.events.create(event_type="order_created")
-
-    query = QUERY_WEBHOOKS
-    variables = {"filter": webhook_filter}
-    staff_api_client.user.user_permissions.add(permission_manage_apps)
-    response = staff_api_client.post_graphql(query, variables=variables)
-    content = get_graphql_content(response)
-    webhooks = content["data"]["webhooks"]["edges"]
-    assert len(webhooks) == 1
-    webhook_data = webhooks[0]
-    webhook_id = webhook_data["node"]["id"]
-    _, webhook_id = graphene.Node.from_global_id(webhook_id)
-    assert webhook_id == str(second_webhook.id)
-
-
-QUERY_WEBHOOKS_WITH_SORT = """
-    query ($sort_by: WebhookSortingInput!) {
-        webhooks(first:5, sortBy: $sort_by) {
-            edges{
-                node{
-                    name
-                }
-            }
-        }
-    }
-"""
-
-
-@pytest.mark.parametrize(
-    "webhooks_sort, result_order",
-    [
-        ({"field": "NAME", "direction": "ASC"}, ["backup", "hook1", "hook2"]),
-        ({"field": "NAME", "direction": "DESC"}, ["hook2", "hook1", "backup"]),
-        ({"field": "APP", "direction": "ASC"}, ["hook2", "backup", "hook1"],),
-        ({"field": "APP", "direction": "DESC"}, ["hook1", "backup", "hook2"],),
-        ({"field": "TARGET_URL", "direction": "ASC"}, ["hook2", "hook1", "backup"]),
-        ({"field": "TARGET_URL", "direction": "DESC"}, ["backup", "hook1", "hook2"]),
-    ],
-)
-def test_query_webhooks_with_sort(
-    webhooks_sort, result_order, staff_api_client, permission_manage_apps
-):
-    backupApp = App.objects.create(name="backupApp", is_active=True)
-    app = App.objects.create(name="app", is_active=True)
-    Webhook.objects.bulk_create(
-        [
-            Webhook(
-                name="hook1", app=backupApp, target_url="http://example.com/activate2",
-            ),
-            Webhook(name="hook2", app=app, target_url="http://example.com/activate",),
-            Webhook(
-                name="backup", app=backupApp, target_url="http://example.com/backup",
-            ),
-        ]
-    )
-    variables = {"sort_by": webhooks_sort}
-    staff_api_client.user.user_permissions.add(permission_manage_apps)
-    response = staff_api_client.post_graphql(QUERY_WEBHOOKS_WITH_SORT, variables)
-    content = get_graphql_content(response)
-    webhooks = content["data"]["webhooks"]["edges"]
-    for order, webhook_name in enumerate(result_order):
-        assert webhooks[order]["node"]["name"] == webhook_name
-
-
-def test_query_webhooks_by_app_without_permissions(app_api_client,):
-    second_app = App.objects.create(name="Sample app account", is_active=True)
-    second_webhook = Webhook.objects.create(
-        app=second_app, target_url="http://www.example.com/test"
-    )
-    second_webhook.events.create(event_type="order_created")
-
-    query = QUERY_WEBHOOKS
-    variables = {"filter": {}}
-    response = app_api_client.post_graphql(query, variables=variables)
-    content = get_graphql_content(response)
-    webhooks = content["data"]["webhooks"]["edges"]
-    assert len(webhooks) == 0
-
-
 QUERY_WEBHOOK = """
     query webhook($id: ID!){
       webhook(id: $id){
@@ -508,7 +360,7 @@ def test_query_webhook_by_app(app_api_client, webhook):
     assert events[0].event_type == WebhookEventTypeEnum.ORDER_CREATED.value
 
 
-def test_query_webhook_by_app_without_permission(app_api_client,):
+def test_query_webhook_by_app_without_permission(app_api_client):
     second_app = App.objects.create(name="Sample app account", is_active=True)
     webhook = Webhook.objects.create(
         app=second_app, target_url="http://www.example.com/test"
@@ -522,6 +374,41 @@ def test_query_webhook_by_app_without_permission(app_api_client,):
     content = get_graphql_content(response)
     webhook_response = content["data"]["webhook"]
     assert webhook_response is None
+
+
+def test_webhook_query_invalid_id(staff_api_client, webhook, permission_manage_apps):
+    webhook_id = "'"
+    staff_api_client.user.user_permissions.add(permission_manage_apps)
+    variables = {
+        "id": webhook_id,
+    }
+    response = staff_api_client.post_graphql(QUERY_WEBHOOK, variables)
+    content = get_graphql_content_from_response(response)
+    assert len(content["errors"]) == 1
+    assert content["errors"][0]["message"] == f"Couldn't resolve id: {webhook_id}."
+    assert content["data"]["webhook"] is None
+
+
+def test_webhook_query_object_with_given_id_does_not_exist(
+    staff_api_client, webhook, permission_manage_apps
+):
+    webhook_id = graphene.Node.to_global_id("Webhook", -1)
+    staff_api_client.user.user_permissions.add(permission_manage_apps)
+    variables = {"id": webhook_id}
+    response = staff_api_client.post_graphql(QUERY_WEBHOOK, variables)
+    content = get_graphql_content(response)
+    assert content["data"]["webhook"] is None
+
+
+def test_webhook_with_invalid_object_type(
+    staff_api_client, webhook, permission_manage_apps
+):
+    webhook_id = graphene.Node.to_global_id("Product", webhook.pk)
+    staff_api_client.user.user_permissions.add(permission_manage_apps)
+    variables = {"id": webhook_id}
+    response = staff_api_client.post_graphql(QUERY_WEBHOOK, variables)
+    content = get_graphql_content(response)
+    assert content["data"]["webhook"] is None
 
 
 WEBHOOK_EVENTS_QUERY = """
@@ -571,10 +458,12 @@ SAMPLE_PAYLOAD_QUERY = """
         (WebhookSampleEventTypeEnum.CUSTOMER_CREATED, False),
         (WebhookSampleEventTypeEnum.PRODUCT_CREATED, False),
         (WebhookSampleEventTypeEnum.PRODUCT_UPDATED, False),
-        (WebhookSampleEventTypeEnum.CHECKOUT_QUANTITY_CHANGED, False),
         (WebhookSampleEventTypeEnum.CHECKOUT_CREATED, False),
         (WebhookSampleEventTypeEnum.CHECKOUT_UPDATED, False),
         (WebhookSampleEventTypeEnum.FULFILLMENT_CREATED, True),
+        (WebhookSampleEventTypeEnum.PAGE_CREATED, False),
+        (WebhookSampleEventTypeEnum.PAGE_UPDATED, False),
+        (WebhookSampleEventTypeEnum.PAGE_DELETED, False),
     ],
 )
 def test_sample_payload_query_by_app(
@@ -612,10 +501,12 @@ def test_sample_payload_query_by_app(
         (WebhookSampleEventTypeEnum.CUSTOMER_CREATED, True),
         (WebhookSampleEventTypeEnum.PRODUCT_CREATED, True),
         (WebhookSampleEventTypeEnum.PRODUCT_UPDATED, True),
-        (WebhookSampleEventTypeEnum.CHECKOUT_QUANTITY_CHANGED, True),
         (WebhookSampleEventTypeEnum.CHECKOUT_CREATED, True),
         (WebhookSampleEventTypeEnum.CHECKOUT_UPDATED, True),
         (WebhookSampleEventTypeEnum.FULFILLMENT_CREATED, False),
+        (WebhookSampleEventTypeEnum.PAGE_CREATED, True),
+        (WebhookSampleEventTypeEnum.PAGE_UPDATED, True),
+        (WebhookSampleEventTypeEnum.PAGE_DELETED, True),
     ],
 )
 def test_sample_payload_query_by_staff(
@@ -626,12 +517,14 @@ def test_sample_payload_query_by_staff(
     permission_manage_users,
     permission_manage_products,
     permission_manage_checkouts,
+    permission_manage_pages,
 ):
     mock_generate_sample_payload.return_value = {"mocked_response": ""}
     query = SAMPLE_PAYLOAD_QUERY
     staff_api_client.user.user_permissions.add(permission_manage_users)
     staff_api_client.user.user_permissions.add(permission_manage_products)
     staff_api_client.user.user_permissions.add(permission_manage_checkouts)
+    staff_api_client.user.user_permissions.add(permission_manage_pages)
     variables = {"event_type": event_type.name}
     response = staff_api_client.post_graphql(query, variables=variables)
     if not has_access:

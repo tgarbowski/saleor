@@ -109,6 +109,9 @@ def test_generate_sample_payload_fulfillment_created(fulfillment):
         WebhookEventType.ORDER_CANCELLED,
         WebhookEventType.ORDER_FULFILLED,
         WebhookEventType.ORDER_FULLY_PAID,
+        WebhookEventType.DRAFT_ORDER_CREATED,
+        WebhookEventType.DRAFT_ORDER_UPDATED,
+        WebhookEventType.DRAFT_ORDER_DELETED,
         WebhookEventType.PRODUCT_CREATED,
         WebhookEventType.PRODUCT_UPDATED,
         "Non_existing_event",
@@ -148,7 +151,7 @@ def _remove_anonymized_checkout_data(checkout_data: dict) -> dict:
 
 def test_generate_sample_checkout_payload(user_checkout_with_items):
     checkout = user_checkout_with_items
-    payload = generate_sample_payload(WebhookEventType.CHECKOUT_QUANTITY_CHANGED)
+    payload = generate_sample_payload(WebhookEventType.CHECKOUT_UPDATED)
     checkout_payload = json.loads(generate_checkout_payload(checkout))
     # Check anonymized data differ
     assert checkout.token != payload[0]["token"]

@@ -23,7 +23,7 @@ def test_product_variants_stocks_create(
                     }
                 }
             }
-            bulkStockErrors{
+            errors{
                 code
                 field
                 message
@@ -52,11 +52,13 @@ def test_product_variants_stocks_create(
     ]
     variables = {"variantId": variant_id, "stocks": stocks}
     response = staff_api_client.post_graphql(
-        query, variables, permissions=[permission_manage_products],
+        query,
+        variables,
+        permissions=[permission_manage_products],
     )
     content = get_graphql_content(response)
     data = content["data"]["productVariantStocksCreate"]
-    assert not data["bulkStockErrors"]
+    assert not data["errors"]
     assert (
         len(data["productVariant"]["stocks"])
         == variant.stocks.count()
@@ -82,7 +84,7 @@ def test_product_variants_stocks_update(
                         }
                     }
                 }
-                bulkStockErrors{
+                errors{
                     code
                     field
                     message
@@ -113,12 +115,14 @@ def test_product_variants_stocks_update(
     ]
     variables = {"variantId": variant_id, "stocks": stocks}
     response = staff_api_client.post_graphql(
-        query, variables, permissions=[permission_manage_products],
+        query,
+        variables,
+        permissions=[permission_manage_products],
     )
     content = get_graphql_content(response)
     data = content["data"]["productVariantStocksUpdate"]
 
-    assert not data["bulkStockErrors"]
+    assert not data["errors"]
     assert len(data["productVariant"]["stocks"]) == len(stocks)
     assert variant.stocks.count() == stocks_count + 1
 
@@ -169,7 +173,9 @@ def test_product_variants_stocks_delete(
 
     variables = {"variantId": variant_id, "warehouseIds": warehouse_ids}
     response = staff_api_client.post_graphql(
-        query, variables, permissions=[permission_manage_products],
+        query,
+        variables,
+        permissions=[permission_manage_products],
     )
     content = get_graphql_content(response)
     data = content["data"]["productVariantStocksDelete"]
@@ -180,3 +186,44 @@ def test_product_variants_stocks_delete(
         == variant.stocks.count()
         == stocks_count - 1
     )
+
+
+@pytest.mark.django_db
+@pytest.mark.count_queries(autouse=False)
+def test_query_product_variants_stocks(
+    staff_api_client, variant, warehouse, permission_manage_products, count_queries
+):
+    query = """
+    query getStocks($id: ID!){
+        productVariant(id: $id){
+            id
+            stocks{
+                quantity
+            }
+        }
+    }
+    """
+
+    variant_id = graphene.Node.to_global_id("ProductVariant", variant.pk)
+    second_warehouse = Warehouse.objects.get(pk=warehouse.pk)
+    second_warehouse.slug = "second warehouse"
+    second_warehouse.pk = None
+    second_warehouse.save()
+
+    Stock.objects.bulk_create(
+        [
+            Stock(product_variant=variant, warehouse=warehouse, quantity=10),
+            Stock(product_variant=variant, warehouse=second_warehouse, quantity=140),
+        ]
+    )
+
+    variables = {"id": variant_id}
+    response = staff_api_client.post_graphql(
+        query,
+        variables,
+        permissions=[permission_manage_products],
+        check_no_permissions=False,
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["productVariant"]
+    assert len(data["stocks"]) == variant.stocks.count()

@@ -1,12 +1,12 @@
 import datetime
 from typing import Any
 
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import JSONField  # type: ignore
 from django.db.models import F, Max, Q
 
 from . import JobStatus
-from .permissions import ProductPermissions
 from .utils.json_serializer import CustomJsonEncoder
 
 
@@ -48,21 +48,12 @@ class PublishedQuerySet(models.QuerySet):
             is_published=True,
         )
 
-    @staticmethod
-    def user_has_access_to_all(user):
-        return user.is_active and user.has_perm(ProductPermissions.MANAGE_PRODUCTS)
-
-    def visible_to_user(self, user):
-        if self.user_has_access_to_all(user):
-            return self.all()
-        return self.published()
-
 
 class PublishableModel(models.Model):
     publication_date = models.DateField(blank=True, null=True)
     is_published = models.BooleanField(default=False)
 
-    objects = PublishedQuerySet.as_manager()
+    objects = models.Manager.from_queryset(PublishedQuerySet)()
 
     class Meta:
         abstract = True
@@ -82,6 +73,10 @@ class ModelWithMetadata(models.Model):
     metadata = JSONField(blank=True, null=True, default=dict, encoder=CustomJsonEncoder)
 
     class Meta:
+        indexes = [
+            GinIndex(fields=["private_metadata"], name="%(class)s_p_meta_idx"),
+            GinIndex(fields=["metadata"], name="%(class)s_meta_idx"),
+        ]
         abstract = True
 
     def get_value_from_private_metadata(self, key: str, default: Any = None) -> Any:

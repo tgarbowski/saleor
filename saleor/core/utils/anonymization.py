@@ -8,8 +8,8 @@ from ...account.models import Address, User
 from .random_data import create_address, create_fake_user
 
 if TYPE_CHECKING:
-    from ...order.models import Order
     from ...checkout.models import Checkout
+    from ...order.models import Order
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def generate_fake_user() -> "User":
 
     The instance cannot be saved
     """
-    fake_user = create_fake_user(save=False)
+    fake_user = create_fake_user(user_password=None, save=False)
     # Prevent accidental saving of the instance
     fake_user.save = _fake_save  # type: ignore
     return fake_user
@@ -68,7 +68,6 @@ def anonymize_checkout(checkout: "Checkout") -> "Checkout":
     """
     anonymized_checkout = copy.deepcopy(checkout)
     # Prevent accidental saving of the instance
-    anonymized_checkout.token = ""  # Token is the "pk" for checkout
     anonymized_checkout.save = _fake_save  # type: ignore
     fake_user = generate_fake_user()
     anonymized_checkout.user = fake_user

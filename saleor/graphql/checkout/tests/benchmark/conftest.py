@@ -1,9 +1,11 @@
 import pytest
 
 from .....checkout import calculations
-from .....checkout.utils import add_variant_to_checkout
+from .....checkout.fetch import fetch_checkout_info, fetch_checkout_lines
+from .....checkout.utils import add_variant_to_checkout, add_voucher_to_checkout
 from .....payment import ChargeStatus, TransactionKind
 from .....payment.models import Payment
+from .....plugins.manager import get_plugins_manager
 
 
 @pytest.fixture
@@ -21,11 +23,18 @@ def checkout_with_variants(
     product_with_single_variant,
     product_with_two_variants,
 ):
+    checkout_info = fetch_checkout_info(checkout, [], [], get_plugins_manager())
 
-    add_variant_to_checkout(checkout, product_with_default_variant.variants.get(), 1)
-    add_variant_to_checkout(checkout, product_with_single_variant.variants.get(), 10)
-    add_variant_to_checkout(checkout, product_with_two_variants.variants.first(), 3)
-    add_variant_to_checkout(checkout, product_with_two_variants.variants.last(), 5)
+    add_variant_to_checkout(
+        checkout_info, product_with_default_variant.variants.get(), 1
+    )
+    add_variant_to_checkout(
+        checkout_info, product_with_single_variant.variants.get(), 10
+    )
+    add_variant_to_checkout(
+        checkout_info, product_with_two_variants.variants.first(), 3
+    )
+    add_variant_to_checkout(checkout_info, product_with_two_variants.variants.last(), 5)
 
     checkout.save()
     return checkout
@@ -62,10 +71,28 @@ def checkout_with_billing_address(checkout_with_shipping_method, address):
 
 
 @pytest.fixture()
-def checkout_with_charged_payment(checkout_with_billing_address):
+def checkout_with_voucher(checkout_with_billing_address, voucher):
     checkout = checkout_with_billing_address
+    manager = get_plugins_manager()
+    lines = fetch_checkout_lines(checkout)
+    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    add_voucher_to_checkout(manager, checkout_info, lines, voucher)
+    return checkout
 
-    taxed_total = calculations.checkout_total(checkout=checkout, lines=list(checkout))
+
+@pytest.fixture()
+def checkout_with_charged_payment(checkout_with_voucher):
+    checkout = checkout_with_voucher
+    manager = get_plugins_manager()
+    lines = fetch_checkout_lines(checkout)
+    checkout_info = fetch_checkout_info(checkout_with_voucher, lines, [], manager)
+    manager = get_plugins_manager()
+    taxed_total = calculations.checkout_total(
+        manager=manager,
+        checkout_info=checkout_info,
+        lines=lines,
+        address=checkout.shipping_address,
+    )
     payment = Payment.objects.create(
         gateway="mirumee.payments.dummy",
         is_active=True,
@@ -75,7 +102,7 @@ def checkout_with_charged_payment(checkout_with_billing_address):
 
     payment.charge_status = ChargeStatus.FULLY_CHARGED
     payment.captured_amount = payment.total
-    payment.checkout = checkout_with_billing_address
+    payment.checkout = checkout
     payment.save()
 
     payment.transactions.create(

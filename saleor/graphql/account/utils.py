@@ -15,6 +15,7 @@ from ...core.permissions import AccountPermissions
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
+
     from ...account.models import User
     from ...app.models import App
 
@@ -65,8 +66,10 @@ class CustomerDeleteMixin(UserDeleteMixin):
 
     @classmethod
     def post_process(cls, info, deleted_count=1):
-        account_events.staff_user_deleted_a_customer_event(
-            staff_user=info.context.user, deleted_count=deleted_count
+        account_events.customer_deleted_event(
+            staff_user=info.context.user,
+            app=info.context.app,
+            deleted_count=deleted_count,
         )
 
 
@@ -151,6 +154,11 @@ class StaffDeleteMixin(UserDeleteMixin):
 def get_required_fields_camel_case(required_fields: set) -> set:
     """Return set of AddressValidationRules required fields in camel case."""
     return {validation_field_to_camel_case(field) for field in required_fields}
+
+
+def get_upper_fields_camel_case(upper_fields: set) -> set:
+    """Return set of AddressValidationRules upper fields in camel case."""
+    return {validation_field_to_camel_case(field) for field in upper_fields}
 
 
 def validation_field_to_camel_case(name: str) -> str:
@@ -337,7 +345,8 @@ def get_not_manageable_permissions_after_group_deleting(group):
 
 
 def get_not_manageable_permissions(
-    groups_data: dict, not_manageable_permissions: Set[str],
+    groups_data: dict,
+    not_manageable_permissions: Set[str],
 ):
     # get users from groups with manage staff and look for not_manageable_permissions
     # if any of not_manageable_permissions is found it is removed from set
@@ -402,7 +411,8 @@ def get_group_to_permissions_and_users_mapping():
 
 
 def get_users_and_look_for_permissions_in_groups_with_manage_staff(
-    groups_data: dict, permissions_to_find: Set[str],
+    groups_data: dict,
+    permissions_to_find: Set[str],
 ):
     """Search for permissions in groups with manage staff and return their users.
 
@@ -429,7 +439,9 @@ def get_users_and_look_for_permissions_in_groups_with_manage_staff(
 
 
 def look_for_permission_in_users_with_manage_staff(
-    groups_data: dict, users_to_check: Set[int], permissions_to_find: Set[str],
+    groups_data: dict,
+    users_to_check: Set[int],
+    permissions_to_find: Set[str],
 ):
     """Search for permissions in user with manage staff groups.
 

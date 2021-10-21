@@ -26,10 +26,9 @@ SECRET_KEY = "NOTREALLY"
 
 ALLOWED_CLIENT_HOSTS = ["www.example.com"]
 
-DEFAULT_CURRENCY = "USD"
-
 TIME_ZONE = "America/Chicago"
 LANGUAGE_CODE = "en"
+
 
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
@@ -42,7 +41,6 @@ MAX_CHECKOUT_LINE_QUANTITY = 50
 AUTH_PASSWORD_VALIDATORS = []
 
 PASSWORD_HASHERS = ["saleor.tests.dummy_password_hasher.DummyHasher"]
-PLUGINS_MANAGER = "saleor.plugins.manager.PluginsManager"
 
 PLUGINS = []
 
@@ -53,3 +51,5 @@ PATTERNS_IGNORED_IN_QUERY_CAPTURES: List[Union[Pattern, SimpleLazyObject]] = [
 INSTALLED_APPS.append("saleor.tests")  # noqa: F405
 
 JWT_EXPIRE = True
+
+DEFAULT_CHANNEL_SLUG = "main"

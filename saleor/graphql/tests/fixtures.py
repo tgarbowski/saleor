@@ -1,5 +1,7 @@
 import json
 import logging
+from unittest import mock
+from unittest.mock import Mock
 
 import graphene
 import pytest
@@ -10,6 +12,7 @@ from django.test.client import MULTIPART_CONTENT, Client
 
 from ...account.models import User
 from ...core.jwt import create_access_token
+from ...plugins.manager import get_plugins_manager
 from ...tests.utils import flush_post_commit_hooks
 from ..views import handled_errors_logger, unhandled_errors_logger
 from .utils import assert_no_permission
@@ -91,7 +94,8 @@ class ApiClient(Client):
 
         if permissions:
             if check_no_permissions:
-                response = super().post(API_PATH, data, **kwargs)
+                with mock.patch("saleor.graphql.views.handled_errors_logger"):
+                    response = super().post(API_PATH, data, **kwargs)
                 assert_no_permission(response)
             if self.app:
                 self.app.permissions.add(*permissions)
@@ -143,8 +147,13 @@ def api_client():
 
 @pytest.fixture
 def schema_context():
-    params = {"user": AnonymousUser()}
+    params = {"user": AnonymousUser(), "app": None, "plugins": get_plugins_manager()}
     return graphene.types.Context(**params)
+
+
+@pytest.fixture
+def info(schema_context):
+    return Mock(context=schema_context)
 
 
 class LoggingHandler(logging.Handler):

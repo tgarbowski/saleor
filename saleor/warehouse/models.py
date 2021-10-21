@@ -3,10 +3,12 @@ import uuid
 from typing import Set
 
 from django.db import models
-from django.db.models import F, Sum
+from django.db.models import Exists, F, OuterRef, Q, Sum
 from django.db.models.functions import Coalesce
 
 from ..account.models import Address
+from ..channel.models import Channel
+from ..core.models import ModelWithMetadata
 from ..order.models import OrderLine
 from ..product.models import Product, ProductVariant
 from ..shipping.models import ShippingZone
@@ -24,20 +26,19 @@ class WarehouseQueryset(models.QuerySet):
         )
 
 
-class Warehouse(models.Model):
+class Warehouse(ModelWithMetadata):
     id = models.UUIDField(default=uuid.uuid4, primary_key=True)
     name = models.CharField(max_length=250)
     slug = models.SlugField(max_length=255, unique=True, allow_unicode=True)
-    company_name = models.CharField(blank=True, max_length=255)
     shipping_zones = models.ManyToManyField(
         ShippingZone, blank=True, related_name="warehouses"
     )
     address = models.ForeignKey(Address, on_delete=models.PROTECT)
     email = models.EmailField(blank=True, default="")
 
-    objects = WarehouseQueryset.as_manager()
+    objects = models.Manager.from_queryset(WarehouseQueryset)()
 
-    class Meta:
+    class Meta(ModelWithMetadata.Meta):
         ordering = ("-slug",)
 
     def __str__(self):
@@ -58,30 +59,61 @@ class StockQuerySet(models.QuerySet):
     def annotate_available_quantity(self):
         return self.annotate(
             available_quantity=F("quantity")
-            - Coalesce(Sum("allocations__quantity_allocated"), 0)
+            - Coalesce(
+                Sum(
+                    "allocations__quantity_allocated",
+                    filter=Q(allocations__quantity_allocated__gt=0),
+                ),
+                0,
+            )
         )
 
-    def for_country(self, country_code: str):
+    def for_channel(self, channel_slug: str):
+        ShippingZoneChannel = Channel.shipping_zones.through  # type: ignore
+        WarehouseShippingZone = ShippingZone.warehouses.through  # type: ignore
+        channels = Channel.objects.filter(slug=channel_slug).values("pk")
+        shipping_zone_channels = ShippingZoneChannel.objects.filter(
+            Exists(channels.filter(pk=OuterRef("channel_id")))
+        ).values("shippingzone_id")
+        warehouse_shipping_zones = WarehouseShippingZone.objects.filter(
+            Exists(
+                shipping_zone_channels.filter(
+                    shippingzone_id=OuterRef("shippingzone_id")
+                )
+            )
+        ).values("warehouse_id")
+        return self.select_related("product_variant").filter(
+            Exists(
+                warehouse_shipping_zones.filter(warehouse_id=OuterRef("warehouse_id"))
+            )
+        )
+
+    def for_country_and_channel(self, country_code: str, channel_slug):
+        filter_lookup = {"shipping_zones__countries__contains": country_code}
+        if channel_slug is not None:
+            filter_lookup["shipping_zones__channels__slug"] = channel_slug
         query_warehouse = models.Subquery(
-            Warehouse.objects.filter(
-                shipping_zones__countries__contains=country_code
-            ).values("pk")
+            Warehouse.objects.filter(**filter_lookup).values("pk")
         )
         return self.select_related("product_variant", "warehouse").filter(
             warehouse__in=query_warehouse
         )
 
     def get_variant_stocks_for_country(
-        self, country_code: str, product_variant: ProductVariant
+        self, country_code: str, channel_slug: str, product_variant: ProductVariant
     ):
         """Return the stock information about the a stock for a given country.
 
         Note it will raise a 'Stock.DoesNotExist' exception if no such stock is found.
         """
-        return self.for_country(country_code).filter(product_variant=product_variant)
+        return self.for_country_and_channel(country_code, channel_slug).filter(
+            product_variant=product_variant
+        )
 
-    def get_product_stocks_for_country(self, country_code: str, product: Product):
-        return self.for_country(country_code).filter(
+    def get_product_stocks_for_country_and_channel(
+        self, country_code: str, channel_slug: str, product: Product
+    ):
+        return self.for_country_and_channel(country_code, channel_slug).filter(
             product_variant__product_id=product.pk
         )
 
@@ -91,9 +123,9 @@ class Stock(models.Model):
     product_variant = models.ForeignKey(
         ProductVariant, null=False, on_delete=models.CASCADE, related_name="stocks"
     )
-    quantity = models.PositiveIntegerField(default=0)
+    quantity = models.IntegerField(default=0)
 
-    objects = StockQuerySet.as_manager()
+    objects = models.Manager.from_queryset(StockQuerySet)()
 
     class Meta:
         unique_together = [["warehouse", "product_variant"]]

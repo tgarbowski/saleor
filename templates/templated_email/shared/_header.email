@@ -1,2 +1,0 @@
-{% load i18n %}
-{% trans "Witaj!" context "Standard e-mail greeting" %}

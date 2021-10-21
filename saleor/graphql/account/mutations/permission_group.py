@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import graphene
 from django.contrib.auth import models as auth_models
 from django.core.exceptions import ValidationError
-from django.db import transaction
 
 from ....account.error_codes import PermissionGroupErrorCode
 from ....core.permissions import AccountPermissions, get_permissions
+from ....core.tracing import traced_atomic_transaction
 from ...account.utils import (
     can_user_manage_group,
     get_not_manageable_permissions_after_group_deleting,
@@ -19,7 +19,7 @@ from ...account.utils import (
 from ...core.enums import PermissionEnum
 from ...core.mutations import ModelDeleteMutation, ModelMutation
 from ...core.types.common import PermissionGroupError
-from ...core.utils import get_duplicates_ids
+from ...utils.validators import check_for_duplicates
 
 if TYPE_CHECKING:
     from ....account.models import User
@@ -56,7 +56,7 @@ class PermissionGroupCreate(ModelMutation):
         error_type_field = "permission_group_errors"
 
     @classmethod
-    @transaction.atomic
+    @traced_atomic_transaction()
     def _save_m2m(cls, info, instance, cleaned_data):
         add_permissions = cleaned_data.get("add_permissions")
         if add_permissions:
@@ -68,7 +68,10 @@ class PermissionGroupCreate(ModelMutation):
 
     @classmethod
     def clean_input(
-        cls, info, instance, data,
+        cls,
+        info,
+        instance,
+        data,
     ):
         cleaned_input = super().clean_input(info, instance, data)
 
@@ -192,7 +195,7 @@ class PermissionGroupUpdate(PermissionGroupCreate):
         error_type_field = "permission_group_errors"
 
     @classmethod
-    @transaction.atomic
+    @traced_atomic_transaction()
     def _save_m2m(cls, info, instance, cleaned_data):
         super()._save_m2m(info, instance, cleaned_data)
         remove_users = cleaned_data.get("remove_users")
@@ -204,7 +207,10 @@ class PermissionGroupUpdate(PermissionGroupCreate):
 
     @classmethod
     def clean_input(
-        cls, info, instance, data,
+        cls,
+        info,
+        instance,
+        data,
     ):
         requestor = info.context.user
         cls.ensure_requestor_can_manage_group(requestor, instance)
@@ -213,8 +219,8 @@ class PermissionGroupUpdate(PermissionGroupCreate):
         permission_fields = ("add_permissions", "remove_permissions", "permissions")
         user_fields = ("add_users", "remove_users", "users")
 
-        cls.check_for_duplicates(errors, data, permission_fields)
-        cls.check_for_duplicates(errors, data, user_fields)
+        cls.check_duplicates(errors, data, permission_fields)
+        cls.check_duplicates(errors, data, user_fields)
 
         if errors:
             raise ValidationError(errors)
@@ -257,7 +263,10 @@ class PermissionGroupUpdate(PermissionGroupCreate):
 
     @classmethod
     def ensure_permissions_can_be_removed(
-        cls, errors: dict, group: auth_models.Group, permissions: List["str"],
+        cls,
+        errors: dict,
+        group: auth_models.Group,
+        permissions: List["str"],
     ):
         missing_perms = get_not_manageable_permissions_after_removing_perms_from_group(
             group, permissions
@@ -378,26 +387,21 @@ class PermissionGroupUpdate(PermissionGroupCreate):
             cls.update_errors(errors, msg, "remove_users", code, params)
 
     @classmethod
-    def check_for_duplicates(
-        cls, errors: dict, input_data: dict, fields: Tuple[str, str, str],
+    def check_duplicates(
+        cls,
+        errors: dict,
+        input_data: dict,
+        fields: Tuple[str, str, str],
     ):
         """Check if any items are on both input field.
 
         Raise error if some of items are duplicated.
         """
-        add_field, remove_field, error_class_field = fields
-        duplicated_ids = get_duplicates_ids(
-            input_data.get(add_field), input_data.get(remove_field)
-        )
-        if duplicated_ids:
-            # add error
-            error_msg = (
-                "The same object cannot be in both list"
-                "for adding and removing items."
-            )
-            code = PermissionGroupErrorCode.DUPLICATED_INPUT_ITEM.value
-            params = {error_class_field: list(duplicated_ids)}
-            cls.update_errors(errors, error_msg, None, code, params)
+        error = check_for_duplicates(input_data, *fields)
+        if error:
+            error.code = PermissionGroupErrorCode.DUPLICATED_INPUT_ITEM.value
+            error_field = fields[2]
+            errors[error_field].append(error)
 
 
 class PermissionGroupDelete(ModelDeleteMutation):

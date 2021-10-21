@@ -5,36 +5,45 @@ from typing import Optional
 from uuid import uuid4
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import JSONField  # type: ignore
 from django.db.models import F, Max, Sum
+from django.db.models.expressions import Exists, OuterRef
 from django.utils.timezone import now
 from django_measurement.models import MeasurementField
 from django_prices.models import MoneyField, TaxedMoneyField
 from measurement.measures import Weight
-from prices import Money
 
-from ..account.models import Address
+from ..app.models import App
+from ..channel.models import Channel
 from ..core.models import ModelWithMetadata
 from ..core.permissions import OrderPermissions
-from ..core.taxes import zero_money, zero_taxed_money
+from ..core.units import WeightUnits
 from ..core.utils.json_serializer import CustomJsonEncoder
-from ..core.weight import WeightUnits, zero_weight
+from ..core.weight import zero_weight
+from ..discount import DiscountValueType
 from ..discount.models import Voucher
 from ..giftcard.models import GiftCard
 from ..payment import ChargeStatus, TransactionKind
+from ..payment.model_helpers import get_subtotal, get_total_authorized
+from ..payment.models import Payment
 from ..shipping.models import ShippingMethod
-from . import FulfillmentStatus, OrderEvents, OrderStatus
+from . import FulfillmentStatus, OrderEvents, OrderOrigin, OrderStatus
 
 
 class OrderQueryset(models.QuerySet):
     def get_by_checkout_token(self, token):
         """Return non-draft order with matched checkout token."""
-        return self.confirmed().filter(checkout_token=token).first()
+        return self.non_draft().filter(checkout_token=token).first()
 
     def confirmed(self):
-        """Return non-draft orders."""
+        """Return orders that aren't draft or unconfirmed."""
+        return self.exclude(status__in=[OrderStatus.DRAFT, OrderStatus.UNCONFIRMED])
+
+    def non_draft(self):
+        """Return orders that aren't draft."""
         return self.exclude(status=OrderStatus.DRAFT)
 
     def drafts(self):
@@ -48,9 +57,13 @@ class OrderQueryset(models.QuerySet):
         fulfilled).
         """
         statuses = {OrderStatus.UNFULFILLED, OrderStatus.PARTIALLY_FULFILLED}
-        qs = self.filter(status__in=statuses, payments__is_active=True)
-        qs = qs.annotate(amount_paid=Sum("payments__captured_amount"))
-        return qs.filter(total_gross_amount__lte=F("amount_paid"))
+        payments = Payment.objects.filter(is_active=True).values("id")
+        qs = self.annotate(amount_paid=Sum("payments__captured_amount"))
+        return qs.filter(
+            Exists(payments.filter(order_id=OuterRef("id"))),
+            status__in=statuses,
+            total_gross_amount__lte=F("amount_paid"),
+        )
 
     def ready_to_capture(self):
         """Return orders with payments to capture.
@@ -59,11 +72,15 @@ class OrderQueryset(models.QuerySet):
         have a preauthorized payment. The preauthorized payment can not
         already be partially or fully captured.
         """
-        qs = self.filter(
-            payments__is_active=True, payments__charge_status=ChargeStatus.NOT_CHARGED
-        )
-        qs = qs.exclude(status={OrderStatus.DRAFT, OrderStatus.CANCELED})
-        return qs.distinct()
+        payments = Payment.objects.filter(
+            is_active=True, charge_status=ChargeStatus.NOT_CHARGED
+        ).values("id")
+        qs = self.filter(Exists(payments.filter(order_id=OuterRef("id"))))
+        return qs.exclude(status={OrderStatus.DRAFT, OrderStatus.CANCELED})
+
+    def ready_to_confirm(self):
+        """Return unconfirmed orders."""
+        return self.filter(status=OrderStatus.UNCONFIRMED)
 
 
 class Order(ModelWithMetadata):
@@ -78,19 +95,32 @@ class Order(ModelWithMetadata):
         related_name="orders",
         on_delete=models.SET_NULL,
     )
-    language_code = models.CharField(max_length=35, default=settings.LANGUAGE_CODE)
+    language_code = models.CharField(
+        max_length=35, choices=settings.LANGUAGES, default=settings.LANGUAGE_CODE
+    )
     tracking_client_id = models.CharField(max_length=36, blank=True, editable=False)
     billing_address = models.ForeignKey(
-        Address, related_name="+", editable=False, null=True, on_delete=models.SET_NULL
+        "account.Address",
+        related_name="+",
+        editable=False,
+        null=True,
+        on_delete=models.SET_NULL,
     )
     shipping_address = models.ForeignKey(
-        Address, related_name="+", editable=False, null=True, on_delete=models.SET_NULL
+        "account.Address",
+        related_name="+",
+        editable=False,
+        null=True,
+        on_delete=models.SET_NULL,
     )
     user_email = models.EmailField(blank=True, default="")
+    original = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL
+    )
+    origin = models.CharField(max_length=32, choices=OrderOrigin.CHOICES)
 
     currency = models.CharField(
         max_length=settings.DEFAULT_CURRENCY_CODE_LENGTH,
-        default=settings.DEFAULT_CURRENCY,
     )
 
     shipping_method = models.ForeignKey(
@@ -103,7 +133,11 @@ class Order(ModelWithMetadata):
     shipping_method_name = models.CharField(
         max_length=255, null=True, default=None, blank=True, editable=False
     )
-
+    channel = models.ForeignKey(
+        Channel,
+        related_name="orders",
+        on_delete=models.PROTECT,
+    )
     shipping_price_net_amount = models.DecimalField(
         max_digits=settings.DEFAULT_MAX_DIGITS,
         decimal_places=settings.DEFAULT_DECIMAL_PLACES,
@@ -129,6 +163,9 @@ class Order(ModelWithMetadata):
         gross_amount_field="shipping_price_gross_amount",
         currency_field="currency",
     )
+    shipping_tax_rate = models.DecimalField(
+        max_digits=5, decimal_places=4, default=Decimal("0.0")
+    )
 
     token = models.CharField(max_length=36, unique=True, blank=True)
     # Token of a checkout instance that this order was created from
@@ -139,15 +176,33 @@ class Order(ModelWithMetadata):
         decimal_places=settings.DEFAULT_DECIMAL_PLACES,
         default=0,
     )
+    undiscounted_total_net_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        default=0,
+    )
+
     total_net = MoneyField(amount_field="total_net_amount", currency_field="currency")
+    undiscounted_total_net = MoneyField(
+        amount_field="undiscounted_total_net_amount", currency_field="currency"
+    )
 
     total_gross_amount = models.DecimalField(
         max_digits=settings.DEFAULT_MAX_DIGITS,
         decimal_places=settings.DEFAULT_DECIMAL_PLACES,
         default=0,
     )
+    undiscounted_total_gross_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        default=0,
+    )
+
     total_gross = MoneyField(
         amount_field="total_gross_amount", currency_field="currency"
+    )
+    undiscounted_total_gross = MoneyField(
+        amount_field="undiscounted_total_gross_amount", currency_field="currency"
     )
 
     total = TaxedMoneyField(
@@ -155,29 +210,39 @@ class Order(ModelWithMetadata):
         gross_amount_field="total_gross_amount",
         currency_field="currency",
     )
+    undiscounted_total = TaxedMoneyField(
+        net_amount_field="undiscounted_total_net_amount",
+        gross_amount_field="undiscounted_total_gross_amount",
+        currency_field="currency",
+    )
+
+    total_paid_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        default=0,
+    )
+    total_paid = MoneyField(amount_field="total_paid_amount", currency_field="currency")
 
     voucher = models.ForeignKey(
         Voucher, blank=True, null=True, related_name="+", on_delete=models.SET_NULL
     )
     gift_cards = models.ManyToManyField(GiftCard, blank=True, related_name="orders")
-    discount_amount = models.DecimalField(
-        max_digits=settings.DEFAULT_MAX_DIGITS,
-        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
-        default=0,
-    )
-    discount = MoneyField(amount_field="discount_amount", currency_field="currency")
-    discount_name = models.CharField(max_length=255, blank=True, null=True)
-    translated_discount_name = models.CharField(max_length=255, blank=True, null=True)
+
     display_gross_prices = models.BooleanField(default=True)
     customer_note = models.TextField(blank=True, default="")
     weight = MeasurementField(
-        measurement=Weight, unit_choices=WeightUnits.CHOICES, default=zero_weight
+        measurement=Weight,
+        unit_choices=WeightUnits.CHOICES,  # type: ignore
+        default=zero_weight,
     )
-    objects = OrderQueryset.as_manager()
+    redirect_url = models.URLField(blank=True, null=True)
+
+    objects = models.Manager.from_queryset(OrderQueryset)()
 
     class Meta:
         ordering = ("-pk",)
         permissions = ((OrderPermissions.MANAGE_ORDERS.codename, "Manage orders."),)
+        indexes = [*ModelWithMetadata.Meta.indexes, GinIndex(fields=["user_email"])]
 
     def save(self, *args, **kwargs):
         if not self.token:
@@ -185,38 +250,25 @@ class Order(ModelWithMetadata):
         return super().save(*args, **kwargs)
 
     def is_fully_paid(self):
-        total_paid = self._total_paid()
-        return total_paid.gross >= self.total.gross
+        return self.total_paid >= self.total.gross
 
     def is_partly_paid(self):
-        total_paid = self._total_paid()
-        return total_paid.gross.amount > 0
+        return self.total_paid_amount > 0
 
     def get_customer_email(self):
         return self.user.email if self.user else self.user_email
 
-    def _total_paid(self):
-        # Get total paid amount from partially charged,
-        # fully charged and partially refunded payments
-        payments = self.payments.filter(
-            charge_status__in=[
-                ChargeStatus.PARTIALLY_CHARGED,
-                ChargeStatus.FULLY_CHARGED,
-                ChargeStatus.PARTIALLY_REFUNDED,
-            ]
+    def update_total_paid(self):
+        self.total_paid_amount = (
+            sum(self.payments.values_list("captured_amount", flat=True)) or 0
         )
-        total_captured = [payment.get_captured_amount() for payment in payments]
-        total_paid = sum(total_captured, zero_taxed_money())
-        return total_paid
+        self.save(update_fields=["total_paid_amount"])
 
     def _index_billing_phone(self):
         return self.billing_address.phone
 
     def _index_shipping_phone(self):
         return self.shipping_address.phone
-
-    def __iter__(self):
-        return iter(self.lines.all())
 
     def __repr__(self):
         return "<Order #%r>" % (self.id,)
@@ -226,18 +278,6 @@ class Order(ModelWithMetadata):
 
     def get_last_payment(self):
         return max(self.payments.all(), default=None, key=attrgetter("pk"))
-
-    def get_payment_status(self):
-        last_payment = self.get_last_payment()
-        if last_payment:
-            return last_payment.charge_status
-        return ChargeStatus.NOT_CHARGED
-
-    def get_payment_status_display(self):
-        last_payment = self.get_last_payment()
-        if last_payment:
-            return last_payment.get_charge_status_display()
-        return dict(ChargeStatus.CHOICES).get(ChargeStatus.NOT_CHARGED)
 
     def is_pre_authorized(self):
         return (
@@ -261,30 +301,37 @@ class Order(ModelWithMetadata):
             .exists()
         )
 
-    @property
-    def quantity_fulfilled(self):
-        return sum([line.quantity_fulfilled for line in self])
-
     def is_shipping_required(self):
-        return any(line.is_shipping_required for line in self)
+        return any(line.is_shipping_required for line in self.lines.all())
 
     def get_subtotal(self):
-        subtotal_iterator = (line.get_total() for line in self)
-        return sum(subtotal_iterator, zero_taxed_money())
+        return get_subtotal(self.lines.all(), self.currency)
 
     def get_total_quantity(self):
-        return sum([line.quantity for line in self])
+        return sum([line.quantity for line in self.lines.all()])
 
     def is_draft(self):
         return self.status == OrderStatus.DRAFT
+
+    def is_unconfirmed(self):
+        return self.status == OrderStatus.UNCONFIRMED
 
     def is_open(self):
         statuses = {OrderStatus.UNFULFILLED, OrderStatus.PARTIALLY_FULFILLED}
         return self.status in statuses
 
     def can_cancel(self):
+        statuses_allowed_to_cancel = [
+            FulfillmentStatus.CANCELED,
+            FulfillmentStatus.REFUNDED,
+            FulfillmentStatus.REPLACED,
+            FulfillmentStatus.REFUNDED_AND_RETURNED,
+            FulfillmentStatus.RETURNED,
+        ]
         return (
-            not self.fulfillments.exclude(status=FulfillmentStatus.CANCELED).exists()
+            not self.fulfillments.exclude(
+                status__in=statuses_allowed_to_cancel
+            ).exists()
         ) and self.status not in {OrderStatus.CANCELED, OrderStatus.DRAFT}
 
     def can_capture(self, payment=None):
@@ -309,32 +356,24 @@ class Order(ModelWithMetadata):
             return False
         return payment.can_refund()
 
-    def can_mark_as_paid(self):
-        return len(self.payments.all()) == 0
+    def can_mark_as_paid(self, payments=None):
+        if not payments:
+            payments = self.payments.all()
+        return len(payments) == 0
 
     @property
     def total_authorized(self):
-        payment = self.get_last_payment()
-        if payment:
-            return payment.get_authorized_amount()
-        return zero_money()
+        return get_total_authorized(self.payments.all(), self.currency)
 
     @property
     def total_captured(self):
-        payment = self.get_last_payment()
-        if payment and payment.charge_status in (
-            ChargeStatus.PARTIALLY_CHARGED,
-            ChargeStatus.FULLY_CHARGED,
-            ChargeStatus.PARTIALLY_REFUNDED,
-        ):
-            return Money(payment.captured_amount, payment.currency)
-        return zero_money()
+        return self.total_paid
 
     @property
     def total_balance(self):
         return self.total_captured - self.total.gross
 
-    def get_total_weight(self):
+    def get_total_weight(self, *_args):
         return self.weight
 
 
@@ -377,12 +416,32 @@ class OrderLine(models.Model):
 
     currency = models.CharField(
         max_length=settings.DEFAULT_CURRENCY_CODE_LENGTH,
-        default=settings.DEFAULT_CURRENCY,
     )
+
+    unit_discount_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        default=0,
+    )
+    unit_discount = MoneyField(
+        amount_field="unit_discount_amount", currency_field="currency"
+    )
+    unit_discount_type = models.CharField(
+        max_length=10,
+        choices=DiscountValueType.CHOICES,
+        default=DiscountValueType.FIXED,
+    )
+    unit_discount_reason = models.TextField(blank=True, null=True)
 
     unit_price_net_amount = models.DecimalField(
         max_digits=settings.DEFAULT_MAX_DIGITS,
         decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+    )
+    # stores the value of the applied discount. Like 20 of %
+    unit_discount_value = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        default=0,
     )
     unit_price_net = MoneyField(
         amount_field="unit_price_net_amount", currency_field="currency"
@@ -402,11 +461,67 @@ class OrderLine(models.Model):
         currency="currency",
     )
 
-    tax_rate = models.DecimalField(
-        max_digits=5, decimal_places=2, default=Decimal("0.0")
+    total_price_net_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+    )
+    total_price_net = MoneyField(
+        amount_field="total_price_net_amount",
+        currency_field="currency",
     )
 
-    objects = OrderLineQueryset.as_manager()
+    total_price_gross_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+    )
+    total_price_gross = MoneyField(
+        amount_field="total_price_gross_amount",
+        currency_field="currency",
+    )
+
+    total_price = TaxedMoneyField(
+        net_amount_field="total_price_net_amount",
+        gross_amount_field="total_price_gross_amount",
+        currency="currency",
+    )
+
+    undiscounted_unit_price_gross_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        default=0,
+    )
+    undiscounted_unit_price_net_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        default=0,
+    )
+    undiscounted_unit_price = TaxedMoneyField(
+        net_amount_field="undiscounted_unit_price_net_amount",
+        gross_amount_field="undiscounted_unit_price_gross_amount",
+        currency="currency",
+    )
+
+    undiscounted_total_price_gross_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        default=0,
+    )
+    undiscounted_total_price_net_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        default=0,
+    )
+    undiscounted_total_price = TaxedMoneyField(
+        net_amount_field="undiscounted_total_price_net_amount",
+        gross_amount_field="undiscounted_total_price_gross_amount",
+        currency="currency",
+    )
+
+    tax_rate = models.DecimalField(
+        max_digits=5, decimal_places=4, default=Decimal("0.0")
+    )
+
+    objects = models.Manager.from_queryset(OrderLineQueryset)()
 
     class Meta:
         ordering = ("pk",)
@@ -417,9 +532,6 @@ class OrderLine(models.Model):
             if self.variant_name
             else self.product_name
         )
-
-    def get_total(self):
-        return self.unit_price * self.quantity
 
     @property
     def quantity_unfulfilled(self):
@@ -448,7 +560,20 @@ class Fulfillment(ModelWithMetadata):
     tracking_number = models.CharField(max_length=255, default="", blank=True)
     created = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
+    shipping_refund_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        null=True,
+        blank=True,
+    )
+    total_refund_amount = models.DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS,
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    class Meta(ModelWithMetadata.Meta):
         ordering = ("pk",)
 
     def __str__(self):
@@ -474,7 +599,7 @@ class Fulfillment(ModelWithMetadata):
         return self.status != FulfillmentStatus.CANCELED
 
     def get_total_quantity(self):
-        return sum([line.quantity for line in self])
+        return sum([line.quantity for line in self.lines.all()])
 
     @property
     def is_tracking_number_url(self):
@@ -483,7 +608,7 @@ class Fulfillment(ModelWithMetadata):
 
 class FulfillmentLine(models.Model):
     order_line = models.ForeignKey(
-        OrderLine, related_name="+", on_delete=models.CASCADE
+        OrderLine, related_name="fulfillment_lines", on_delete=models.CASCADE
     )
     fulfillment = models.ForeignKey(
         Fulfillment, related_name="lines", on_delete=models.CASCADE
@@ -523,6 +648,7 @@ class OrderEvent(models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
     )
+    app = models.ForeignKey(App, related_name="+", on_delete=models.SET_NULL, null=True)
 
     class Meta:
         ordering = ("date",)

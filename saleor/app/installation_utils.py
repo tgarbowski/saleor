@@ -1,17 +1,22 @@
 import requests
 from django.contrib.sites.models import Site
 from django.core.exceptions import ValidationError
-from django.core.validators import URLValidator
 
+from ..app.validators import AppURLValidator
 from .models import App, AppInstallation
 from .types import AppType
 
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 25
 
 
 def send_app_token(target_url: str, token: str):
     domain = Site.objects.get_current().domain
-    headers = {"x-saleor-domain": domain, "Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        # X- headers will be deprecated in Saleor 4.0, proper headers are without X-
+        "x-saleor-domain": domain,
+        "saleor-domain": domain,
+    }
     json_data = {"auth_token": token}
     response = requests.post(
         target_url, json=json_data, headers=headers, timeout=REQUEST_TIMEOUT
@@ -21,16 +26,16 @@ def send_app_token(target_url: str, token: str):
 
 def validate_manifest_fields(manifest_data):
     token_target_url = manifest_data.get("tokenTargetUrl")
-
     try:
-        url_validator = URLValidator()
+        url_validator = AppURLValidator()
         url_validator(token_target_url)
     except ValidationError:
         raise ValidationError({"tokenTargetUrl": "Incorrect format."})
 
 
 def install_app(
-    app_installation: AppInstallation, activate: bool = False,
+    app_installation: AppInstallation,
+    activate: bool = False,
 ):
     response = requests.get(app_installation.manifest_url, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()

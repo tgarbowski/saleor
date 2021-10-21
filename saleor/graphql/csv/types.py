@@ -5,6 +5,7 @@ from ...core.permissions import AccountPermissions, AppPermission
 from ...csv import models
 from ..account.types import User
 from ..account.utils import requestor_has_access
+from ..app.dataloaders import AppByIdLoader
 from ..app.types import App
 from ..core.connection import CountableDjangoObjectType
 from ..core.types.common import Job
@@ -14,7 +15,8 @@ from .enums import ExportEventEnum
 
 class ExportEvent(CountableDjangoObjectType):
     date = graphene.types.datetime.DateTime(
-        description="Date when event happened at in ISO 8601 format.", required=True,
+        description="Date when event happened at in ISO 8601 format.",
+        required=True,
     )
     type = ExportEventEnum(description="Export event type.", required=True)
     user = graphene.Field(
@@ -23,7 +25,10 @@ class ExportEvent(CountableDjangoObjectType):
     app = graphene.Field(
         App, description="App which performed the action.", required=False
     )
-    message = graphene.String(description="Content of the event.", required=True,)
+    message = graphene.String(
+        description="Content of the event.",
+        required=True,
+    )
 
     class Meta:
         description = "History log of export file."
@@ -81,7 +86,9 @@ class ExportFile(CountableDjangoObjectType):
     def resolve_app(root: models.ExportFile, info):
         requestor = get_user_or_app_from_context(info.context)
         if requestor_has_access(requestor, root.user, AccountPermissions.MANAGE_STAFF):
-            return root.app
+            return (
+                AppByIdLoader(info.context).load(root.app_id) if root.app_id else None
+            )
         raise PermissionDenied()
 
     @staticmethod

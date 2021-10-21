@@ -2,6 +2,7 @@ import graphene
 
 from ...core.exceptions import PermissionDenied
 from ...core.permissions import AccountPermissions, GiftcardPermissions
+from ...core.tracing import traced_resolver
 from ...giftcard import models
 from ..account.utils import requestor_has_access
 from ..core.connection import CountableDjangoObjectType
@@ -49,6 +50,7 @@ class GiftCard(CountableDjangoObjectType):
         raise PermissionDenied()
 
     @staticmethod
+    @traced_resolver
     def resolve_code(root: models.GiftCard, info, **_kwargs):
         user = info.context.user
         # Staff user has access to show gift card code only for gift card without user.

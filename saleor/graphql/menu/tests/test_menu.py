@@ -8,7 +8,11 @@ from ....menu.error_codes import MenuErrorCode
 from ....menu.models import Menu, MenuItem
 from ....product.models import Category
 from ...menu.mutations import NavigationType, _validate_menu_item_instance
-from ...tests.utils import assert_no_permission, get_graphql_content
+from ...tests.utils import (
+    assert_no_permission,
+    get_graphql_content,
+    get_graphql_content_from_response,
+)
 
 
 def test_validate_menu_item_instance(category, page):
@@ -37,7 +41,8 @@ QUERY_MENU = """
 
 
 def test_menu_query_by_id(
-    user_api_client, menu,
+    user_api_client,
+    menu,
 ):
     variables = {"id": graphene.Node.to_global_id("Menu", menu.pk)}
 
@@ -48,8 +53,26 @@ def test_menu_query_by_id(
     assert menu_data["name"] == menu.name
 
 
+def test_staff_query_menu_by_invalid_id(staff_api_client, menu):
+    id = "bh/"
+    variables = {"id": id}
+    response = staff_api_client.post_graphql(QUERY_MENU, variables)
+    content = get_graphql_content_from_response(response)
+    assert len(content["errors"]) == 1
+    assert content["errors"][0]["message"] == f"Couldn't resolve id: {id}."
+    assert content["data"]["menu"] is None
+
+
+def test_staff_query_menu_with_invalid_object_type(staff_api_client, menu):
+    variables = {"id": graphene.Node.to_global_id("Order", menu.pk)}
+    response = staff_api_client.post_graphql(QUERY_MENU, variables)
+    content = get_graphql_content(response)
+    assert content["data"]["menu"] is None
+
+
 def test_menu_query_by_name(
-    user_api_client, menu,
+    user_api_client,
+    menu,
 ):
     variables = {"name": menu.name}
     response = user_api_client.post_graphql(QUERY_MENU, variables=variables)
@@ -71,7 +94,9 @@ def test_menu_query_by_slug(user_api_client):
 
 
 def test_menu_query_error_when_id_and_name_provided(
-    user_api_client, menu, graphql_log_handler,
+    user_api_client,
+    menu,
+    graphql_log_handler,
 ):
     variables = {
         "id": graphene.Node.to_global_id("Menu", menu.pk),
@@ -86,7 +111,9 @@ def test_menu_query_error_when_id_and_name_provided(
 
 
 def test_menu_query_error_when_no_param(
-    user_api_client, menu, graphql_log_handler,
+    user_api_client,
+    menu,
+    graphql_log_handler,
 ):
     variables = {}
     response = user_api_client.post_graphql(QUERY_MENU, variables=variables)
@@ -226,16 +253,156 @@ def test_query_menus_with_sort(
         assert menus[order]["node"]["name"] == menu_name
 
 
-def test_menu_items_query(user_api_client, menu_item, collection):
+QUERY_MENU_ITEM_BY_ID = """
+query menuitem($id: ID!, $channel: String) {
+    menuItem(id: $id, channel: $channel) {
+        name
+        children {
+            name
+        }
+        collection {
+            name
+        }
+        category {
+            id
+        }
+        page {
+            id
+        }
+        url
+    }
+}
+"""
+
+
+def test_menu_item_query(user_api_client, menu_item, published_collection, channel_USD):
+    query = QUERY_MENU_ITEM_BY_ID
+    menu_item.collection = published_collection
+    menu_item.url = None
+    menu_item.save()
+    child_menu = MenuItem.objects.create(
+        menu=menu_item.menu, name="Link 2", url="http://example2.com/", parent=menu_item
+    )
+    variables = {
+        "id": graphene.Node.to_global_id("MenuItem", menu_item.pk),
+        "channel": channel_USD.slug,
+    }
+    response = user_api_client.post_graphql(query, variables)
+    content = get_graphql_content(response)
+    data = content["data"]["menuItem"]
+    assert data["name"] == menu_item.name
+    assert len(data["children"]) == 1
+    assert data["children"][0]["name"] == child_menu.name
+    assert data["collection"]["name"] == published_collection.name
+    assert not data["category"]
+    assert not data["page"]
+    assert data["url"] is None
+
+
+def test_menu_item_query_with_invalid_channel(
+    user_api_client, menu_item, published_collection, channel_USD
+):
+    query = QUERY_MENU_ITEM_BY_ID
+    menu_item.collection = published_collection
+    menu_item.url = None
+    menu_item.save()
+    child_menu = MenuItem.objects.create(
+        menu=menu_item.menu, name="Link 2", url="http://example2.com/", parent=menu_item
+    )
+    variables = {
+        "id": graphene.Node.to_global_id("MenuItem", menu_item.pk),
+        "channel": "invalid",
+    }
+    response = user_api_client.post_graphql(query, variables)
+    content = get_graphql_content(response)
+    data = content["data"]["menuItem"]
+    assert data["name"] == menu_item.name
+    assert len(data["children"]) == 1
+    assert data["children"][0]["name"] == child_menu.name
+    assert not data["collection"]
+    assert not data["category"]
+    assert not data["page"]
+    assert data["url"] is None
+
+
+def test_staff_query_menu_item_by_invalid_id(staff_api_client, menu_item):
+    id = "bh/"
+    variables = {"id": id}
+    response = staff_api_client.post_graphql(QUERY_MENU_ITEM_BY_ID, variables)
+    content = get_graphql_content_from_response(response)
+    assert len(content["errors"]) == 1
+    assert content["errors"][0]["message"] == f"Couldn't resolve id: {id}."
+    assert content["data"]["menuItem"] is None
+
+
+def test_staff_query_menu_item_with_invalid_object_type(staff_api_client, menu_item):
+    variables = {"id": graphene.Node.to_global_id("Order", menu_item.pk)}
+    response = staff_api_client.post_graphql(QUERY_MENU_ITEM_BY_ID, variables)
+    content = get_graphql_content(response)
+    assert content["data"]["menuItem"] is None
+
+
+def test_menu_items_query(
+    user_api_client, menu_with_items, published_collection, channel_USD, category
+):
     query = """
-    query menuitem($id: ID!) {
-        menuItem(id: $id) {
+    fragment SecondaryMenuSubItem on MenuItem {
+        id
+        name
+        category {
+            id
+            name
+        }
+        url
+        collection {
+            id
+            name
+        }
+        page {
+            slug
+        }
+    }
+    query menuitem($id: ID!, $channel: String) {
+        menu(id: $id, channel: $channel) {
+            items {
+                ...SecondaryMenuSubItem
+                children {
+                ...SecondaryMenuSubItem
+                }
+            }
+        }
+    }
+    """
+    variables = {
+        "id": graphene.Node.to_global_id("Menu", menu_with_items.pk),
+        "channel": channel_USD.slug,
+    }
+    response = user_api_client.post_graphql(query, variables)
+
+    content = get_graphql_content(response)
+
+    items = content["data"]["menu"]["items"]
+    assert not items[0]["category"]
+    assert not items[0]["collection"]
+    assert items[1]["children"][0]["category"]["name"] == category.name
+    assert items[1]["children"][1]["collection"]["name"] == published_collection.name
+
+
+def test_menu_items_collection_in_other_channel(
+    user_api_client, menu_item, published_collection, channel_PLN
+):
+    query = """
+    query menuitem($id: ID!, $channel: String) {
+        menuItem(id: $id, channel: $channel) {
             name
             children {
                 name
             }
             collection {
                 name
+            }
+            menu {
+                slug
             }
             category {
                 id
@@ -247,20 +414,24 @@ def test_menu_items_query(user_api_client, menu_item, collection):
         }
     }
     """
-    menu_item.collection = collection
+    menu_item.collection = published_collection
     menu_item.url = None
     menu_item.save()
     child_menu = MenuItem.objects.create(
         menu=menu_item.menu, name="Link 2", url="http://example2.com/", parent=menu_item
     )
-    variables = {"id": graphene.Node.to_global_id("MenuItem", menu_item.pk)}
+    variables = {
+        "id": graphene.Node.to_global_id("MenuItem", menu_item.pk),
+        "channel": channel_PLN.slug,
+    }
     response = user_api_client.post_graphql(query, variables)
     content = get_graphql_content(response)
     data = content["data"]["menuItem"]
     assert data["name"] == menu_item.name
+    assert data["menu"]["slug"] == menu_item.menu.slug
     assert len(data["children"]) == 1
     assert data["children"][0]["name"] == child_menu.name
-    assert data["collection"]["name"] == collection.name
+    assert not data["collection"]
     assert not data["category"]
     assert not data["page"]
     assert data["url"] is None
@@ -332,21 +503,24 @@ def test_query_menu_items_with_sort(
         assert menu_items[order]["node"]["name"] == menu_item_name
 
 
-def test_menu_item_query_static_url(user_api_client, menu_item):
-    query = """
-    query menuitem($id: ID!) {
-        menuItem(id: $id) {
-            name
-            url
-            category {
-                id
-            }
-            page {
-                id
-            }
+QUERY_MENU_ITEM = """
+query menuitem($id: ID!) {
+    menuItem(id: $id) {
+        name
+        url
+        category {
+            id
+        }
+        page {
+            id
         }
     }
-    """
+}
+"""
+
+
+def test_menu_item_query_static_url(user_api_client, menu_item):
+    query = QUERY_MENU_ITEM
     menu_item.url = "http://example.com"
     menu_item.save()
     variables = {"id": graphene.Node.to_global_id("MenuItem", menu_item.pk)}
@@ -359,8 +533,57 @@ def test_menu_item_query_static_url(user_api_client, menu_item):
     assert not data["page"]
 
 
+def test_menu_item_query_staff_with_permission_gets_all_pages(
+    staff_api_client, permission_manage_pages, menu_item, page
+):
+    # given
+    staff_api_client.user.user_permissions.add(permission_manage_pages)
+    variables = {"id": graphene.Node.to_global_id("MenuItem", menu_item.pk)}
+
+    page.is_published = False
+    page.save(update_fields=["is_published"])
+
+    menu_item.page = page
+    menu_item.save(update_fields=["page"])
+
+    # when
+    response = staff_api_client.post_graphql(QUERY_MENU_ITEM, variables)
+
+    # then
+    content = get_graphql_content(response)
+    data = content["data"]["menuItem"]
+
+    assert data["name"] == menu_item.name
+    assert data["url"] == menu_item.url
+    assert data["page"]["id"] == graphene.Node.to_global_id("Page", page.id)
+
+
+def test_menu_item_query_staff_without_permission_gets_only_published_pages(
+    staff_api_client, permission_manage_pages, menu_item, page
+):
+    # given
+    variables = {"id": graphene.Node.to_global_id("MenuItem", menu_item.pk)}
+
+    page.is_published = False
+    page.save(update_fields=["is_published"])
+
+    menu_item.page = page
+    menu_item.save(update_fields=["page"])
+
+    # when
+    response = staff_api_client.post_graphql(QUERY_MENU_ITEM, variables)
+
+    # then
+    content = get_graphql_content(response)
+    data = content["data"]["menuItem"]
+
+    assert data["name"] == menu_item.name
+    assert data["url"] == menu_item.url
+    assert data["page"] is None
+
+
 def test_create_menu(
-    staff_api_client, collection, category, page, permission_manage_menus
+    staff_api_client, published_collection, category, page, permission_manage_menus
 ):
     query = """
     mutation mc($name: String!, $collection: ID,
@@ -386,7 +609,7 @@ def test_create_menu(
     """
 
     category_id = graphene.Node.to_global_id("Category", category.pk)
-    collection_id = graphene.Node.to_global_id("Collection", collection.pk)
+    collection_id = graphene.Node.to_global_id("Collection", published_collection.pk)
     page_id = graphene.Node.to_global_id("Page", page.pk)
     url = "http://www.example.com"
 
@@ -466,7 +689,7 @@ UPDATE_MENU_WITH_SLUG_MUTATION = """
                 name
                 slug
             }
-            menuErrors {
+            errors {
                 field
                 code
             }
@@ -483,7 +706,7 @@ def test_update_menu(staff_api_client, menu, permission_manage_menus):
                     name
                     slug
                 }
-                menuErrors {
+                errors {
                     field
                     code
                 }
@@ -528,7 +751,7 @@ def test_update_menu_with_slug_already_exists(
         UPDATE_MENU_WITH_SLUG_MUTATION, variables, permissions=[permission_manage_menus]
     )
     content = get_graphql_content(response)
-    error = content["data"]["menuUpdate"]["menuErrors"][0]
+    error = content["data"]["menuUpdate"]["errors"][0]
     assert error["field"] == "slug"
     assert error["code"] == MenuErrorCode.UNIQUE.name
 
@@ -758,17 +981,17 @@ def test_menu_reorder(staff_api_client, permission_manage_menus, menu_item_list)
     ]
 
     moves_input = [
-        {"itemId": items_global_ids[0], "parentId": None, "sortOrder": 0},
-        {"itemId": items_global_ids[1], "parentId": None, "sortOrder": -1},
-        {"itemId": items_global_ids[2], "parentId": None, "sortOrder": None},
+        {"itemId": items_global_ids[0], "parentId": None, "sortOrder": 2},
+        {"itemId": items_global_ids[1], "parentId": None, "sortOrder": None},
+        {"itemId": items_global_ids[2], "parentId": None, "sortOrder": -2},
     ]
 
     expected_data = {
         "id": menu_global_id,
         "items": [
+            {"id": items_global_ids[2], "parent": None, "children": []},
             {"id": items_global_ids[1], "parent": None, "children": []},
             {"id": items_global_ids[0], "parent": None, "children": []},
-            {"id": items_global_ids[2], "parent": None, "children": []},
         ],
     }
 
@@ -810,16 +1033,13 @@ def test_menu_reorder_assign_parent(
     ]
 
     moves_input = [
+        {"itemId": items_global_ids[0], "parentId": parent_global_id, "sortOrder": 3},
         {
             "itemId": items_global_ids[2],
             "parentId": parent_global_id,
             "sortOrder": None,
         },
-        {
-            "itemId": items_global_ids[3],
-            "parentId": parent_global_id,
-            "sortOrder": None,
-        },
+        {"itemId": items_global_ids[3], "parentId": parent_global_id, "sortOrder": -3},
     ]
 
     expected_data = {
@@ -830,7 +1050,7 @@ def test_menu_reorder_assign_parent(
                 "parent": None,
                 "children": [
                     {
-                        "id": items_global_ids[0],
+                        "id": items_global_ids[3],
                         "parent": {"id": parent_global_id},
                         "children": [],
                     },
@@ -840,7 +1060,7 @@ def test_menu_reorder_assign_parent(
                         "children": [],
                     },
                     {
-                        "id": items_global_ids[3],
+                        "id": items_global_ids[0],
                         "parent": {"id": parent_global_id},
                         "children": [],
                     },
@@ -1036,7 +1256,7 @@ def test_menu_cannot_pass_an_invalid_menu_item_node_type(
     assert json.loads(response.content) == {
         "data": {
             "menuItemMove": {
-                "errors": [{"field": "item", "message": "Must receive a MenuItem id"}],
+                "errors": [{"field": "item", "message": "Must receive a MenuItem id."}],
                 "menu": None,
             }
         }

@@ -1,18 +1,17 @@
 """Checkout-related ORM models."""
 from operator import attrgetter
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Iterable, Optional
 from uuid import uuid4
 
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
-from django.db.models import JSONField  # type: ignore
 from django.utils.encoding import smart_str
 from django_countries.fields import Country, CountryField
 from django_prices.models import MoneyField
 from prices import Money
 
-from ..account.models import Address
+from ..channel.models import Channel
 from ..core.models import ModelWithMetadata
 from ..core.permissions import CheckoutPermissions
 from ..core.taxes import zero_money
@@ -22,26 +21,11 @@ from ..shipping.models import ShippingMethod
 
 if TYPE_CHECKING:
     # flake8: noqa
-    from ..product.models import ProductVariant
     from django_measurement import Weight
+
     from ..payment.models import Payment
-
-
-class CheckoutQueryset(models.QuerySet):
-    """A specialized queryset for dealing with checkouts."""
-
-    def for_display(self):
-        """Annotate the queryset for display purposes.
-
-        Prefetches additional data from the database to avoid the n+1 queries
-        problem.
-        """
-        return self.prefetch_related(
-            "lines__variant__translations",
-            "lines__variant__product__translations",
-            "lines__variant__product__images",
-            "lines__variant__product__product_type__product_attributes__values",
-        )  # noqa
+    from ..product.models import ProductVariant
+    from .fetch import CheckoutLineInfo
 
 
 def get_default_country():
@@ -62,12 +46,24 @@ class Checkout(ModelWithMetadata):
     )
     email = models.EmailField()
     token = models.UUIDField(primary_key=True, default=uuid4, editable=False)
-    quantity = models.PositiveIntegerField(default=0)
+    channel = models.ForeignKey(
+        Channel,
+        related_name="checkouts",
+        on_delete=models.PROTECT,
+    )
     billing_address = models.ForeignKey(
-        Address, related_name="+", editable=False, null=True, on_delete=models.SET_NULL
+        "account.Address",
+        related_name="+",
+        editable=False,
+        null=True,
+        on_delete=models.SET_NULL,
     )
     shipping_address = models.ForeignKey(
-        Address, related_name="+", editable=False, null=True, on_delete=models.SET_NULL
+        "account.Address",
+        related_name="+",
+        editable=False,
+        null=True,
+        on_delete=models.SET_NULL,
     )
     shipping_method = models.ForeignKey(
         ShippingMethod,
@@ -80,7 +76,6 @@ class Checkout(ModelWithMetadata):
 
     currency = models.CharField(
         max_length=settings.DEFAULT_CURRENCY_CODE_LENGTH,
-        default=settings.DEFAULT_CURRENCY,
     )
     country = CountryField(default=get_default_country)
 
@@ -99,16 +94,15 @@ class Checkout(ModelWithMetadata):
     redirect_url = models.URLField(blank=True, null=True)
     tracking_code = models.CharField(max_length=255, blank=True, null=True)
 
-    objects = CheckoutQueryset.as_manager()
+    language_code = models.CharField(
+        max_length=35, choices=settings.LANGUAGES, default=settings.LANGUAGE_CODE
+    )
 
-    class Meta:
+    class Meta(ModelWithMetadata.Meta):
         ordering = ("-last_change", "pk")
         permissions = (
             (CheckoutPermissions.MANAGE_CHECKOUTS.codename, "Manage checkouts"),
         )
-
-    def __repr__(self):
-        return "Checkout(quantity=%s)" % (self.quantity,)
 
     def __iter__(self):
         return iter(self.lines.all())
@@ -129,10 +123,10 @@ class Checkout(ModelWithMetadata):
             return zero_money(currency=self.currency)
         return Money(balance, self.currency)
 
-    def get_total_weight(self) -> "Weight":
-        # Cannot use `sum` as it parses an empty Weight to an int
+    def get_total_weight(self, lines: Iterable["CheckoutLineInfo"]) -> "Weight":
         weights = zero_weight()
-        for line in self:
+        for checkout_line_info in lines:
+            line = checkout_line_info.line
             weights += line.variant.get_weight() * line.quantity
         return weights
 
@@ -181,10 +175,8 @@ class CheckoutLine(models.Model):
         "product.ProductVariant", related_name="+", on_delete=models.CASCADE
     )
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
-    data = JSONField(blank=True, default=dict)
 
     class Meta:
-        unique_together = ("checkout", "variant", "data")
         ordering = ("id",)
 
     def __str__(self):

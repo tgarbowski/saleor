@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, List
 
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 
-from ..utils import get_supported_currencies
+from ..utils import get_supported_currencies, require_active_plugin
 from . import (
     GatewayConfig,
     authorize,
@@ -18,23 +18,15 @@ GATEWAY_NAME = "Braintree"
 
 if TYPE_CHECKING:
     # flake8: noqa
-    from . import GatewayResponse, PaymentData, TokenConfig
     from ...interface import CustomerSource
-
-
-def require_active_plugin(fn):
-    def wrapped(self, *args, **kwargs):
-        previous = kwargs.get("previous_value", None)
-        if not self.active:
-            return previous
-        return fn(self, *args, **kwargs)
-
-    return wrapped
+    from . import GatewayResponse, PaymentData, TokenConfig
 
 
 class BraintreeGatewayPlugin(BasePlugin):
     PLUGIN_ID = "mirumee.payments.braintree"
     PLUGIN_NAME = GATEWAY_NAME
+    CONFIGURATION_PER_CHANNEL = True
+
     DEFAULT_CONFIGURATION = [
         {"name": "Public API key", "value": None},
         {"name": "Secret API key", "value": None},
@@ -75,7 +67,7 @@ class BraintreeGatewayPlugin(BasePlugin):
         },
         "Automatic payment capture": {
             "type": ConfigurationTypeField.BOOLEAN,
-            "help_text": "Determines if Saleor should automaticaly capture payments.",
+            "help_text": "Determines if Saleor should automatically capture payments.",
             "label": "Automatic payment capture",
         },
         "Require 3D secure": {

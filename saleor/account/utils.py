@@ -1,12 +1,22 @@
+from typing import TYPE_CHECKING
+
 from ..checkout import AddressType
 from ..core.utils import create_thumbnails
-from ..plugins.manager import get_plugins_manager
 from .models import User
 
+if TYPE_CHECKING:
+    from ..plugins.manager import PluginsManager
+    from .models import Address
 
-def store_user_address(user, address, address_type):
+
+def store_user_address(
+    user: User,
+    address: "Address",
+    address_type: str,
+    manager: "PluginsManager",
+):
     """Add address to user address book and set as default one."""
-    address = get_plugins_manager().change_user_address(address, address_type, user)
+    address = manager.change_user_address(address, address_type, user)
     address_data = address.as_data()
 
     address = user.addresses.filter(**address_data).first()
@@ -31,8 +41,10 @@ def set_user_default_shipping_address(user, address):
     user.save(update_fields=["default_shipping_address"])
 
 
-def change_user_default_address(user, address, address_type):
-    address = get_plugins_manager().change_user_address(address, address_type, user)
+def change_user_default_address(
+    user: User, address: "Address", address_type: str, manager: "PluginsManager"
+):
+    address = manager.change_user_address(address, address_type, user)
     if address_type == AddressType.BILLING:
         if user.default_billing_address:
             user.addresses.add(user.default_billing_address)

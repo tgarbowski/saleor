@@ -1,4 +1,6 @@
 import os
+from collections import defaultdict
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -7,17 +9,29 @@ from freezegun import freeze_time
 from prices import Money
 
 from ...account import events as account_events
+from ...attribute.utils import associate_attribute_values_to_instance
+from ...graphql.product.filters import (
+    _clean_product_attributes_boolean_filter_input,
+    _clean_product_attributes_date_time_range_filter_input,
+    filter_products_by_attributes_values,
+)
 from .. import models
-from ..filters import filter_products_by_attributes_values
 from ..models import DigitalContentUrl
 from ..thumbnails import create_product_thumbnails
-from ..utils.attributes import associate_attribute_values_to_instance
-from ..utils.costs import get_margin_for_variant
+from ..utils.costs import get_margin_for_variant_channel_listing
 from ..utils.digital_products import increment_download_count
 
 
-def test_filtering_by_attributes(
-    db, color_attribute, size_attribute, category, settings
+def test_filtering_by_attribute(
+    db,
+    color_attribute,
+    size_attribute,
+    category,
+    channel_USD,
+    settings,
+    date_attribute,
+    date_time_attribute,
+    boolean_attribute,
 ):
     product_type_a = models.ProductType.objects.create(
         name="New class", slug="new-class1", has_variants=True
@@ -33,8 +47,13 @@ def test_filtering_by_attributes(
         product_type=product_type_a,
         category=category,
     )
-    models.ProductVariant.objects.create(
-        product=product_a, sku="1234", price_amount=Decimal(10)
+    variant_a = models.ProductVariant.objects.create(product=product_a, sku="1234")
+    models.ProductVariantChannelListing.objects.create(
+        variant=variant_a,
+        channel=channel_USD,
+        cost_price_amount=Decimal(1),
+        price_amount=Decimal(10),
+        currency=channel_USD.currency_code,
     )
     product_b = models.Product.objects.create(
         name="Test product b",
@@ -42,8 +61,13 @@ def test_filtering_by_attributes(
         product_type=product_type_b,
         category=category,
     )
-    variant_b = models.ProductVariant.objects.create(
-        product=product_b, sku="12345", price_amount=Decimal(10)
+    variant_b = models.ProductVariant.objects.create(product=product_b, sku="12345")
+    models.ProductVariantChannelListing.objects.create(
+        variant=variant_b,
+        channel=channel_USD,
+        cost_price_amount=Decimal(1),
+        price_amount=Decimal(10),
+        currency=channel_USD.currency_code,
     )
     color = color_attribute.values.first()
     color_2 = color_attribute.values.last()
@@ -88,6 +112,109 @@ def test_filtering_by_attributes(
     filtered = filter_products_by_attributes_values(product_qs, filters)
     assert product_a.pk in list(filtered)
 
+    # Filter by date attributes
+    product_type_a.product_attributes.add(date_attribute)
+    product_type_b.product_attributes.add(date_attribute)
+
+    date = date_attribute.values.first()
+    associate_attribute_values_to_instance(product_a, date_attribute, date)
+
+    date_2 = date_attribute.values.last()
+    associate_attribute_values_to_instance(product_b, date_attribute, date_2)
+
+    filters = {date_attribute.pk: [date.pk]}
+    filtered = filter_products_by_attributes_values(product_qs, filters)
+    assert product_a.pk in list(filtered)
+
+    filters = {date_attribute.pk: [date.pk, date_2.pk]}
+    filtered = filter_products_by_attributes_values(product_qs, filters)
+    assert product_a.pk in list(filtered)
+    assert product_b.pk in list(filtered)
+
+
+def test_clean_product_attributes_date_time_range_filter_input(
+    date_attribute, date_time_attribute
+):
+    # filter date attribute
+    filter_value = [
+        (
+            date_attribute.slug,
+            {"gte": datetime(2020, 10, 5).date()},
+        )
+    ]
+    queries = defaultdict(list)
+    _clean_product_attributes_date_time_range_filter_input(
+        filter_value, queries, is_date=True
+    )
+
+    assert dict(queries) == {
+        date_attribute.pk: list(
+            date_attribute.values.all().values_list("pk", flat=True)
+        )
+    }
+
+    filter_value = [
+        (
+            date_attribute.slug,
+            {"gte": datetime(2020, 10, 5).date(), "lte": datetime(2020, 11, 4).date()},
+        )
+    ]
+    queries = defaultdict(list)
+    _clean_product_attributes_date_time_range_filter_input(
+        filter_value, queries, is_date=True
+    )
+
+    assert dict(queries) == {date_attribute.pk: [date_attribute.values.first().pk]}
+
+    # filter date time attribute
+    filter_value = [
+        (
+            date_attribute.slug,
+            {"lte": datetime(2020, 11, 4, tzinfo=timezone.utc)},
+        )
+    ]
+    queries = defaultdict(list)
+    _clean_product_attributes_date_time_range_filter_input(filter_value, queries)
+
+    assert dict(queries) == {date_attribute.pk: [date_attribute.values.first().pk]}
+
+    filter_value = [
+        (
+            date_attribute.slug,
+            {"lte": datetime(2020, 10, 4, tzinfo=timezone.utc)},
+        )
+    ]
+    queries = defaultdict(list)
+    _clean_product_attributes_date_time_range_filter_input(filter_value, queries)
+
+    assert dict(queries) == {date_attribute.pk: []}
+
+
+def test_clean_product_attributes_boolean_filter_input(boolean_attribute):
+    filter_value = [(boolean_attribute.slug, True)]
+    queries = defaultdict(list)
+    _clean_product_attributes_boolean_filter_input(filter_value, queries)
+
+    assert dict(queries) == {
+        boolean_attribute.pk: [boolean_attribute.values.first().pk]
+    }
+
+    filter_value = [(boolean_attribute.slug, False)]
+    queries = defaultdict(list)
+    _clean_product_attributes_boolean_filter_input(filter_value, queries)
+
+    assert dict(queries) == {boolean_attribute.pk: [boolean_attribute.values.last().pk]}
+
+    filter_value = [(boolean_attribute.slug, True), (boolean_attribute.slug, False)]
+    queries = defaultdict(list)
+    _clean_product_attributes_boolean_filter_input(filter_value, queries)
+
+    assert dict(queries) == {
+        boolean_attribute.pk: list(
+            boolean_attribute.values.all().values_list("pk", flat=True)
+        )
+    }
+
 
 @pytest.mark.parametrize(
     "expected_price, include_discounts",
@@ -101,25 +228,42 @@ def test_get_price(
     include_discounts,
     site_settings,
     discount_info,
+    channel_USD,
 ):
     product = models.Product.objects.create(
-        product_type=product_type, category=category,
+        product_type=product_type,
+        category=category,
     )
-    variant = product.variants.create(price_amount=15)
-
-    price = variant.get_price(discounts=[discount_info] if include_discounts else [])
-
+    variant = product.variants.create()
+    channel_listing = models.ProductVariantChannelListing.objects.create(
+        variant=variant,
+        channel=channel_USD,
+        price_amount=Decimal(15),
+        currency=channel_USD.currency_code,
+    )
+    discounts = [discount_info] if include_discounts else []
+    price = variant.get_price(product, [], channel_USD, channel_listing, discounts)
     assert price.amount == expected_price
 
 
-def test_product_get_price_do_not_charge_taxes(product_type, category, discount_info):
+def test_product_get_price_do_not_charge_taxes(
+    product_type, category, discount_info, channel_USD
+):
     product = models.Product.objects.create(
-        product_type=product_type, category=category, charge_taxes=False,
+        product_type=product_type,
+        category=category,
+        charge_taxes=False,
     )
-    variant = product.variants.create(price_amount=Decimal(10))
-
-    price = variant.get_price(discounts=[discount_info])
-
+    variant = product.variants.create()
+    channel_listing = models.ProductVariantChannelListing.objects.create(
+        variant=variant,
+        channel=channel_USD,
+        price_amount=Decimal(10),
+        currency=channel_USD.currency_code,
+    )
+    price = variant.get_price(
+        product, [], channel_USD, channel_listing, discounts=[discount_info]
+    )
     assert price == Money("5.00", "USD")
 
 
@@ -216,16 +360,25 @@ def test_digital_product_view_url_expired(client, digital_content):
 @pytest.mark.parametrize(
     "price, cost", [(Money("0", "USD"), Money("1", "USD")), (Money("2", "USD"), None)]
 )
-def test_costs_get_margin_for_variant(variant, price, cost):
-    variant.cost_price = cost
-    variant.price = price
-    assert not get_margin_for_variant(variant)
+def test_costs_get_margin_for_variant_channel_listing(
+    variant, price, cost, channel_USD
+):
+    variant_channel_listing = variant.channel_listings.filter(
+        channel_id=channel_USD.id
+    ).first()
+    variant_channel_listing.cost_price = cost
+    variant_channel_listing.price = price
+    assert not get_margin_for_variant_channel_listing(variant_channel_listing)
 
 
 @patch("saleor.product.thumbnails.create_thumbnails")
 def test_create_product_thumbnails(mock_create_thumbnails, product_with_image):
-    product_image = product_with_image.images.first()
+    product_image = product_with_image.media.first()
     create_product_thumbnails(product_image.pk)
-    assert mock_create_thumbnails.called_once_with(
-        product_image.pk, models.ProductImage, "products"
-    )
+    assert mock_create_thumbnails.call_count == 1
+    args, kwargs = mock_create_thumbnails.call_args
+    assert kwargs == {
+        "model": models.ProductMedia,
+        "pk": product_image.pk,
+        "size_set": "products",
+    }

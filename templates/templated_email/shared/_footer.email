@@ -1,7 +1,0 @@
-{% load i18n %}
-{% blocktrans trimmed context "Base email text" %}
-To jest automatycznie wygenerowany e-mail, prosimy na niego nie odpowiadać.
-{% endblocktrans %}
-{% blocktrans trimmed context "Base email footer" %}
-Z poważaniem, {{ site_name }}
-{% endblocktrans %}

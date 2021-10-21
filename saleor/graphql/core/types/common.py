@@ -1,19 +1,28 @@
-import graphene
+from urllib.parse import urljoin
 
-from ....product.templatetags.product_images import get_thumbnail
-from ...translations.enums import LanguageCodeEnum
+import graphene
+from django.conf import settings
+
+from ....core.tracing import traced_resolver
+from ....product.product_images import get_thumbnail
+from ...account.enums import AddressTypeEnum
 from ..enums import (
     AccountErrorCode,
     AppErrorCode,
+    AttributeErrorCode,
+    ChannelErrorCode,
     CheckoutErrorCode,
+    CollectionErrorCode,
     DiscountErrorCode,
     ExportErrorCode,
     GiftCardErrorCode,
     InvoiceErrorCode,
     JobStatusEnum,
+    LanguageCodeEnum,
     MenuErrorCode,
     MetadataErrorCode,
     OrderErrorCode,
+    OrderSettingsErrorCode,
     PageErrorCode,
     PaymentErrorCode,
     PermissionEnum,
@@ -24,6 +33,7 @@ from ..enums import (
     ShopErrorCode,
     StockErrorCode,
     TranslationErrorCode,
+    UploadErrorCode,
     WarehouseErrorCode,
     WebhookErrorCode,
     WeightUnitsEnum,
@@ -72,6 +82,9 @@ class Error(graphene.ObjectType):
 
 class AccountError(Error):
     code = AccountErrorCode(description="The error code.", required=True)
+    address_type = AddressTypeEnum(
+        description="A type of address that causes the error.", required=False
+    )
 
 
 class AppError(Error):
@@ -81,6 +94,10 @@ class AppError(Error):
         description="List of permissions which causes the error.",
         required=False,
     )
+
+
+class AttributeError(Error):
+    code = AttributeErrorCode(description="The error code.", required=True)
 
 
 class StaffError(AccountError):
@@ -101,6 +118,15 @@ class StaffError(AccountError):
     )
 
 
+class ChannelError(Error):
+    code = ChannelErrorCode(description="The error code.", required=True)
+    shipping_zones = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of shipping zone IDs which causes the error.",
+        required=False,
+    )
+
+
 class CheckoutError(Error):
     code = CheckoutErrorCode(description="The error code.", required=True)
     variants = graphene.List(
@@ -108,10 +134,25 @@ class CheckoutError(Error):
         description="List of varint IDs which causes the error.",
         required=False,
     )
+    address_type = AddressTypeEnum(
+        description="A type of address that causes the error.", required=False
+    )
 
 
-class DiscountError(Error):
+class ProductWithoutVariantError(Error):
+    products = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of products IDs which causes the error.",
+    )
+
+
+class DiscountError(ProductWithoutVariantError):
     code = DiscountErrorCode(description="The error code.", required=True)
+    channels = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of channels IDs which causes the error.",
+        required=False,
+    )
 
 
 class ExportError(Error):
@@ -122,6 +163,10 @@ class MenuError(Error):
     code = MenuErrorCode(description="The error code.", required=True)
 
 
+class OrderSettingsError(Error):
+    code = OrderSettingsErrorCode(description="The error code.", required=True)
+
+
 class MetadataError(Error):
     code = MetadataErrorCode(description="The error code.", required=True)
     params = graphene.JSONString(description="list of errors", required=False)
@@ -130,10 +175,21 @@ class MetadataError(Error):
 class OrderError(Error):
     code = OrderErrorCode(description="The error code.", required=True)
     warehouse = graphene.ID(
-        description="Warehouse ID which causes the error.", required=False,
+        description="Warehouse ID which causes the error.",
+        required=False,
     )
-    order_line = graphene.ID(
-        description="Order line ID which causes the error.", required=False,
+    order_lines = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of order line IDs that cause the error.",
+        required=False,
+    )
+    variants = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of product variants that are associated with the error",
+        required=False,
+    )
+    address_type = AddressTypeEnum(
+        description="A type of address that causes the error.", required=False
     )
 
 
@@ -162,6 +218,36 @@ class ProductError(Error):
         description="List of attributes IDs which causes the error.",
         required=False,
     )
+    values = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of attribute values IDs which causes the error.",
+        required=False,
+    )
+
+
+class CollectionError(ProductWithoutVariantError):
+    code = CollectionErrorCode(description="The error code.", required=True)
+
+
+class ProductChannelListingError(ProductError):
+    channels = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of channels IDs which causes the error.",
+        required=False,
+    )
+    variants = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of variants IDs which causes the error.",
+        required=False,
+    )
+
+
+class CollectionChannelListingError(ProductError):
+    channels = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of channels IDs which causes the error.",
+        required=False,
+    )
 
 
 class BulkProductError(ProductError):
@@ -171,6 +257,11 @@ class BulkProductError(ProductError):
     warehouses = graphene.List(
         graphene.NonNull(graphene.ID),
         description="List of warehouse IDs which causes the error.",
+        required=False,
+    )
+    channels = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of channel IDs which causes the error.",
         required=False,
     )
 
@@ -186,10 +277,25 @@ class ShippingError(Error):
         description="List of warehouse IDs which causes the error.",
         required=False,
     )
+    channels = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of channels IDs which causes the error.",
+        required=False,
+    )
 
 
 class PageError(Error):
     code = PageErrorCode(description="The error code.", required=True)
+    attributes = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of attributes IDs which causes the error.",
+        required=False,
+    )
+    values = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of attribute values IDs which causes the error.",
+        required=False,
+    )
 
 
 class PaymentError(Error):
@@ -214,6 +320,10 @@ class BulkStockError(ProductError):
     )
 
 
+class UploadError(Error):
+    code = UploadErrorCode(description="The error code.", required=True)
+
+
 class WarehouseError(Error):
     code = WarehouseErrorCode(description="The error code.", required=True)
 
@@ -222,7 +332,7 @@ class WebhookError(Error):
     code = WebhookErrorCode(description="The error code.", required=True)
 
 
-class WishlistError(Error):
+class WishlistError(ProductWithoutVariantError):
     code = WishlistErrorCode(description="The error code.", required=True)
 
 
@@ -270,6 +380,17 @@ class Image(graphene.ObjectType):
         return Image(url, alt)
 
 
+class File(graphene.ObjectType):
+    url = graphene.String(required=True, description="The URL of the file.")
+    content_type = graphene.String(
+        required=False, description="Content type of the file."
+    )
+
+    @staticmethod
+    def resolve_url(root, info):
+        return info.context.build_absolute_uri(urljoin(settings.MEDIA_URL, root.url))
+
+
 class PriceRangeInput(graphene.InputObjectType):
     gte = graphene.Float(description="Price greater than or equal to.", required=False)
     lte = graphene.Float(description="Price less than or equal to.", required=False)
@@ -315,6 +436,7 @@ class Job(graphene.Interface):
     message = graphene.String(description="Job message.")
 
     @classmethod
+    @traced_resolver
     def resolve_type(cls, instance, _info):
         """Map a data object to a Graphene type."""
         MODEL_TO_TYPE_MAP = {

@@ -4,32 +4,24 @@ from django.db.models.functions import Coalesce
 
 from ...core.permissions import OrderPermissions, ProductPermissions
 from ...warehouse import models
-from ..account.enums import CountryCodeEnum
+from ..account.dataloaders import AddressByIdLoader
+from ..channel import ChannelContext
 from ..core.connection import CountableDjangoObjectType
 from ..decorators import one_of_permissions_required
-
-
-class WarehouseAddressInput(graphene.InputObjectType):
-    street_address_1 = graphene.String(description="Address.", required=True)
-    street_address_2 = graphene.String(description="Address.")
-    city = graphene.String(description="City.", required=True)
-    city_area = graphene.String(description="District.")
-    postal_code = graphene.String(description="Postal code.")
-    country = CountryCodeEnum(description="Country.", required=True)
-    country_area = graphene.String(description="State or province.")
-    phone = graphene.String(description="Phone number.")
+from ..meta.types import ObjectWithMetadata
 
 
 class WarehouseInput(graphene.InputObjectType):
     slug = graphene.String(description="Warehouse slug.")
-    company_name = graphene.String(description="Company name.")
     email = graphene.String(description="The email address of the warehouse.")
 
 
 class WarehouseCreateInput(WarehouseInput):
     name = graphene.String(description="Warehouse name.", required=True)
-    address = WarehouseAddressInput(
-        description="Address of the warehouse.", required=True
+    address = graphene.Field(
+        "saleor.graphql.account.types.AddressInput",
+        description="Address of the warehouse.",
+        required=True,
     )
     shipping_zones = graphene.List(
         graphene.ID, description="Shipping zones supported by the warehouse."
@@ -38,25 +30,54 @@ class WarehouseCreateInput(WarehouseInput):
 
 class WarehouseUpdateInput(WarehouseInput):
     name = graphene.String(description="Warehouse name.", required=False)
-    address = WarehouseAddressInput(
-        description="Address of the warehouse.", required=False
+    address = graphene.Field(
+        "saleor.graphql.account.types.AddressInput",
+        description="Address of the warehouse.",
+        required=False,
     )
 
 
 class Warehouse(CountableDjangoObjectType):
+    company_name = graphene.String(
+        required=True,
+        description="Warehouse company name.",
+        deprecation_reason=(
+            "Use address.CompanyName. This field will be removed in Saleor 4.0."
+        ),
+    )
+
     class Meta:
         description = "Represents warehouse."
         model = models.Warehouse
-        interfaces = [graphene.relay.Node]
+        interfaces = [graphene.relay.Node, ObjectWithMetadata]
         only_fields = [
             "id",
             "name",
             "slug",
-            "company_name",
             "shipping_zones",
             "address",
             "email",
         ]
+
+    @staticmethod
+    def resolve_shipping_zones(root, *_args, **_kwargs):
+        instances = root.shipping_zones.all()
+        shipping_zones = [
+            ChannelContext(node=shipping_zone, channel_slug=None)
+            for shipping_zone in instances
+        ]
+        return shipping_zones
+
+    @staticmethod
+    def resolve_company_name(root, info, *_args, **_kwargs):
+        def _resolve_company_name(address):
+            return address.company_name
+
+        return (
+            AddressByIdLoader(info.context)
+            .load(root.address_id)
+            .then(_resolve_company_name)
+        )
 
 
 class Stock(CountableDjangoObjectType):
@@ -91,6 +112,10 @@ class Stock(CountableDjangoObjectType):
             quantity_allocated=Coalesce(Sum("quantity_allocated"), 0)
         )["quantity_allocated"]
 
+    @staticmethod
+    def resolve_product_variant(root, *_args):
+        return ChannelContext(node=root.product_variant, channel_slug=None)
+
 
 class Allocation(CountableDjangoObjectType):
     quantity = graphene.Int(required=True, description="Quantity allocated for orders.")
@@ -106,14 +131,20 @@ class Allocation(CountableDjangoObjectType):
 
     @staticmethod
     @one_of_permissions_required(
-        [ProductPermissions.MANAGE_PRODUCTS, OrderPermissions.MANAGE_ORDERS]
+        [
+            ProductPermissions.MANAGE_PRODUCTS,
+            OrderPermissions.MANAGE_ORDERS,
+        ]
     )
     def resolve_warehouse(root, *_args):
         return root.stock.warehouse
 
     @staticmethod
     @one_of_permissions_required(
-        [ProductPermissions.MANAGE_PRODUCTS, OrderPermissions.MANAGE_ORDERS]
+        [
+            ProductPermissions.MANAGE_PRODUCTS,
+            OrderPermissions.MANAGE_ORDERS,
+        ]
     )
     def resolve_quantity(root, *_args):
         return root.quantity_allocated

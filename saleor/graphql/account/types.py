@@ -1,23 +1,33 @@
 import graphene
-from django.contrib.auth import get_user_model, models as auth_models
+from django.contrib.auth import get_user_model
+from django.contrib.auth import models as auth_models
 from graphene import relay
 from graphene_federation import key
 
 from ...account import models
 from ...checkout.utils import get_user_checkout
 from ...core.exceptions import PermissionDenied
-from ...core.permissions import AccountPermissions, OrderPermissions
-from ...order import models as order_models
+from ...core.permissions import AccountPermissions, AppPermission, OrderPermissions
+from ...core.tracing import traced_resolver
+from ...order import OrderStatus
+from ..account.utils import requestor_has_access
+from ..app.dataloaders import AppByIdLoader
+from ..app.types import App
+from ..checkout.dataloaders import CheckoutByUserAndChannelLoader, CheckoutByUserLoader
 from ..checkout.types import Checkout
 from ..core.connection import CountableDjangoObjectType
+from ..core.enums import LanguageCodeEnum
 from ..core.fields import PrefetchingConnectionField
+from ..core.scalars import UUID
 from ..core.types import CountryDisplay, Image, Permission
-from ..core.utils import from_global_id_strict_type
+from ..core.utils import from_global_id_or_error, str_to_enum
 from ..decorators import one_of_permissions_required, permission_required
-from ..meta.deprecated.resolvers import resolve_meta, resolve_private_meta
+from ..giftcard.dataloaders import GiftCardsByUserLoader
 from ..meta.types import ObjectWithMetadata
-from ..utils import format_permissions_for_display
+from ..order.dataloaders import OrderLineByIdLoader, OrdersByUserLoader
+from ..utils import format_permissions_for_display, get_user_or_app_from_context
 from ..wishlist.resolvers import resolve_wishlist_items_from_user
+from .dataloaders import CustomerEventsByUserLoader
 from .enums import CountryCodeEnum, CustomerEventsEnum
 from .utils import can_user_manage_group, get_groups_which_user_can_manage
 
@@ -110,8 +120,13 @@ class Address(CountableDjangoObjectType):
         return False
 
     @staticmethod
-    def __resolve_reference(root, _info, **_kwargs):
-        return graphene.Node.get_node_from_global_id(_info, root.id)
+    def __resolve_reference(root: "Address", info, **_kwargs):
+        try:
+            from .resolvers import resolve_address
+
+            return resolve_address(info, root.id)
+        except PermissionDenied:
+            return None
 
 
 class CustomerEvent(CountableDjangoObjectType):
@@ -120,6 +135,7 @@ class CustomerEvent(CountableDjangoObjectType):
     )
     type = CustomerEventsEnum(description="Customer event type.")
     user = graphene.Field(lambda: User, description="User who performed the action.")
+    app = graphene.Field(App, description="App that performed the action.")
     message = graphene.String(description="Content of the event.")
     count = graphene.Int(description="Number of objects concerned by the event.")
     order = graphene.Field(
@@ -147,6 +163,15 @@ class CustomerEvent(CountableDjangoObjectType):
         raise PermissionDenied()
 
     @staticmethod
+    def resolve_app(root: models.CustomerEvent, info):
+        requestor = get_user_or_app_from_context(info.context)
+        if requestor_has_access(requestor, root.user, AppPermission.MANAGE_APPS):
+            return (
+                AppByIdLoader(info.context).load(root.app_id) if root.app_id else None
+            )
+        raise PermissionDenied()
+
+    @staticmethod
     def resolve_message(root: models.CustomerEvent, _info):
         return root.parameters.get("message", None)
 
@@ -157,12 +182,9 @@ class CustomerEvent(CountableDjangoObjectType):
     @staticmethod
     def resolve_order_line(root: models.CustomerEvent, info):
         if "order_line_pk" in root.parameters:
-            try:
-                qs = order_models.OrderLine.objects
-                order_line_pk = root.parameters["order_line_pk"]
-                return qs.filter(pk=order_line_pk).first()
-            except order_models.OrderLine.DoesNotExist:
-                pass
+            return OrderLineByIdLoader(info.context).load(
+                root.parameters["order_line_pk"]
+            )
         return None
 
 
@@ -178,8 +200,9 @@ class UserPermission(Permission):
         required=False,
     )
 
+    @traced_resolver
     def resolve_source_permission_groups(root: Permission, _info, user_id, **_kwargs):
-        user_id = from_global_id_strict_type(user_id, only_type="User", field="pk")
+        _type, user_id = from_global_id_or_error(user_id, only_type="User")
         groups = auth_models.Group.objects.filter(
             user__pk=user_id, permissions__name=root.name
         )
@@ -191,7 +214,19 @@ class UserPermission(Permission):
 class User(CountableDjangoObjectType):
     addresses = graphene.List(Address, description="List of all user's addresses.")
     checkout = graphene.Field(
-        Checkout, description="Returns the last open checkout of this user."
+        Checkout,
+        description="Returns the last open checkout of this user.",
+        deprecation_reason=(
+            "Will be removed in Saleor 4.0. "
+            "Use the `checkout_tokens` field to fetch the user checkouts."
+        ),
+    )
+    checkout_tokens = graphene.List(
+        graphene.NonNull(UUID),
+        description="Returns the checkout UUID's assigned to this user.",
+        channel=graphene.String(
+            description="Slug of a channel for which the data should be returned."
+        ),
     )
     gift_cards = PrefetchingConnectionField(
         "saleor.graphql.giftcard.types.GiftCard",
@@ -200,14 +235,6 @@ class User(CountableDjangoObjectType):
     note = graphene.String(description="A note about the customer.")
     orders = PrefetchingConnectionField(
         "saleor.graphql.order.types.Order", description="List of user's orders."
-    )
-    # deprecated, to remove in #5389
-    permissions = graphene.List(
-        Permission,
-        description="List of user's permissions.",
-        deprecation_reason=(
-            "Will be removed in Saleor 2.11." "Use the `userPermissions` instead."
-        ),
     )
     user_permissions = graphene.List(
         UserPermission, description="List of user's permissions."
@@ -227,6 +254,12 @@ class User(CountableDjangoObjectType):
     stored_payment_sources = graphene.List(
         "saleor.graphql.payment.types.PaymentSource",
         description="List of stored payment sources.",
+        channel=graphene.String(
+            description="Slug of a channel for which the data should be returned."
+        ),
+    )
+    language_code = graphene.Field(
+        LanguageCodeEnum, description="User language code.", required=True
     )
 
     class Meta:
@@ -249,22 +282,38 @@ class User(CountableDjangoObjectType):
 
     @staticmethod
     def resolve_addresses(root: models.User, _info, **_kwargs):
-        return root.addresses.annotate_default(root).all()
+        return root.addresses.annotate_default(root).all()  # type: ignore
 
     @staticmethod
     def resolve_checkout(root: models.User, _info, **_kwargs):
-        return get_user_checkout(root)[0]
+        return get_user_checkout(root)
+
+    @staticmethod
+    @traced_resolver
+    def resolve_checkout_tokens(root: models.User, info, channel=None, **_kwargs):
+        def return_checkout_tokens(checkouts):
+            if not checkouts:
+                return []
+            checkout_global_ids = []
+            for checkout in checkouts:
+                checkout_global_ids.append(checkout.token)
+            return checkout_global_ids
+
+        if not channel:
+            return (
+                CheckoutByUserLoader(info.context)
+                .load(root.id)
+                .then(return_checkout_tokens)
+            )
+        return (
+            CheckoutByUserAndChannelLoader(info.context)
+            .load((root.id, channel))
+            .then(return_checkout_tokens)
+        )
 
     @staticmethod
     def resolve_gift_cards(root: models.User, info, **_kwargs):
-        return root.gift_cards.all()
-
-    @staticmethod
-    def resolve_permissions(root: models.User, _info, **_kwargs):
-        # deprecated, to remove in #5389
-        from .resolvers import resolve_permissions
-
-        return resolve_permissions(root)
+        return GiftCardsByUserLoader(info.context).load(root.id)
 
     @staticmethod
     def resolve_user_permissions(root: models.User, _info, **_kwargs):
@@ -292,14 +341,17 @@ class User(CountableDjangoObjectType):
         [AccountPermissions.MANAGE_USERS, AccountPermissions.MANAGE_STAFF]
     )
     def resolve_events(root: models.User, info):
-        return root.events.all()
+        return CustomerEventsByUserLoader(info.context).load(root.id)
 
     @staticmethod
     def resolve_orders(root: models.User, info, **_kwargs):
-        viewer = info.context.user
-        if viewer.has_perm(OrderPermissions.MANAGE_ORDERS):
-            return root.orders.all()  # type: ignore
-        return root.orders.confirmed()  # type: ignore
+        def _resolve_orders(orders):
+            requester = get_user_or_app_from_context(info.context)
+            if requester.has_perm(OrderPermissions.MANAGE_ORDERS):
+                return orders
+            return list(filter(lambda order: order.status != OrderStatus.DRAFT, orders))
+
+        return OrdersByUserLoader(info.context).load(root.id).then(_resolve_orders)
 
     @staticmethod
     def resolve_avatar(root: models.User, info, size=None, **_kwargs):
@@ -313,33 +365,44 @@ class User(CountableDjangoObjectType):
             )
 
     @staticmethod
-    def resolve_stored_payment_sources(root: models.User, info):
+    def resolve_stored_payment_sources(root: models.User, info, channel=None):
         from .resolvers import resolve_payment_sources
 
         if root == info.context.user:
-            return resolve_payment_sources(root)
+            return resolve_payment_sources(info, root, channel_slug=channel)
         raise PermissionDenied()
-
-    @staticmethod
-    @one_of_permissions_required(
-        [AccountPermissions.MANAGE_USERS, AccountPermissions.MANAGE_STAFF]
-    )
-    def resolve_private_meta(root: models.User, _info):
-        return resolve_private_meta(root, _info)
-
-    @staticmethod
-    def resolve_meta(root: models.User, _info):
-        return resolve_meta(root, _info)
 
     @staticmethod
     def resolve_wishlist(root: models.User, info, **_kwargs):
         return resolve_wishlist_items_from_user(root)
 
     @staticmethod
-    def __resolve_reference(root, _info, **_kwargs):
-        if root.id is not None:
-            return graphene.Node.get_node_from_global_id(_info, root.id)
-        return get_user_model().objects.get(email=root.email)
+    def __resolve_reference(root: "User", info, **_kwargs):
+        User = get_user_model()
+
+        try:
+            if root.id is not None:
+                user = graphene.Node.get_node_from_global_id(info, root.id)
+            else:
+                user = get_user_model().objects.get(email=root.email)
+        except User.DoesNotExist:
+            user = None
+
+        if not user:
+            return None
+
+        auth_user = info.context.user
+        manage_staff = auth_user.has_perm(AccountPermissions.MANAGE_STAFF)
+        manage_users = auth_user.has_perm(AccountPermissions.MANAGE_USERS)
+
+        if user == auth_user or manage_staff or manage_users:
+            return user
+
+        return None
+
+    @staticmethod
+    def resolve_language_code(root, _info, **_kwargs):
+        return LanguageCodeEnum[str_to_enum(root.language_code)]
 
 
 class ChoiceValue(graphene.ObjectType):

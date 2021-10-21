@@ -5,14 +5,22 @@ from typing import List
 import graphene
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
 from django.db import connection
+from django.core.exceptions import ValidationError
+from graphql.error.base import GraphQLError
 
 from ..product.utils import generate_description_json_for_megapack
 from ...core import models
 from ...core.error_codes import MetadataErrorCode
 from ...core.exceptions import PermissionDenied
+from ...discount import models as discount_models
+from ...menu import models as menu_models
+from ...product import models as product_models
+from ...shipping import models as shipping_models
+from ..channel import ChannelContext
 from ..core.mutations import BaseMutation
 from ..core.types.common import MetadataError
-from .extra_methods import MODEL_EXTRA_METHODS
+from ..core.utils import from_global_id_or_error
+from .extra_methods import MODEL_EXTRA_METHODS, MODEL_EXTRA_PREFETCH
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from ..product.utils import create_collage
 from ...plugins.allegro.api import AllegroAPI
@@ -33,7 +41,11 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def __init_subclass_with_meta__(
-        cls, arguments=None, permission_map=[], _meta=None, **kwargs,
+        cls,
+        arguments=None,
+        permission_map=[],
+        _meta=None,
+        **kwargs,
     ):
         if not _meta:
             _meta = MetadataPermissionOptions(cls)
@@ -49,7 +61,8 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def get_instance(cls, info, **data):
         object_id = data.get("id")
-        return cls.get_node_or_error(info, object_id)
+        qs = data.get("qs", None)
+        return cls.get_node_or_error(info, object_id, qs=qs)
 
     @classmethod
     def validate_model_is_model_with_metadata(cls, model, object_id):
@@ -86,7 +99,7 @@ class BaseMetadataMutation(BaseMutation):
         object_id = data.get("id")
         if not object_id:
             return []
-        type_name, object_pk = graphene.Node.from_global_id(object_id)
+        type_name, object_pk = from_global_id_or_error(object_id)
         model = cls.get_model_for_type_name(info, type_name)
         cls.validate_model_is_model_with_metadata(model, object_id)
         permission = cls._meta.permission_map.get(type_name)
@@ -102,26 +115,56 @@ class BaseMetadataMutation(BaseMutation):
     def mutate(cls, root, info, **data):
         try:
             permissions = cls.get_permissions(info, **data)
+        except GraphQLError as e:
+            error = ValidationError(
+                {"id": ValidationError(str(e), code="graphql_error")}
+            )
+            return cls.handle_errors(error)
         except ValidationError as e:
             return cls.handle_errors(e)
         if not cls.check_permissions(info.context, permissions):
             raise PermissionDenied()
-        result = super().mutate(root, info, **data)
-        if not result.errors:
-            cls.perform_model_extra_actions(root, info, **data)
+        try:
+            result = super().mutate(root, info, **data)
+            if not result.errors:
+                cls.perform_model_extra_actions(root, info, **data)
+        except ValidationError as e:
+            return cls.handle_errors(e)
         return result
 
     @classmethod
     def perform_model_extra_actions(cls, root, info, **data):
         """Run extra metadata method based on mutating model."""
-        type_name, _ = graphene.Node.from_global_id(data["id"])
+        type_name, _ = from_global_id_or_error(data["id"])
         if MODEL_EXTRA_METHODS.get(type_name):
+            prefetch_method = MODEL_EXTRA_PREFETCH.get(type_name)
+            if prefetch_method:
+                data["qs"] = prefetch_method()
             instance = cls.get_instance(info, **data)
             MODEL_EXTRA_METHODS[type_name](instance, info, **data)
 
     @classmethod
     def success_response(cls, instance):
         """Return a success response."""
+        # Wrap the instance with ChannelContext for models that use it.
+        use_channel_context = any(
+            [
+                isinstance(instance, Model)
+                for Model in [
+                    discount_models.Sale,
+                    discount_models.Voucher,
+                    menu_models.Menu,
+                    menu_models.MenuItem,
+                    product_models.Collection,
+                    product_models.Product,
+                    product_models.ProductVariant,
+                    shipping_models.ShippingMethod,
+                    shipping_models.ShippingZone,
+                ]
+            ]
+        )
+        if use_channel_context:
+            instance = ChannelContext(node=instance, channel_slug=None)
         return cls(**{"item": instance, "errors": []})
 
     @classmethod

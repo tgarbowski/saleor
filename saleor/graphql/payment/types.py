@@ -1,9 +1,12 @@
 import graphene
 from graphene import relay
 
+from ...core.permissions import OrderPermissions
+from ...core.tracing import traced_resolver
 from ...payment import models
 from ..core.connection import CountableDjangoObjectType
 from ..core.types import Money
+from ..decorators import permission_required
 from .enums import OrderAction, PaymentChargeStatusEnum
 
 
@@ -23,6 +26,7 @@ class Transaction(CountableDjangoObjectType):
             "kind",
             "is_success",
             "error",
+            "gateway_response",
         ]
 
     @staticmethod
@@ -56,6 +60,7 @@ class PaymentSource(graphene.ObjectType):
         )
 
     gateway = graphene.String(description="Payment gateway name.", required=True)
+    payment_method_id = graphene.String(description="ID of stored payment method.")
     credit_card_info = graphene.Field(
         CreditCard, description="Stored credit card details if available."
     )
@@ -104,9 +109,16 @@ class Payment(CountableDjangoObjectType):
             "checkout",
             "order",
             "customer_ip_address",
+            "payment_method_type",
         ]
 
     @staticmethod
+    @permission_required(OrderPermissions.MANAGE_ORDERS)
+    def resolve_customer_ip_address(root: models.Payment, _info):
+        return root.customer_ip_address
+
+    @staticmethod
+    @permission_required(OrderPermissions.MANAGE_ORDERS)
     def resolve_actions(root: models.Payment, _info):
         actions = []
         if root.can_capture():
@@ -118,6 +130,7 @@ class Payment(CountableDjangoObjectType):
         return actions
 
     @staticmethod
+    @traced_resolver
     def resolve_total(root: models.Payment, _info):
         return root.get_total()
 
@@ -126,33 +139,42 @@ class Payment(CountableDjangoObjectType):
         return root.get_captured_amount()
 
     @staticmethod
+    @permission_required(OrderPermissions.MANAGE_ORDERS)
     def resolve_transactions(root: models.Payment, _info):
         return root.transactions.all()
 
     @staticmethod
+    @permission_required(OrderPermissions.MANAGE_ORDERS)
     def resolve_available_refund_amount(root: models.Payment, _info):
-        # FIXME TESTME
         if not root.can_refund():
             return None
         return root.get_captured_amount()
 
     @staticmethod
+    @permission_required(OrderPermissions.MANAGE_ORDERS)
     def resolve_available_capture_amount(root: models.Payment, _info):
-        # FIXME TESTME
         if not root.can_capture():
             return None
-        return root.get_charge_amount()
+        return Money(amount=root.get_charge_amount(), currency=root.currency)
 
     @staticmethod
     def resolve_credit_card(root: models.Payment, _info):
         data = {
-            "last_digits": root.cc_last_digits,
             "brand": root.cc_brand,
+            "exp_month": root.cc_exp_month,
+            "exp_year": root.cc_exp_year,
+            "first_digits": root.cc_first_digits,
+            "last_digits": root.cc_last_digits,
         }
         if not any(data.values()):
             return None
         return CreditCard(**data)
 
+class PaymentUrl(graphene.ObjectType):
+    class Meta:
+        description = ("data to generate redirect url for payment")
+
+    payment_url = graphene.String(description="")
 
 class PaymentInitialized(graphene.ObjectType):
     class Meta:
@@ -167,10 +189,3 @@ class PaymentInitialized(graphene.ObjectType):
     data = graphene.JSONString(
         description="Initialized data by gateway.", required=False
     )
-
-
-class PaymentUrl(graphene.ObjectType):
-    class Meta:
-        description = ("data to generate redirect url for payment")
-
-    payment_url = graphene.String(description="")

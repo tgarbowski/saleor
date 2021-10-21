@@ -1,28 +1,37 @@
-from unittest.mock import Mock, patch
+import os
+from io import BytesIO
+from unittest.mock import patch
 
 import django_filters
 import graphene
 import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from graphene import InputField
+from PIL import Image
 
-from ....product.models import Category, Product
-from ...product import types as product_types
+from ....core.utils.validators import get_oembed_data
+from ....product import ProductMediaTypes
+from ....product.error_codes import ProductErrorCode
+from ....product.models import Category, Product, ProductChannelListing
 from ...tests.utils import get_graphql_content, get_graphql_content_from_response
-from ...utils import get_database_id, requestor_is_superuser
+from ...utils import requestor_is_superuser
 from ...utils.filters import filter_range_field, reporting_period_to_date
 from ..enums import ReportingPeriod
 from ..filters import EnumFilter
 from ..mutations import BaseMutation
 from ..types import FilterInputObjectType
 from ..utils import (
+    add_hash_to_file_name,
     clean_seo_fields,
     get_duplicated_values,
     snake_to_camel_case,
+    validate_image_file,
     validate_slug_and_generate_if_needed,
 )
+from . import ErrorTest
 
 
 def test_clean_seo_fields():
@@ -58,17 +67,6 @@ def test_user_error_field_name_for_related_object(
     assert data is None
     error = content["data"]["categoryCreate"]["errors"][0]
     assert error["field"] == "parent"
-
-
-def test_get_database_id(product):
-    info = Mock(
-        schema=Mock(
-            get_type=Mock(return_value=Mock(graphene_type=product_types.Product))
-        )
-    )
-    node_id = graphene.Node.to_global_id("Product", product.pk)
-    pk = get_database_id(info, node_id, product_types.Product)
-    assert int(pk) == product.pk
 
 
 def test_snake_to_camel_case():
@@ -116,149 +114,17 @@ def test_require_pagination(api_client):
     )
 
 
-def test_total_count_query(api_client, product):
+def test_total_count_query(api_client, product, channel_USD):
     query = """
-    query {
-        products {
+    query ($channel: String){
+        products (channel: $channel){
             totalCount
         }
     }
     """
-    response = api_client.post_graphql(query)
+    response = api_client.post_graphql(query, {"channel": channel_USD.slug})
     content = get_graphql_content(response)
     assert content["data"]["products"]["totalCount"] == Product.objects.count()
-
-
-def test_mutation_positive_decimal_input(
-    staff_api_client, variant, stock, permission_manage_products
-):
-    query = """
-    mutation PositiveDecimalInput(
-        $id: ID!,
-        $cost: PositiveDecimal,
-        $price: PositiveDecimal,
-    ) {
-        productVariantUpdate(
-            id: $id,
-            input: {
-                costPrice: $cost,
-                price: $price,
-            }
-        ) {
-            errors {
-                field
-                message
-            }
-            productVariant {
-                costPrice {
-                    amount
-                }
-            }
-        }
-    }
-    """
-
-    variables = {
-        "id": graphene.Node.to_global_id("ProductVariant", variant.id),
-        "price": 15,
-        "cost": 12.12,
-        "quantity": 17,
-    }
-    response = staff_api_client.post_graphql(
-        query, variables, permissions=[permission_manage_products]
-    )
-    content = get_graphql_content(response)
-    data = content["data"]["productVariantUpdate"]
-    assert data["errors"] == []
-
-
-def test_mutation_positive_decimal_input_without_arguments(
-    staff_api_client, variant, permission_manage_products
-):
-    query = """
-    mutation ProductVariantUpdate(
-        $id: ID!,
-        $price: PositiveDecimal,
-        $costPrice: PositiveDecimal,
-    ) {
-        productVariantUpdate(
-            id: $id,
-            input: {
-                costPrice: $costPrice,
-                price: $price,
-            }
-        ) {
-            errors {
-                field
-                message
-            }
-            productVariant {
-                costPrice{
-                    amount
-                }
-            }
-        }
-    }
-    """
-    variables = {
-        "id": graphene.Node.to_global_id("ProductVariant", variant.id),
-        "cost": 12.12,
-        "price": 15,
-    }
-    response = staff_api_client.post_graphql(
-        query, variables, permissions=[permission_manage_products]
-    )
-    content = get_graphql_content(response)
-    data = content["data"]["productVariantUpdate"]
-    assert data["errors"] == []
-
-
-def test_mutation_update_product_with_default_variant(
-    product_with_default_variant, staff_api_client, permission_manage_products
-):
-    # given
-    query = """
-    mutation ProductVariantUpdate(
-        $id: ID!,
-        $sku: String,
-    ) {
-        productVariantUpdate(
-            id: $id,
-            input: {
-                sku: $sku,
-            }
-        ) {
-            errors {
-                field
-                message
-            }
-            productVariant {
-                sku
-            }
-        }
-    }
-    """
-    variant = product_with_default_variant.variants.first()
-    variant_id = variant.pk
-
-    assert product_with_default_variant.product_type.has_variants is False
-
-    variables = {
-        "id": graphene.Node.to_global_id("ProductVariant", variant_id),
-        "sku": "Updated product SKU",
-    }
-
-    # when
-    response = staff_api_client.post_graphql(
-        query, variables, permissions=[permission_manage_products]
-    )
-
-    # then
-    content = get_graphql_content(response)
-    data = content["data"]["productVariantUpdate"]
-
-    assert data["errors"] == []
-    assert data["productVariant"]["sku"] == "Updated product SKU"
 
 
 def test_filter_input():
@@ -312,7 +178,9 @@ def test_filter_input():
 def test_mutation_invalid_permission_in_meta(_mocked, should_fail, permissions_value):
     def _run_test():
         BaseMutation.__init_subclass_with_meta__(
-            description="dummy", permissions=permissions_value
+            description="dummy",
+            error_type_class=ErrorTest,
+            permissions=permissions_value,
         )
 
     if not should_fail:
@@ -364,6 +232,84 @@ def test_validate_slug_and_generate_if_needed_generate_slug(cleaned_input):
     validate_slug_and_generate_if_needed(category, "name", cleaned_input)
 
 
+def test_validate_image_file():
+    # given
+    img_data = BytesIO()
+    image = Image.new("RGB", size=(1, 1))
+    image.save(img_data, format="JPEG")
+    img = SimpleUploadedFile("product.jpg", img_data.getvalue(), "image/jpeg")
+    field = "image"
+
+    # when
+    result = validate_image_file(img, field, ProductErrorCode)
+
+    # then
+    assert not result
+
+
+def test_validate_image_file_invalid_content_type():
+    # given
+    img_data = BytesIO()
+    image = Image.new("RGB", size=(1, 1))
+    image.save(img_data, format="JPEG")
+    img = SimpleUploadedFile("product.jpg", img_data.getvalue(), "text/plain")
+    field = "image"
+
+    # when
+    with pytest.raises(ValidationError) as exc:
+        validate_image_file(img, field, ProductErrorCode)
+
+    # then
+    assert exc.value.args[0][field].message == "Invalid file type."
+
+
+def test_validate_image_file_no_file():
+    # given
+    field = "image"
+
+    # when
+    with pytest.raises(ValidationError) as exc:
+        validate_image_file(None, field, ProductErrorCode)
+
+    # then
+    assert exc.value.args[0][field].message == "File is required."
+
+
+def test_validate_image_file_no_file_extension():
+    # given
+    img_data = BytesIO()
+    image = Image.new("RGB", size=(1, 1))
+    image.save(img_data, format="JPEG")
+    img = SimpleUploadedFile("product", img_data.getvalue(), "image/jpeg")
+    field = "image"
+
+    # when
+    with pytest.raises(ValidationError) as exc:
+        validate_image_file(img, field, ProductErrorCode)
+
+    # then
+    assert exc.value.args[0][field].message == "Lack of file extension."
+
+
+def test_validate_image_file_invalid_file_extension():
+    # given
+    img_data = BytesIO()
+    image = Image.new("RGB", size=(1, 1))
+    image.save(img_data, format="JPEG")
+    img = SimpleUploadedFile("product.txt", img_data.getvalue(), "image/jpeg")
+    field = "image"
+
+    # when
+    with pytest.raises(ValidationError) as exc:
+        validate_image_file(img, field, ProductErrorCode)
+
+    # then
+    assert (
+        exc.value.args[0][field].message
+        == "Invalid file extension. Image file required."
+    )
+
+
 @pytest.mark.parametrize(
     "value, count, product_indexes",
     [
@@ -374,8 +320,8 @@ def test_validate_slug_and_generate_if_needed_generate_slug(cleaned_input):
     ],
 )
 def test_filter_range_field(value, count, product_indexes, product_list):
-    qs = Product.objects.all().order_by("pk")
-    field = "minimal_variant_price_amount"
+    qs = ProductChannelListing.objects.all().order_by("pk")
+    field = "discounted_price_amount"
 
     result = filter_range_field(qs, field, value)
 
@@ -411,3 +357,64 @@ def test_requestor_is_superuser_for_anonymous_user():
     user = AnonymousUser()
     result = requestor_is_superuser(user)
     assert result is False
+
+
+@pytest.mark.vcr
+@pytest.mark.parametrize(
+    "url, expected_media_type",
+    [
+        (
+            "http://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            ProductMediaTypes.VIDEO,
+        ),
+        (
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            ProductMediaTypes.VIDEO,
+        ),
+        (
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&ab_channel=TestingChannel",
+            ProductMediaTypes.VIDEO,
+        ),
+        (
+            "https://vimeo.com/148751763",
+            ProductMediaTypes.VIDEO,
+        ),
+        (
+            "https://www.flickr.com/photos/megane_wakui/31740618232/",
+            ProductMediaTypes.IMAGE,
+        ),
+    ],
+)
+def test_get_oembed_data(url, expected_media_type):
+    oembed_data, media_type = get_oembed_data(url, "media_url")
+
+    assert oembed_data is not {}
+    assert media_type == expected_media_type
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.streamable.com/8vnouo",
+        "https://www.flickr.com/photos/test/test/",
+        "https://www.youtube.com/embed/v=dQw4w9WgXcQ",
+        "https://vimeo.com/test",
+        "http://onet.pl/",
+    ],
+)
+def test_get_oembed_data_unsupported_media_provider(url):
+    with pytest.raises(
+        ValidationError, match="Unsupported media provider or incorrect URL."
+    ):
+        get_oembed_data(url, "media_url")
+
+
+def test_add_hash_to_file_name(image, media_root):
+    previous_file_name = image._name
+
+    add_hash_to_file_name(image)
+
+    assert previous_file_name != image._name
+    file_name, format = os.path.splitext(image._name)
+    assert image._name.startswith(file_name)
+    assert image._name.endswith(format)
