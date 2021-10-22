@@ -1,9 +1,6 @@
 from ...payment import models
 from .types import PaymentUrl
-from ..core.utils import from_global_id_strict_type
 from .types import Payment
-from ...payment import gateway as payment_gateway, models
-from ..utils.filters import filter_by_query_param
 from ...plugins.manager import get_plugins_manager
 from ...payment.gateways.payu.utils import generate_payu_redirect_url
 from ...payment.utils import create_payment_information

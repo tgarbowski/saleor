@@ -11,8 +11,6 @@ from django.db.models.functions import Cast, Coalesce
 from graphene_django.filter import GlobalIDMultipleChoiceFilter
 
 from .utils import create_warehouse_locations_matrix
-from ...product.filters import filter_products_by_attributes_values
-from ...product.models import (
 from ...attribute import AttributeInputType
 from ...attribute.models import (
     AssignedProductAttribute,
@@ -42,21 +40,11 @@ from ..core.filters import (
     ObjectTypeFilter,
 )
 from ..core.types import ChannelFilterInputObjectType, FilterInputObjectType
-from ..core.types.common import IntRangeInput, PriceRangeInput
 from ..utils import resolve_global_ids_to_primary_keys
 from ..utils.filters import filter_fields_containing_value, filter_range_field
-from ...warehouse.models import Stock
-from ..core.filters import EnumFilter, ListObjectTypeFilter, ObjectTypeFilter
-from ..core.types import FilterInputObjectType
 from ..core.types.common import IntRangeInput, PriceRangeInput, DateRangeInput, \
     WarehouseLocationRangeInput
-from ..core.utils import from_global_id_strict_type
-from ..utils import (
-    get_nodes,
-    get_user_or_app_from_context,
-    resolve_global_ids_to_primary_keys,
-)
-from ..utils.filters import filter_by_query_param, filter_range_field
+
 from ..warehouse import types as warehouse_types
 from . import types as product_types
 from .enums import (

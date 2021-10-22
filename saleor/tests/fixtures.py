@@ -107,6 +107,9 @@ from ..webhook.models import Webhook, WebhookEvent
 from ..wishlist.models import Wishlist
 from .utils import dummy_editorjs
 
+from saleor.graphql.wms.tests.fixtures import (wms_document, wms_docposition, setup_wms,
+                                               permission_manage_wmsdocument, wms_deliverer)
+
 
 class CaptureQueriesContext(BaseCaptureQueriesContext):
     IGNORED_QUERIES = settings.PATTERNS_IGNORED_IN_QUERY_CAPTURES  # type: ignore

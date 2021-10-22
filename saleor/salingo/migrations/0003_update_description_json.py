@@ -11,7 +11,7 @@ def generate_key_id():
 
 def get_products_from_db():
     dbCursor = connection.cursor()
-    dbCursor.execute("""select id, description_json from product_product pp""")
+    dbCursor.execute("""select id, description from product_product pp""")
     return dbCursor.fetchall()
 
 

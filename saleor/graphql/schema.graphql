@@ -3542,9 +3542,6 @@ type Mutation {
   dpdProtocolCreate(input: DpdCreateProtocolInput!): DpdProtocolCreate
   productAttributeAssign(operations: [ProductAttributeAssignInput]!, productTypeId: ID!): ProductAttributeAssign
   productAttributeUnassign(attributeIds: [ID]!, productTypeId: ID!): ProductAttributeUnassign
-  dpdPackageCreate(input: DpdCreatePackageInput!): DpdPackageCreate
-  dpdLabelCreate(input: DpdCreateLabelInput!): DpdLabelCreate
-  dpdProtocolCreate(input: DpdCreateProtocolInput!): DpdProtocolCreate
   categoryCreate(input: CategoryInput!, parent: ID): CategoryCreate
   categoryDelete(id: ID!): CategoryDelete
   categoryBulkDelete(ids: [ID]!): CategoryBulkDelete
@@ -3570,7 +3567,7 @@ type Mutation {
   productMediaCreate(input: ProductMediaCreateInput!): ProductMediaCreate
   productVariantReorder(moves: [ReorderInput]!, productId: ID!): ProductVariantReorder
   productMediaDelete(id: ID!): ProductMediaDelete
-  productMediaBulkDelete(ids: [ID]!, offerType: String, startingAt: String): ProductMediaBulkDelete
+  productMediaBulkDelete(ids: [ID]!): ProductMediaBulkDelete
   productMediaReorder(mediaIds: [ID]!, productId: ID!): ProductMediaReorder
   productMediaUpdate(id: ID!, input: ProductMediaUpdateInput!): ProductMediaUpdate
   productTypeCreate(input: ProductTypeInput!): ProductTypeCreate
@@ -4939,8 +4936,8 @@ type Product implements Node & ObjectWithMetadata & ObjectWithJSONMetadata {
   productType: ProductType!
   slug: String!
   category: Category
-  createdAt: DateTime
   updatedAt: DateTime
+  createdAt: DateTime
   chargeTaxes: Boolean!
   weight: Weight
   defaultVariant: ProductVariant
@@ -4949,6 +4946,7 @@ type Product implements Node & ObjectWithMetadata & ObjectWithJSONMetadata {
   metadata: [MetadataItem]!
   jsonPrivateMetadata: JSONString!
   jsonMetadata: JSONString!
+  channel: String
   descriptionJson: JSONString @deprecated(reason: "Will be removed in Saleor 4.0. Use the `description` field instead.")
   thumbnail(size: Int): Image
   pricing(address: AddressInput): ProductPricingInfo
@@ -4965,13 +4963,6 @@ type Product implements Node & ObjectWithMetadata & ObjectWithJSONMetadata {
   translation(languageCode: LanguageCodeEnum!): ProductTranslation
   availableForPurchase: Date
   isAvailableForPurchase: Boolean
-}
-
-type ProductBulkClearWarehouseLocation {
-  errors: [Error!]! @deprecated(reason: "Use typed errors with error codes. This field will be removed after 2020-07-31.")
-  count: Int!
-  productVariants: [ProductVariant!]!
-  productErrors: [ProductError!]!
 }
 
 type ProductAttributeAssign {
@@ -5148,7 +5139,6 @@ input ProductFilterInput {
   hasCategory: Boolean
   attributes: [AttributeInput]
   stockAvailability: StockAvailability
-  productType: ID
   stocks: ProductStockFilterInput
   search: String
   allegroStatus: String
@@ -5647,10 +5637,6 @@ type Query {
   productVariantsSkus(sku: String, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   productVariants(ids: [ID], channel: String, filter: ProductVariantFilterInput, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   reportProductSales(period: ReportingPeriod!, channel: String!, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
-  productVariant(id: ID, sku: String): ProductVariant
-  productVariantsSkus(sku: String, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
-  productVariants(ids: [ID], filter: ProductVariantFilterInput, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
-  reportProductSales(period: ReportingPeriod!, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   payment(id: ID!): Payment
   payments(filter: PaymentFilterInput, before: String, after: String, first: Int, last: Int): PaymentCountableConnection
   generatePaymentUrl(paymentId: ID!): PaymentUrl

@@ -5,7 +5,6 @@ from typing import List
 import graphene
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
 from django.db import connection
-from django.core.exceptions import ValidationError
 from graphql.error.base import GraphQLError
 
 from ..product.utils import generate_description_json_for_megapack
@@ -25,7 +24,7 @@ from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from ..product.utils import create_collage
 from ...plugins.allegro.api import AllegroAPI
 from ...plugins.allegro.utils import get_plugin_configuration
-from ...product.models import Product, ProductVariant, ProductImage
+from ...product.models import ProductVariant, ProductMedia
 from .types import ObjectWithMetadata
 
 logger = logging.getLogger(__name__)
@@ -219,8 +218,8 @@ class BaseMetadataMutation(BaseMutation):
         if step == 0: step = 1
 
         for product_variant in product_variants[::step]:
-            photo = ProductImage.objects.filter(product=product_variant.product.pk).first()
-            new_image = ProductImage.objects.create(product=instance, ppoi=photo.ppoi,
+            photo = ProductMedia.objects.filter(product=product_variant.product.pk).first()
+            new_image = ProductMedia.objects.create(product=instance, ppoi=photo.ppoi,
                                                     alt=product_variant.product.name, image=photo.image)
             collage_images.append(new_image)
         # Create collage image from images

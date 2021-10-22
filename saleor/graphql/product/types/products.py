@@ -618,7 +618,6 @@ class Product(ChannelContextTypeWithMetadata, CountableDjangoObjectType):
             "charge_taxes",
             "description",
             "id",
-            "is_published",
             "name",
             "slug",
             "product_type",

@@ -24,7 +24,7 @@ from ....warehouse import models as warehouse_models
 from ....warehouse.error_codes import StockErrorCode
 from ...channel import ChannelContext
 from ...channel.types import Channel
-from ...core.mutations import BaseMutation, ModelBulkDeleteMutation, ModelMutation
+from ...core.mutations import BaseMutation, ModelBulkDeleteMutation, ModelMutation, BaseBulkMutation
 from ...core.types.common import (
     BulkProductError,
     BulkStockError,
@@ -824,21 +824,6 @@ class ProductMediaBulkDelete(ModelBulkDeleteMutation):
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
-
-class ProductBulkPublish(BaseBulkMutation):
-    class Arguments:
-        ids = graphene.List(
-            graphene.ID, required=True, description="List of products IDs to publish."
-        )
-        is_published = graphene.Boolean(
-            required=True, description="Determine if products will be published or not."
-        )
-        offer_type = graphene.String(description="Determine product offer type.")
-        starting_at = graphene.String(description="Determine date for publish offer.")
-
-    @classmethod
-    def bulk_action(cls, queryset, is_published):
-        queryset.update(is_published=is_published)
 
 
 class ProductBulkClearWarehouseLocation(BaseBulkMutation):

@@ -3,7 +3,6 @@ from django.db.models import Exists, OuterRef, Sum
 from ...channel.models import Channel
 from ...core.permissions import has_one_of_permissions
 from ...core.tracing import traced_resolver
-from ...account.models import User
 from ...order import OrderStatus
 from ...order.models import Order
 from ...product import models

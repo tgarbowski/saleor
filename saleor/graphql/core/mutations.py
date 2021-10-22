@@ -24,10 +24,8 @@ from ..decorators import staff_member_or_app_required
 from ..utils import get_nodes, resolve_global_ids_to_primary_keys
 from .types import File, Upload
 from .types.common import UploadError
-from .utils import from_global_id_or_error, snake_to_camel_case
 from saleor.product.models import Product
-from .types import Error, Upload
-from .utils import from_global_id_strict_type, snake_to_camel_case
+from .utils import from_global_id_or_error, snake_to_camel_case
 from .utils.error_codes import get_error_code_from_error
 
 registry = get_global_registry()
@@ -602,40 +600,11 @@ class BaseBulkMutation(BaseMutation):
     def perform_mutation(cls, _root, info, ids, **data):
         """Perform a mutation that deletes a list of model instances."""
         clean_instance_ids, errors = [], {}
-        start = 0
         # Allow to pass empty list for dummy mutation
         if not ids:
             return 0, errors
         instance_model = cls._meta.model
         model_type = registry.get_type_for_model(instance_model)
-        instances = cls.get_nodes_or_error(ids, "id", model_type)
-
-        is_published = data.get('is_published')
-
-        from saleor.graphql.product.bulk_mutations.products import ProductBulkPublish
-        if type(instance_model) == type(Product) and cls == ProductBulkPublish and is_published:
-            from saleor.plugins.allegro.utils import can_publish
-
-            interval, chunks = info.context.plugins.get_intervals_and_chunks()
-            step = math.ceil(len(instances) / (chunks))
-
-            instances_ids = []
-            for i, instance in enumerate(instances):
-                instance.refresh_from_db()
-                instances_ids.append(instance.id)
-
-                if can_publish(instance, data):
-                    starting_at = (datetime.strptime(data.get('starting_at'), '%Y-%m-%d %H:%M') + timedelta(minutes=(start))).strftime("%Y-%m-%d %H:%M")
-                    if i == len(instances) - 1:
-                        info.context.plugins.product_published({"product": instance, "offer_type": data.get('offer_type'), "starting_at": starting_at, "products_bulk_ids": instances_ids})
-                    else:
-                        info.context.plugins.product_published({"product": instance, "offer_type": data.get('offer_type'), "starting_at": starting_at, "products_bulk_ids": None})
-
-                    if (i + 1) % step == 0:
-                        start += interval
-
-            data.pop('offer_type', None)
-            data.pop('starting_at', None)
         try:
             instances = cls.get_nodes_or_error(ids, "id", model_type)
         except ValidationError as error:
@@ -662,11 +631,11 @@ class BaseBulkMutation(BaseMutation):
         if errors:
             errors = ValidationError(errors)
         count = len(clean_instance_ids)
-
         if count:
             qs = instance_model.objects.filter(pk__in=clean_instance_ids)
             if cls.__name__ == 'ProductBulkPublish':
-                cls.bulk_action(info=info, instances=instances, product_ids=clean_instance_ids, **data)
+                cls.bulk_action(info=info, instances=instances,
+                                product_ids=clean_instance_ids, **data)
             else:
                 cls.bulk_action(info=info, queryset=qs, **data)
         return count, errors

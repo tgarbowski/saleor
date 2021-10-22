@@ -1,11 +1,9 @@
 from collections import defaultdict, namedtuple
 from typing import TYPE_CHECKING, Dict, Iterable, List
-import json
 import os
 import random
 import re
 import string
-from typing import TYPE_CHECKING, Dict, List, Tuple
 import boto3
 import graphene
 from django.core.exceptions import ValidationError
@@ -14,14 +12,12 @@ from io import BytesIO
 from PIL import Image
 
 from ...core.tracing import traced_atomic_transaction
-from ...order import OrderStatus
-from ...order import models as order_models
-from ...product import AttributeInputType
-from ...product.error_codes import ProductErrorCode
-from ...product.models import ProductImage
+from ...product.models import ProductMedia
 from ...product.thumbnails import create_product_thumbnails
 from ...warehouse.models import Stock
-from ...product.models import Attribute, ProductVariant
+from ...order import OrderStatus
+from ...order import models as order_models
+
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
@@ -92,6 +88,11 @@ def create_stocks(
     except IntegrityError:
         msg = "Stock for one of warehouses already exists for this product variant."
         raise ValidationError(msg)
+
+
+DraftOrderLinesData = namedtuple(
+    "DraftOrderLinesData", ["order_to_lines_mapping", "line_pks", "order_pks"]
+)
 
 
 def create_collage(images, product):
@@ -226,3 +227,22 @@ def generate_description_json_for_megapack(bundle_content):
     description_json["blocks"] = blocks
     description_json["entityMap"] = {}
     return description_json
+
+
+def get_draft_order_lines_data_for_variants(
+    variant_ids: Iterable[int],
+):
+    lines = order_models.OrderLine.objects.filter(
+        variant__id__in=variant_ids, order__status=OrderStatus.DRAFT
+    ).select_related("order")
+    order_to_lines_mapping: Dict[
+        order_models.Order, List[order_models.OrderLine]
+    ] = defaultdict(list)
+    line_pks = set()
+    order_pks = set()
+    for line in lines:
+        order_to_lines_mapping[line.order].append(line)
+        line_pks.add(line.pk)
+        order_pks.add(line.order_id)
+
+    return DraftOrderLinesData(order_to_lines_mapping, line_pks, order_pks)
