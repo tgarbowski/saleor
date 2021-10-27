@@ -573,7 +573,7 @@ def filter_created_at_range(qs, _, value):
 
 
 def filter_warehouse_location(qs, _, value):
-    return filter_by_warehouse_locations(qs, warehouse_from=value.get("lte"), warehouse_to=value.get("gte"))
+    return filter_by_warehouse_locations(qs, warehouse_from=value.get("gte"), warehouse_to=value.get("lte"))
 
 
 class ProductStockFilterInput(graphene.InputObjectType):
