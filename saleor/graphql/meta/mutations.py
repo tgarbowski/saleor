@@ -286,10 +286,7 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def bulk_allegro_offers_unpublish(cls, data):
-        config = get_plugin_configuration()
-        access_token = config.get('token_value')
-        env = config.get('env')
-        allegro_api_instance = AllegroAPI(access_token, env)
+        allegro_api_instance = AllegroAPI(channel='allegro')
         data_skus = data['skus']
         products_allegro_sold_or_auctioned = []
 

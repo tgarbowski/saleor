@@ -38,10 +38,7 @@ def refresh_token_task():
 
 @app.task()
 def check_bulk_unpublish_status_task(unique_id):
-    config = get_plugin_configuration()
-    access_token = config.get('token_value')
-    env = config.get('env')
-    allegro_api_instance = AllegroAPI(access_token, env)
+    allegro_api_instance = AllegroAPI(channel='allegro')
     unpublish_status = allegro_api_instance.check_unpublish_status(unique_id)
 
     if unpublish_status.get('status') == 'OK':
@@ -299,8 +296,7 @@ def bulk_allegro_publish_unpublished_to_auction(limit):
 
 @app.task()
 def bulk_allegro_unpublish(product_ids):
-    config = get_plugin_configuration()
-    allegro_api = AllegroAPI(config['token_value'], config['env'])
+    allegro_api = AllegroAPI(channel='allegro')
     skus = list(
         ProductVariant.objects
             .filter(product_id__in=product_ids)
