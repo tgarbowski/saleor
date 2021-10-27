@@ -5,6 +5,7 @@ import graphene
 from django.core.exceptions import ValidationError
 from django.db.utils import IntegrityError
 
+from ...order.types import Fulfillment
 from ....core.permissions import ShippingPermissions
 from ....core.tracing import traced_atomic_transaction
 from ....product import models as product_models
