@@ -1,3 +1,4 @@
+from ..core.utils import from_global_id_or_error
 from ...payment import models
 from .types import PaymentUrl
 from .types import Payment
@@ -15,10 +16,10 @@ def resolve_payments(info):
 
 
 def resolve_generate_payment_url(info, **kwargs):
-    payment_id = from_global_id_strict_type(
-        kwargs["payment_id"], only_type=Payment, field="payment_id"
+    print(kwargs)
+    value, payment_id = from_global_id_or_error(
+        kwargs["payment_id"], only_type=Payment
     )
-
     payment = models.Payment.objects.filter(id=payment_id).first()
     manager = get_plugins_manager()
     plugin = manager.get_plugin(payment.gateway)

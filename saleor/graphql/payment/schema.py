@@ -6,7 +6,8 @@ from ..core.utils import from_global_id_or_error
 from ..decorators import permission_required
 from .filters import PaymentFilterInput
 from .mutations import PaymentCapture, PaymentInitialize, PaymentRefund, PaymentVoid
-from .resolvers import resolve_payment_by_id, resolve_payments
+from .resolvers import resolve_payment_by_id, resolve_payments, \
+    resolve_generate_payment_url
 from .types import Payment, PaymentUrl
 
 
