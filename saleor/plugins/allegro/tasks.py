@@ -62,6 +62,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
         {'publish.allegro.status': ProductPublishState.MODERATED.value,
          'publish.type': offer_type,
          'publish.status.date': get_datetime_now()})
+    saleor_product.save()
     publication_date = saleor_product.get_value_from_private_metadata("publish.allegro.date")
     # New offer
     if not publication_date:

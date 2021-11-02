@@ -104,14 +104,14 @@ class AllegroAPI:
             'allegro.mapping.categoryId')
         require_parameters = self.get_require_parameters(category_id, parameters_type)
         self.require_parameters = require_parameters
-        parameters_mapper = ParametersMapperFactory().get_mapper()
+        parameters_mapper = ParametersMapperFactory().get_mapper(self.channel)
         parameters = parameters_mapper.set_product(
             saleor_product).set_require_parameters(require_parameters).run_mapper(parameters_type)
 
         return parameters
 
     def prepare_product(self, saleor_product, parameters, product_images):
-        product_mapper = ProductMapperFactory().get_mapper()
+        product_mapper = ProductMapperFactory().get_mapper(self.channel)
 
         category_id = saleor_product.product_type.metadata.get(
             'allegro.mapping.categoryId')

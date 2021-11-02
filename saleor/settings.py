@@ -501,6 +501,7 @@ if APP_ENVIRONMENT in ['production']:
             "schedule": timedelta(days=1),
         },
     }
+
 if APP_ENVIRONMENT in ['development']:
     CELERY_BEAT_SCHEDULE = {
         'refresh_token_task': {
@@ -557,7 +558,6 @@ BUILTIN_PLUGINS = [
     "saleor.payment.gateways.razorpay.plugin.RazorpayGatewayPlugin",
     #"saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
     "saleor.payment.gateways.authorize_net.plugin.AuthorizeNetGatewayPlugin",
-    "saleor.payment.gateways.authorize_net.plugin.AuthorizeNetGatewayPlugin",
     "saleor.payment.gateways.payu.plugin.PayuGatewayPlugin",
     "saleor.plugins.invoicing.plugin.InvoicingPlugin",
     "saleor.plugins.user_email.plugin.UserEmailPlugin",
@@ -567,8 +567,7 @@ BUILTIN_PLUGINS = [
     "saleor.plugins.sumi.plugin.SumiPlugin",
     "saleor.plugins.allegroSync.plugin.AllegroSyncPlugin",
     "saleor.plugins.wms.plugin.WMSPlugin",
-    "saleor.plugins.dpd.plugin.DpdPlugin",
-    "saleor.plugins.allegro.plugin.AllegroPlugin",
+    "saleor.plugins.dpd.plugin.DpdPlugin"
 ]
 
 # Plugin discovery

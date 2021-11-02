@@ -4,7 +4,7 @@ import webbrowser
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, List
 
 import requests
 from django.core.mail import EmailMultiAlternatives
@@ -19,11 +19,12 @@ from saleor.channel.models import Channel
 from saleor.product.models import ProductVariant
 from . import ProductPublishState
 from .utils import get_datetime_now
-
-logger = logging.getLogger(__name__)
-
 from .tasks import async_product_publish
 from .api import AllegroAPI
+
+
+logger = logging.getLogger(__name__)
+PluginConfigurationType = List[dict]
 
 @dataclass
 class AllegroConfiguration:
@@ -52,6 +53,7 @@ class AllegroConfiguration:
 
 
 class AllegroPlugin(BasePlugin):
+    CONFIGURATION_PER_CHANNEL = True
     PLUGIN_ID = "allegro"
     PLUGIN_NAME = "Allegro"
     PLUGIN_NAME_2 = "Allegro"
@@ -277,6 +279,22 @@ class AllegroPlugin(BasePlugin):
 
         return plugin_configuration
 
+    @classmethod
+    def _append_config_structure(cls, configuration: PluginConfigurationType):
+        """Append configuration structure to config from the database.
+
+        Database stores "key: value" pairs, the definition of fields should be declared
+        inside of the plugin. Based on this, the plugin will generate a structure of
+        configuration with current values and provide access to it via API.
+        """
+        config_structure = getattr(cls, "CONFIG_STRUCTURE") or {}
+
+        for configuration_field in configuration:
+
+            structure_to_add = config_structure.get(configuration_field.get("name"))
+            if structure_to_add:
+                configuration_field.update(structure_to_add)
+
     def product_validate(self, product, channel):
         errors = []
 
@@ -333,7 +351,8 @@ class AllegroPlugin(BasePlugin):
     def product_published(self, product_with_params: Any) -> Any:
         product = product_with_params.get('product')
         products_bulk_ids = product_with_params.get('products_bulk_ids')
-        product_images = list(ProductMedia.objects.filter(product=product).values_list('image', flat=True))
+        product_images = ProductMedia.objects.filter(product=product)
+        product_images = [product_image.image.url for product_image in product_images]
         product.delete_value_from_private_metadata('publish.allegro.errors')
         try:
             product_channel_listing = ProductChannelListing.objects.get(product_id=product.id)
