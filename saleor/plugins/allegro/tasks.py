@@ -2,18 +2,15 @@ import logging
 from datetime import datetime, timedelta
 import math
 
-from django.contrib.postgres.aggregates.general import ArrayAgg
-from django.db.models import Q
-
 from ...celeryconf import app
 from .api import AllegroAPI
 from .enums import AllegroErrors
 from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish_message,
                     get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished,
                     can_publish, update_allegro_purchased_error, email_bulk_unpublish_result,
-                    get_datetime_now)
+                    get_datetime_now, product_ids_to_skus, get_products_by_channels)
 from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import Category, Product, ProductVariant, ProductChannelListing
+from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.models import PluginConfiguration
 
@@ -300,15 +297,9 @@ def bulk_allegro_publish_unpublished_to_auction(limit):
 
 @app.task()
 def unpublish_from_multiple_channels(product_ids):
-    # Prepare dict of product_ids per channel
-    channels = ProductChannelListing.objects.values('channel__slug').annotate(
-        product_ids=ArrayAgg(
-            'product_id',
-            filter=Q(product_id__in=product_ids)
-        )
-    ).order_by('channel__slug')
+    products_per_channels = get_products_by_channels(product_ids)
 
-    for channel in channels:
+    for channel in products_per_channels:
         bulk_allegro_unpublish(
             channel=channel['channel__slug'],
             product_ids=channel['product_ids']
@@ -317,11 +308,7 @@ def unpublish_from_multiple_channels(product_ids):
 
 def bulk_allegro_unpublish(channel, product_ids):
     allegro_api = AllegroAPI(channel=channel)
-    skus = list(
-        ProductVariant.objects
-            .filter(product_id__in=product_ids)
-            .values_list("sku", flat=True)
-    )
+    skus = product_ids_to_skus(product_ids)
     logger.info(f'SKUS TO UNPUBLISH{skus}')
 
     total_count = len(skus)

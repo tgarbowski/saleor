@@ -23,7 +23,8 @@ from .extra_methods import MODEL_EXTRA_METHODS, MODEL_EXTRA_PREFETCH
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from ..product.utils import create_collage
 from ...plugins.allegro.api import AllegroAPI
-from ...plugins.allegro.utils import get_plugin_configuration
+from saleor.plugins.allegro.utils import (skus_to_product_ids, get_products_by_channels,
+                                          product_ids_to_skus)
 from ...product.models import ProductVariant, ProductMedia
 from .types import ObjectWithMetadata
 
@@ -286,19 +287,23 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def bulk_allegro_offers_unpublish(cls, data):
-        allegro_api_instance = AllegroAPI(channel='allegro')
         data_skus = data['skus']
+        product_ids = skus_to_product_ids(data_skus)
+        products_per_channels = get_products_by_channels(product_ids)
         products_allegro_sold_or_auctioned = []
 
-        allegro_data = allegro_api_instance.bulk_offer_unpublish(skus=data_skus)
-        if allegro_data['errors'] and allegro_data['status'] == "OK":
-            for product in enumerate(allegro_data['errors']):
-                if 'sku' in product[1]:
-                    products_allegro_sold_or_auctioned.append(product[1]['sku'])
+        for channel in products_per_channels:
+            skus = product_ids_to_skus(channel['product_ids'])
+            allegro_api = AllegroAPI(channel=channel['channel__slug'])
+            allegro_data = allegro_api.bulk_offer_unpublish(skus=skus)
+            if allegro_data['errors'] and allegro_data['status'] == "OK":
+                for product in enumerate(allegro_data['errors']):
+                    if 'sku' in product[1]:
+                        products_allegro_sold_or_auctioned.append(product[1]['sku'])
 
-        if allegro_data['status'] == "ERROR":
-            logger.error("Fetch allegro data error" + str(allegro_data['message']))
-            return {'errors': allegro_data['errors']}
+            if allegro_data['status'] == "ERROR":
+                logger.error("Fetch allegro data error" + str(allegro_data['message']))
+                return {'errors': allegro_data['errors']}
 
         return products_allegro_sold_or_auctioned
 

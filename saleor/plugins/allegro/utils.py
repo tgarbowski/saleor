@@ -2,6 +2,8 @@ from datetime import datetime
 import pytz
 
 from django.core.mail import EmailMultiAlternatives
+from django.contrib.postgres.aggregates.general import ArrayAgg
+from django.db.models import Q
 
 from saleor.plugins.allegro.enums import AllegroErrors
 from saleor.plugins.allegro import ProductPublishState
@@ -191,3 +193,29 @@ def product_is_published(product_id):
 
 def get_datetime_now():
     return datetime.now(pytz.timezone('Europe/Warsaw')).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def product_ids_to_skus(product_ids):
+    return list(
+        ProductVariant.objects
+            .filter(product_id__in=product_ids)
+            .values_list("sku", flat=True)
+    )
+
+def skus_to_product_ids(skus):
+    return list(
+        ProductVariant.objects
+            .filter(sku__in=skus)
+            .values_list("product_id", flat=True)
+    )
+
+
+def get_products_by_channels(product_ids):
+    # Returns list of dicts of product_ids per channel eg:
+    # [{'channel__slug': 'allegro', 'product_ids': [1, 2, 3]}]
+    return ProductChannelListing.objects.values('channel__slug').annotate(
+        product_ids=ArrayAgg(
+            'product_id',
+            filter=Q(product_id__in=product_ids)
+        )
+    ).order_by('channel__slug')
