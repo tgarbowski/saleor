@@ -2,6 +2,9 @@ import logging
 from datetime import datetime, timedelta
 import math
 
+from django.contrib.postgres.aggregates.general import ArrayAgg
+from django.db.models import Q
+
 from ...celeryconf import app
 from .api import AllegroAPI
 from .enums import AllegroErrors
@@ -10,7 +13,7 @@ from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish
                     can_publish, update_allegro_purchased_error, email_bulk_unpublish_result,
                     get_datetime_now)
 from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import Category, Product, ProductVariant
+from saleor.product.models import Category, Product, ProductVariant, ProductChannelListing
 from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.models import PluginConfiguration
 
@@ -296,8 +299,24 @@ def bulk_allegro_publish_unpublished_to_auction(limit):
 
 
 @app.task()
-def bulk_allegro_unpublish(product_ids):
-    allegro_api = AllegroAPI(channel='allegro')
+def unpublish_from_multiple_channels(product_ids):
+    # Prepare dict of product_ids per channel
+    channels = ProductChannelListing.objects.values('channel__slug').annotate(
+        product_ids=ArrayAgg(
+            'product_id',
+            filter=Q(product_id__in=product_ids)
+        )
+    ).order_by('channel__slug')
+
+    for channel in channels:
+        bulk_allegro_unpublish(
+            channel=channel['channel__slug'],
+            product_ids=channel['product_ids']
+        )
+
+
+def bulk_allegro_unpublish(channel, product_ids):
+    allegro_api = AllegroAPI(channel=channel)
     skus = list(
         ProductVariant.objects
             .filter(product_id__in=product_ids)
