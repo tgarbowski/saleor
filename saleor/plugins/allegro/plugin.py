@@ -354,18 +354,12 @@ class AllegroPlugin(BasePlugin):
         product_images = ProductMedia.objects.filter(product=product)
         product_images = [product_image.image.url for product_image in product_images]
         product.delete_value_from_private_metadata('publish.allegro.errors')
-        try:
-            product_channel_listing = ProductChannelListing.objects.get(product_id=product.id)
-            channel_slug = product_channel_listing.channel.slug
-        except ProductChannelListing.DoesNotExist:
-            channel_slug = product.product_type.get_value_from_metadata('channel')
-            channel = Channel.objects.get(slug=channel_slug)
-            product_channel_listing = self.create_product_channel_listing(product, channel)
-            self.create_product_variant_channel_listing(product, channel)
+        product.save()
 
+        product_channel_listing = ProductChannelListing.objects.get(product_id=product.id)
+        channel_slug = product_channel_listing.channel.slug
         product_channel_listing.is_published = True
         product_channel_listing.save()
-        product.save()
 
         if not self.product_validate(product, channel_slug):
             async_product_publish.delay(product_id=product.id,

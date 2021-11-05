@@ -25,7 +25,7 @@ def synchronize_allegro_offers_one_channel(channel):
     response = allegro_api.get_request('sale/offers', params)
     total_count = json.loads(response.text).get('totalCount')
 
-    if total_count is None:
+    if total_count in [None, 0]:
         return
     limit = 1000
     errors = []

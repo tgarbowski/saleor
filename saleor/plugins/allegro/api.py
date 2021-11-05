@@ -349,9 +349,9 @@ class AllegroAPI:
     def update_status_and_publish_data_in_private_metadata(self, product,
                                                            allegro_offer_id, status,
                                                            errors):
-        product.store_value_in_private_metadata({'publish.allegro.status': status})
         product.store_value_in_private_metadata(
-            {'publish.allegro.date': get_datetime_now(),
+            {'publish.allegro.status': status,
+             'publish.allegro.date': get_datetime_now(),
              'publish.status.date': get_datetime_now(),
              'publish.allegro.id': str(allegro_offer_id)})
         self.update_errors_in_private_metadata(product, errors, self.channel)
