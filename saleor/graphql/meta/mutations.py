@@ -268,8 +268,8 @@ class BaseMetadataMutation(BaseMutation):
                 removed_pv_location = removed_product_variant.private_metadata.get("location")
                 location = removed_pv_location if removed_pv_location else "brak lokacji"
                 allegro_products.append(f'{removed_product_variant.sku}: {location}')
-
-        if (products_not_exist or products_already_assigned or products_published):
+        # TODO: investigate products_not_exist != [""]
+        if (products_not_exist and products_not_exist != [""]) or products_already_assigned or products_published:
             if products_not_exist:
                 products_not_exist_str = ", ".join(products_not_exist)
                 validation_message += f'Produkty nie istnieją:  {products_not_exist_str}.'
