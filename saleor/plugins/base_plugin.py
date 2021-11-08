@@ -452,6 +452,19 @@ class BasePlugin:
         """
         return NotImplemented
 
+    def get_intervals_and_chunks(self, previous_value: Any) -> Any:
+
+        return NotImplemented
+
+    def send_mail_with_publish_errors(self, publish_errors: Any,
+                                      previous_value: Any) -> Any:
+
+        return NotImplemented
+
+    def metadata_updated(self, product: "Product", previous_value: Any) -> Any:
+
+        return NotImplemented
+
     def product_updated(self, product: "Product", previous_value: Any) -> Any:
         """Trigger when product is updated.
 
@@ -759,8 +772,8 @@ class BasePlugin:
         config_structure = getattr(cls, "CONFIG_STRUCTURE") or {}
         desired_config_keys = set(config_structure.keys())
         for config_field in configuration:
-            if config_field["name"] not in desired_config_keys:
-                continue
+            # if config_field["name"] not in desired_config_keys:
+            #    continue
             updated_configuration.append(copy(config_field))
 
         configured_keys = set(d["name"] for d in updated_configuration)

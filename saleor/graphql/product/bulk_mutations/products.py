@@ -891,8 +891,8 @@ class ProductBulkPublish(BaseBulkMutation):
 
     @classmethod
     def bulk_unpublish(cls, product_ids):
-        from saleor.plugins.allegro.tasks import bulk_allegro_unpublish
-        bulk_allegro_unpublish.delay(product_ids=product_ids)
+        from saleor.plugins.allegro.tasks import unpublish_from_multiple_channels
+        unpublish_from_multiple_channels.delay(product_ids=product_ids)
 
     @classmethod
     def bulk_publish(cls, instances, **data):

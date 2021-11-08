@@ -8,7 +8,7 @@ from .enums import AllegroErrors
 from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish_message,
                     get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished,
                     can_publish, update_allegro_purchased_error, email_bulk_unpublish_result,
-                    get_datetime_now)
+                    get_datetime_now, product_ids_to_skus, get_products_by_channels)
 from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
@@ -62,6 +62,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
         {'publish.allegro.status': ProductPublishState.MODERATED.value,
          'publish.type': offer_type,
          'publish.status.date': get_datetime_now()})
+    saleor_product.save()
     publication_date = saleor_product.get_value_from_private_metadata("publish.allegro.date")
     # New offer
     if not publication_date:
@@ -295,13 +296,19 @@ def bulk_allegro_publish_unpublished_to_auction(limit):
 
 
 @app.task()
-def bulk_allegro_unpublish(product_ids):
-    allegro_api = AllegroAPI(channel='allegro')
-    skus = list(
-        ProductVariant.objects
-            .filter(product_id__in=product_ids)
-            .values_list("sku", flat=True)
-    )
+def unpublish_from_multiple_channels(product_ids):
+    products_per_channels = get_products_by_channels(product_ids)
+
+    for channel in products_per_channels:
+        bulk_allegro_unpublish(
+            channel=channel['channel__slug'],
+            product_ids=channel['product_ids']
+        )
+
+
+def bulk_allegro_unpublish(channel, product_ids):
+    allegro_api = AllegroAPI(channel=channel)
+    skus = product_ids_to_skus(product_ids)
     logger.info(f'SKUS TO UNPUBLISH{skus}')
 
     total_count = len(skus)

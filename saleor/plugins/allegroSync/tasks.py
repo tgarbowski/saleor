@@ -4,29 +4,34 @@ import logging
 from ...celeryconf import app
 from saleor.product.models import ProductVariant, Product
 from saleor.plugins.allegro.api import AllegroAPI
-from .utils import valid_product, send_mail
 from saleor.plugins.manager import get_plugins_manager
+from saleor.plugins.models import PluginConfiguration
+from .utils import valid_product, send_mail
 
 logger = logging.getLogger(__name__)
 
 
 @app.task()
 def synchronize_allegro_offers_task():
-    manager = get_plugins_manager()
-    plugin = manager.get_plugin(plugin_id='allegro', channel_slug='allegro')
-    conf = {item["name"]: item["value"] for item in plugin.configuration}
-    token = conf.get('token_value')
-    env = conf.get('env')
-    allegro_api = AllegroAPI(token, env)
+    channels = list(PluginConfiguration.objects.filter(identifier='allegro').values_list(
+            'channel__slug', flat=True))
+
+    for channel in channels:
+        synchronize_allegro_offers_one_channel(channel)
+
+def synchronize_allegro_offers_one_channel(channel):
+    allegro_api = AllegroAPI(channel=channel)
     params = {'publication.status': ['ACTIVE'], 'limit': '1', 'offset': 0}
     response = allegro_api.get_request('sale/offers', params)
     total_count = json.loads(response.text).get('totalCount')
 
-    if total_count is None:
+    if total_count in [None, 0]:
         return
     limit = 1000
     errors = []
     updated_amount = 0
+    manager = get_plugins_manager()
+    plugin = manager.get_plugin(plugin_id='allegro', channel_slug=channel)
 
     for i in range(int(int(total_count) / limit) + 1):
         offset = i * limit

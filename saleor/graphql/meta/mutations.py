@@ -23,9 +23,12 @@ from .extra_methods import MODEL_EXTRA_METHODS, MODEL_EXTRA_PREFETCH
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from ..product.utils import create_collage
 from ...plugins.allegro.api import AllegroAPI
-from ...plugins.allegro.utils import get_plugin_configuration
+from saleor.plugins.allegro.utils import (skus_to_product_ids, get_products_by_channels,
+                                          product_ids_to_skus)
 from ...product.models import ProductVariant, ProductMedia
 from .types import ObjectWithMetadata
+from saleor.product.models import ProductChannelListing, ProductVariantChannelListing, Product
+from saleor.channel.models import Channel
 
 logger = logging.getLogger(__name__)
 
@@ -173,34 +176,49 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def clear_bundle_id_for_removed_products(cls, instance, data_skus):
+        # TODO: validate removed_skus type is list of strings
+        current_skus = instance.private_metadata.get('skus')
 
-        if "skus" in instance.private_metadata and instance.private_metadata["skus"]:
-            try:
-                previous_products = json.loads(instance.private_metadata["skus"]
-                                               .replace("'", '"'))
-            except AttributeError:
-                previous_products = instance.private_metadata["skus"]
+        if current_skus:
+            removed_skus = [sku for sku in current_skus if sku not in data_skus]
+            product_ids = skus_to_product_ids(removed_skus)
+            products = Product.objects.filter(id__in=product_ids)
 
-            for previous_product in enumerate(previous_products):
-                if previous_product[1] not in data_skus:
-                    try:
-                        product_variant = ProductVariant.objects\
-                            .get(sku=previous_product[1])
-                        product_variant.product.metadata['bundle.id'] = ""
-                        product_variant.product.save()
-                    except ObjectDoesNotExist as e:
-                        continue
+            for product in products:
+                product.delete_value_from_metadata('bundle.id')
+
+            Product.objects.bulk_update(products, ['metadata'])
+            # TODO: move change channel listing somewhere else
+            if removed_skus:
+                cls.change_channel_listings(removed_skus, channel_slug='unpublished')
+
 
     @classmethod
     def assign_sku_to_metadata_bundle_id(cls, instance, data):
         bundle_id = ProductVariant.objects.get(product=instance.pk).sku
         product_variants = ProductVariant.objects.select_related('product').filter(sku__in=data)
-        for index, product_variant in enumerate(product_variants):
+        for product_variant in product_variants:
             product = product_variant.product
-            if 'bundle.id' not in product.metadata or \
-                    not product.metadata['bundle.id']:
+            if not product.metadata.get('bundle.id'):
                 product.metadata["bundle.id"] = bundle_id
                 product.save()
+
+    @classmethod
+    def change_channel_listings(cls, data, channel_slug):
+        channel = Channel.objects.get(slug=channel_slug)
+        product_ids = list(ProductVariant.objects.filter(sku__in=data).values_list('product_id', flat=True))
+        variant_ids = list(ProductVariant.objects.filter(sku__in=data).values_list('pk', flat=True))
+        product_channel_listings = ProductChannelListing.objects.filter(product_id__in=product_ids)
+        variant_channel_listing = ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids)
+
+        for listing in product_channel_listings:
+            listing.channel = channel
+
+        for listing in variant_channel_listing:
+            listing.channel = channel
+
+        ProductChannelListing.objects.bulk_update(product_channel_listings, ['channel'])
+        ProductVariantChannelListing.objects.bulk_update(variant_channel_listing, ['channel'])
 
     @classmethod
     def assign_photos_from_products_to_megapack(cls, instance):
@@ -233,50 +251,39 @@ class BaseMetadataMutation(BaseMutation):
         validation_message = ""
         products_already_assigned = []
         products_not_exist = []
-        product_variants_skus = []
+        product_variants_skus = [product_variant.sku for product_variant in product_variants]
 
-        for product_variant in product_variants:
-            product_variants_skus.append(product_variant.sku)
         if len(data_skus) > len(product_variants):
-            for product in data_skus:
-                if product not in product_variants_skus:
-                    products_not_exist.append(product)
-        for product_variant in product_variants:
-            if 'bundle.id' in product_variant.product.metadata:
-                if product_variant.product.metadata['bundle.id'] != bundle_id:
-                    products_already_assigned.append(product_variant.sku)
+            products_not_exist = [product for product in data_skus if product not in product_variants_skus]
 
-        if isinstance(products_published, list):
+        for product_variant in product_variants:
+            if product_variant.product.metadata.get('bundle.id') != bundle_id:
+                products_already_assigned.append(product_variant.sku)
+
+        if products_published:
             allegro_products = []
             allegro_sold_or_bid_product_variants = ProductVariant.objects.select_related('product').filter(
                 sku__in=products_published)
             for removed_product_variant in allegro_sold_or_bid_product_variants:
-                location = removed_product_variant.private_metadata["location"] if removed_product_variant.private_metadata["location"] else "brak lokacji"
+                removed_pv_location = removed_product_variant.private_metadata.get("location")
+                location = removed_pv_location if removed_pv_location else "brak lokacji"
                 allegro_products.append(f'{removed_product_variant.sku}: {location}')
-            if (products_not_exist and products_not_exist != [""]) or products_already_assigned or products_published:
-                if products_not_exist:
-                    products_not_exist_str = ", ".join(products_not_exist)
-                    validation_message += f'Produkty nie istnieją:  {products_not_exist_str}.'
-                if products_published:
-                    products_published_str = ", ".join(allegro_products)
-                    validation_message += f'Produkty sprzedane lub licytowane:  {products_published_str}.'
-                if products_already_assigned:
-                    products_already_assigned_str = ", ".join(products_already_assigned)
-                    validation_message += f'Produkty już przypisane do megapaki:  {products_already_assigned_str}.'
-                instance.private_metadata["publish.allegro.errors"] = [validation_message]
-                instance.save()
-                raise ValidationError({
-                    "megapack": ValidationError(
-                        message=validation_message,
-                        code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
-                    )
-                })
-        else:
-            instance.private_metadata["publish.allegro.errors"] = products_published['errors']
+        # TODO: investigate products_not_exist != [""]
+        if (products_not_exist and products_not_exist != [""]) or products_already_assigned or products_published:
+            if products_not_exist:
+                products_not_exist_str = ", ".join(products_not_exist)
+                validation_message += f'Produkty nie istnieją:  {products_not_exist_str}.'
+            if products_published:
+                products_published_str = ", ".join(allegro_products)
+                validation_message += f'Produkty sprzedane lub licytowane:  {products_published_str}.'
+            if products_already_assigned:
+                products_already_assigned_str = ", ".join(products_already_assigned)
+                validation_message += f'Produkty już przypisane do megapaki:  {products_already_assigned_str}.'
+            instance.private_metadata["publish.allegro.errors"] = [validation_message]
             instance.save()
             raise ValidationError({
                 "megapack": ValidationError(
-                    message=products_published['errors'],
+                    message=validation_message,
                     code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
                 )
             })
@@ -285,20 +292,32 @@ class BaseMetadataMutation(BaseMutation):
         instance.save()
 
     @classmethod
-    def bulk_allegro_offers_unpublish(cls, data):
-        allegro_api_instance = AllegroAPI(channel='allegro')
+    def bulk_allegro_offers_unpublish(cls, instance, data):
         data_skus = data['skus']
+        product_ids = skus_to_product_ids(data_skus)
+        products_per_channels = get_products_by_channels(product_ids)
         products_allegro_sold_or_auctioned = []
 
-        allegro_data = allegro_api_instance.bulk_offer_unpublish(skus=data_skus)
-        if allegro_data['errors'] and allegro_data['status'] == "OK":
-            for product in enumerate(allegro_data['errors']):
-                if 'sku' in product[1]:
-                    products_allegro_sold_or_auctioned.append(product[1]['sku'])
+        for channel in products_per_channels:
+            if channel['channel__slug'] in ['bundled', 'unpublished'] or not channel['product_ids']:
+                continue
+            skus = product_ids_to_skus(channel['product_ids'])
+            allegro_api = AllegroAPI(channel=channel['channel__slug'])
+            allegro_data = allegro_api.bulk_offer_unpublish(skus=skus)
+            if allegro_data['errors'] and allegro_data['status'] == "OK":
+                for product in enumerate(allegro_data['errors']):
+                    if 'sku' in product[1]:
+                        products_allegro_sold_or_auctioned.append(product[1]['sku'])
 
-        if allegro_data['status'] == "ERROR":
-            logger.error("Fetch allegro data error" + str(allegro_data['message']))
-            return {'errors': allegro_data['errors']}
+            if allegro_data['status'] == "ERROR":
+                instance.private_metadata["publish.allegro.errors"] = allegro_data['errors']
+                instance.save()
+                raise ValidationError({
+                    "megapack": ValidationError(
+                        message=allegro_data['errors'],
+                        code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
+                    )
+                })
 
         return products_allegro_sold_or_auctioned
 
@@ -349,9 +368,8 @@ class BaseMetadataMutation(BaseMutation):
         bundle_id = ProductVariant.objects.get(product=instance.pk).sku
         for product_variant in product_variants:
             product = product_variant.product
-            if 'bundle.id' in product.metadata:
-                if product.metadata['bundle.id'] != bundle_id:
-                    continue
+            if product.metadata.get('bundle.id') != bundle_id:
+                continue
             verified_skus.append(product_variant.sku)
         instance.private_metadata['skus'] = verified_skus
         instance.save(update_fields=["private_metadata"])
@@ -445,10 +463,11 @@ class UpdatePrivateMetadata(BaseMetadataMutation):
             items = {data.key: data.value for data in metadata_list}
             if 'skus' in items:
                 cls.delete_duplicated_skus(items)
-                products_sold_in_allegro = cls.bulk_allegro_offers_unpublish(items)
+                products_sold_in_allegro = cls.bulk_allegro_offers_unpublish(instance, items)
                 data = cls.delete_products_sold_from_data(items, products_sold_in_allegro)
                 cls.clear_bundle_id_for_removed_products(instance, data)
                 cls.assign_sku_to_metadata_bundle_id(instance, data)
+                cls.change_channel_listings(data, channel_slug='bundled')
                 cls.assign_bundle_content_to_product(instance)
                 cls.create_description_json_for_megapack(instance)
                 cls.save_megapack_with_valid_products(instance, data)
