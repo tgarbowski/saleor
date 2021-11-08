@@ -16,7 +16,7 @@ from ....order.actions import cancel_order, order_captured
 from ...interface import GatewayConfig, GatewayResponse
 from ....order.events import external_notification_event
 from .utils import calculate_payu_price_to_decimal
-
+from ....plugins.manager import get_plugins_manager
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ def handle_pending(notification: Dict[str, Any], gateway_config: GatewayConfig):
 
 def handle_completed(notification: Dict[str, Any], _gateway_config: GatewayConfig):
     payment = get_payment(notification.get("extOrderId"))
-
+    manager = get_plugins_manager()
     if not payment:
         return
     capture_transaction = payment.transactions.filter(
@@ -136,7 +136,12 @@ def handle_completed(notification: Dict[str, Any], _gateway_config: GatewayConfi
 
     if new_transaction.is_success and not capture_transaction:
         gateway_postprocess(new_transaction, payment)
-        order_captured(payment.order, None, new_transaction.amount, payment)
+        order_captured(order=payment.order,
+                       user=None,
+                       amount=new_transaction.amount,
+                       payment=payment,
+                       manager=manager,
+                       app=None)
 
     reason = notification.get("reason", "-")
     is_success = True
@@ -192,7 +197,6 @@ def create_new_transaction(notification, payment, kind):
         currency=currency,
         error="",
         raw_response={},
-        searchable_key="",
     )
     return create_transaction(
         payment,
