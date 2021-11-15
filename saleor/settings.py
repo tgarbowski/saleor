@@ -567,7 +567,8 @@ BUILTIN_PLUGINS = [
     "saleor.plugins.sumi.plugin.SumiPlugin",
     "saleor.plugins.allegroSync.plugin.AllegroSyncPlugin",
     "saleor.plugins.wms.plugin.WMSPlugin",
-    "saleor.plugins.dpd.plugin.DpdPlugin"
+    "saleor.plugins.dpd.plugin.DpdPlugin",
+    "saleor.plugins.salingo_routing.plugin.SalingoRoutingPlugin"
 ]
 
 # Plugin discovery

@@ -175,6 +175,7 @@ redis==3.5.3; python_version >= "3.6" and python_full_version < "3.0.0" or pytho
 regex==2021.8.3; python_full_version >= "3.6.2"
 requests==2.26.0; (python_version >= "2.7" and python_full_version < "3.0.0") or (python_full_version >= "3.6.0")
 rsa==4.7.2; python_version >= "3.5" and python_version < "4" and (python_version >= "3.6" and python_full_version < "3.0.0" or python_full_version >= "3.6.0" and python_version >= "3.6")
+rule-engine==3.3.1
 rx==1.6.1
 s3transfer==0.5.0; python_version >= "3.6"
 sendgrid==6.8.0; (python_version >= "2.7" and python_full_version < "3.0.0") or (python_full_version >= "3.5.0")
