@@ -1,26 +1,23 @@
-from dataclasses import dataclass
-from typing import List
-import re
 import logging
+import re
+from typing import List
 import yaml
 
 import rule_engine
 
-from ..base_plugin import BasePlugin
-
-from saleor.product.models import ProductVariantChannelListing, ProductChannelListing
+from django.core.exceptions import ValidationError
 from django.forms.models import model_to_dict
-from saleor.plugins.manager import get_plugins_manager
+
+from ..base_plugin import BasePlugin
+from saleor.channel.models import Channel
+from saleor.product.models import ProductVariantChannelListing, ProductChannelListing
 from saleor.plugins.models import PluginConfiguration
+from saleor.plugins.error_codes import PluginErrorCode
 
 
 PluginConfigurationType = List[dict]
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class SalingoRoutingConfiguration:
-    username: str
 
 
 class SalingoRoutingPlugin(BasePlugin):
@@ -28,112 +25,78 @@ class SalingoRoutingPlugin(BasePlugin):
     PLUGIN_ID = "salingo_routing"
     DEFAULT_ACTIVE = True
     DEFAULT_CONFIGURATION = []
-    PLUGIN_DESCRIPTION = (
-        "Salingo routing configuration"
-    )
-    #CONFIGURATION_PER_CHANNEL = True
+    PLUGIN_DESCRIPTION = ("Salingo routing configuration")
+    # CONFIGURATION_PER_CHANNEL = True
     CONFIG_STRUCTURE = {}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         configuration = {item["name"]: item["value"] for item in self.configuration}
-        self.rules_bulk()
 
-
-    def rules_bulk(self):
-        custom_dict = self.get_custom_dict()
-
-        configs = PluginConfiguration.objects.filter(identifier='salingo_routing')
-
-        configs_dict = []
-
-        for config in configs:
-            configs_dict.append(config.configuration)
-
-        sorted_configs = sorted(configs_dict, key=lambda single_config: self.sort_by_order(single_config))
-        engine_rules = []
+    def rotate_products_channels(self):
+        sorted_configs = self.get_sorted_configs()
 
         for config in sorted_configs:
             logger.info('Przetwarzam ruleset')
-            rules = yaml.safe_load(config[4]['value'])
-            for rule in rules:
-                r = rule['rule']
-                if (rule_engine.Rule.is_valid(r)):
-                    engine_rules.append(rule_engine.Rule(r))
-                else:
-                    print("Invalid rule: " + r)
+            yaml_rules = self.get_value_by_name(config=config, name='rules')
+            resolver = self.get_value_by_name(config=config, name='resolver')
+            executor = self.get_value_by_name(config=config, name='executor')
+            engine_rules = self.get_rules(yaml_rules)
+            self.validate_rules(engine_rules)
+            # Resolve products for given config
+            resolver_function = getattr(Resolvers, resolver)
+            products = resolver_function()
+            # Check rules
+            for product in products:
+                for rule in engine_rules:
+                    rule_object = rule_engine.Rule(rule['rule'])
+                    if rule_object.matches(product):
+                        executor_function = getattr(Executors, executor)
+                        executor_function(product, rule['result'])
+                        break
 
-        for product in custom_dict:
-            for rule in engine_rules:
-                is_match = rule.matches(product)
-                print('is_match', is_match)
-
+    def get_sorted_configs(self):
+        configs = PluginConfiguration.objects.filter(identifier='salingo_routing')
+        configs_dict = [config.configuration for config in configs]
+        return sorted(configs_dict, key=lambda single_config: self.get_value_by_name(single_config, 'execute_order'))
 
     @staticmethod
-    def sort_by_order(config):
+    def get_value_by_name(config, name):
         for item in config:
-            if item['name'] == 'execute_order':
+            if item['name'] == name:
                 return item['value']
 
+    @staticmethod
+    def get_rules(yaml_rules):
+        rules = yaml.safe_load(yaml_rules)
+        engine_rules = [rule for rule in rules]
+
+        return engine_rules
 
     @staticmethod
-    def plugin_configuration(channel):
-        manager = get_plugins_manager()
-        plugin = manager.get_plugin(
-            plugin_id='salingo_routing',
-            channel_slug=channel)
-        configuration = {item["name"]: item["value"] for item in plugin.configuration if
-                         plugin.configuration}
-        return configuration
+    def validate_rules(rules):
+        for rule in rules:
+            r = rule['rule']
+            if not rule_engine.Rule.is_valid(r):
+                raise Exception(f'Invalid engine rule: {r}')
 
+    @classmethod
+    def validate_plugin_configuration(self, plugin_configuration: "PluginConfiguration"):
+        config = plugin_configuration.configuration
+        yaml_rules = self.get_value_by_name(config=config, name='rules')
+        engine_rules = self.get_rules(yaml_rules)
 
-    def get_custom_dict(self):
-        product_skus = ['010320091000121', '010320091000123', '010320092100001', '010320091000124']
-        variant_ids = [153623, 153641, 153650, 153661]
-
-        product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
-            variant_id__in=variant_ids).select_related(
-                'variant', 'variant__product'
-        )
-
-        product_ids = [pvcl.variant.product.id for pvcl in product_variant_channel_listing]
-        product_channel_listings = ProductChannelListing.objects.filter(product_id__in=product_ids)
-
-        product_fields_to_exclude = ['private_metadata', 'seo_title', 'seo_description',
-                                     'description', 'description_plaintext']
-
-        xds = []
-        # TODO: zwalidowac, czy pcl się zgadza
-        for xd, sd in zip(product_variant_channel_listing, product_channel_listings):
-            xds.append(
+        try:
+            self.validate_rules(engine_rules)
+        except Exception as e:
+            raise ValidationError(
                 {
-                    'product': model_to_dict(xd.variant.product, exclude=product_fields_to_exclude),
-                    'product_variant': model_to_dict(xd.variant, exclude=['media']),
-                    'product_variant_channellisting': model_to_dict(xd),
-                    'product_channel_listing': model_to_dict(sd)
+                    "rules": ValidationError(
+                        "Invalid engine rule.",
+                        code=PluginErrorCode.INVALID.value,
+                    )
                 }
             )
-        # TODO: niektóre produkty nie mają lokacji
-        for record in xds:
-            #record['product_variant']['location'] = self.parse_location(record['product_variant']['private_metadata']['location'])
-            record['product_variant']['location'] = self.parse_location('R01K100')
-
-        return xds
-
-
-    @staticmethod
-    def parse_location(location):
-        # eg. input: R01K01
-        digits = re.findall('\d+', location)
-
-        parsed_location = {
-            'type': location[0],
-            'number': int(digits[0]),
-            'box': int(digits[1])
-        }
-
-        return parsed_location
-
 
     @classmethod
     def _append_config_structure(cls, configuration: PluginConfigurationType):
@@ -144,3 +107,79 @@ class SalingoRoutingPlugin(BasePlugin):
             structure_to_add = config_structure.get(configuration_field.get("name"))
             if structure_to_add:
                 configuration_field.update(structure_to_add)
+
+
+class Executors:
+
+    @classmethod
+    def move_from_unpublished(cls, product, result):
+        cls.change_product_channel(product=product, channel=result)
+
+    @classmethod
+    def change_product_channel(cls, product, channel):
+        channel = Channel.objects.get(slug=channel)
+        product_id = product['product']['id']
+        variant_id = product['product_variant']['id']
+
+        product_channel_listing = ProductChannelListing.objects.get(
+            product_id=product_id)
+        variant_channel_listing = ProductVariantChannelListing.objects.get(
+            variant_id=variant_id)
+
+        product_channel_listing.channel = channel
+        variant_channel_listing.channel = channel
+
+        product_channel_listing.save(update_fields=['channel'])
+        variant_channel_listing.save(update_fields=['channel'])
+
+
+class Resolvers:
+
+    @classmethod
+    def resolve_unpublished(cls):
+        return cls.get_products_custom_dict(channel='unpublished')
+
+    @classmethod
+    def get_products_custom_dict(cls, channel):
+        product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
+            channel__slug=channel).select_related('variant', 'variant__product')[:5]
+
+        product_ids = [pvcl.variant.product.id for pvcl in product_variant_channel_listing]
+        product_channel_listings = ProductChannelListing.objects.filter(product_id__in=product_ids)
+
+        product_fields_to_exclude = ['private_metadata', 'seo_title', 'seo_description',
+                                     'description', 'description_plaintext']
+
+        products = []
+        # TODO: validate if pcl is correct
+        for pvcl, pcl in zip(product_variant_channel_listing, product_channel_listings):
+            products.append(
+                {
+                    'product': model_to_dict(pvcl.variant.product, exclude=product_fields_to_exclude),
+                    'product_variant': model_to_dict(pvcl.variant, exclude=['media']),
+                    'product_variant_channellisting': model_to_dict(pvcl),
+                    'product_channel_listing': model_to_dict(pcl)
+                }
+            )
+        # transform location format
+        for product in products:
+            location = product.get('product_variant').get('private_metadata').get('location')
+            product['product_variant']['location'] = cls.parse_location(location)
+
+        return products
+
+    @staticmethod
+    def parse_location(location):
+        # eg. input: R01K01
+        if location is None:
+            return {'type': None, 'number': None, 'box': None}
+
+        digits = re.findall('\d+', location)
+
+        parsed_location = {
+            'type': location[0],
+            'number': int(digits[0]),
+            'box': int(digits[1])
+        }
+
+        return parsed_location
