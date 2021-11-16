@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class SalingoRoutingPlugin(BasePlugin):
     PLUGIN_NAME = "Salingo routing"
     PLUGIN_ID = "salingo_routing"
-    DEFAULT_ACTIVE = True
+    DEFAULT_ACTIVE = False
     DEFAULT_CONFIGURATION = []
     PLUGIN_DESCRIPTION = ("Salingo routing configuration")
     # CONFIGURATION_PER_CHANNEL = True
