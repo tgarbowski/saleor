@@ -1,12 +1,12 @@
 from saleor.salingo.business_rules import BusinessRulesBasePlugin
 
 
-class SalingoRoutingPlugin(BusinessRulesBasePlugin):
-    PLUGIN_NAME = "Salingo routing"
-    PLUGIN_ID = "salingo_routing"
+class SalingoPricingPlugin(BusinessRulesBasePlugin):
+    PLUGIN_NAME = "Salingo pricing"
+    PLUGIN_ID = "salingo_pricing"
     DEFAULT_ACTIVE = False
     DEFAULT_CONFIGURATION = []
-    PLUGIN_DESCRIPTION = ("Salingo routing configuration")
+    PLUGIN_DESCRIPTION = ("Salingo pricing configuration")
     # CONFIGURATION_PER_CHANNEL = True
     CONFIG_STRUCTURE = {}
 
