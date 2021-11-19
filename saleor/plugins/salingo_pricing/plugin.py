@@ -5,10 +5,8 @@ class SalingoPricingPlugin(BusinessRulesBasePlugin):
     PLUGIN_NAME = "Salingo pricing"
     PLUGIN_ID = "salingo_pricing"
     DEFAULT_ACTIVE = False
-    DEFAULT_CONFIGURATION = []
     PLUGIN_DESCRIPTION = ("Salingo pricing configuration")
     # CONFIGURATION_PER_CHANNEL = True
-    CONFIG_STRUCTURE = {}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
