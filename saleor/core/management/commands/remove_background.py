@@ -1,4 +1,7 @@
 from datetime import datetime
+
+import boto3
+from botocore.client import ClientError
 import requests
 
 from django.conf import settings
@@ -14,17 +17,26 @@ class Command(BaseCommand):
         parser.add_argument('--end_date', type=str, help='product creation end date')
         parser.add_argument('--source', type=str, help='s3 source bucket')
         parser.add_argument('--target', type=str, help='s3 target bucket')
+        parser.add_argument('--backup', type=str, help='s3 backup bucket')
+        parser.add_argument('--mode', type=str, help='processing mode')
 
     def handle(self, *args, **options):
         self.start_date = options['start_date']
         self.end_date = options['end_date']
         self.source = options['source']
         self.target = options['target']
+        self.backup = options['backup']
+        self.mode = options['mode']
 
         self.validate_dates()
-        self.process_images()
 
-    def process_images(self):
+        if self.mode == 'backup':
+            self.validate_bucket(self.backup)
+            self.process_images_backup_mode()
+        elif self.mode == 'migration':
+            self.process_images_migration_mode()
+
+    def process_images_migration_mode(self):
         images = self.get_images()
 
         url = f'{settings.REMOVER_API_URL}/process_images/migration'
@@ -34,6 +46,27 @@ class Command(BaseCommand):
         data = {
             "source": self.source,
             "target": self.target,
+            "images": images
+        }
+
+        response = requests.post(
+            url=url,
+            json=data,
+            headers=headers
+        )
+        print(response.json())
+
+    def process_images_backup_mode(self):
+        images = self.get_images()
+
+        url = f'{settings.REMOVER_API_URL}/process_images/backup'
+        headers = {
+            "X-API-KEY": settings.REMOVER_API_KEY
+        }
+        data = {
+            "source": self.source,
+            "target": self.target,
+            "backup": self.backup,
             "images": images
         }
 
@@ -67,7 +100,7 @@ class Command(BaseCommand):
                 and paa.id = paav.assignedproductattribute_id
                 and paav.attributevalue_id = pav.id
                 and pav.attribute_id = pa.id
-                and pp.created_at between %s and %s
+                and cast(pp.created_at as date) between %s and %s
                 and pa."name" = 'Kolor'
                 and pav."name" != 'biały'
                 and pt."name" not like 'Biustonosz%%'
@@ -77,6 +110,16 @@ class Command(BaseCommand):
         images_list = [image.image.name for image in images]
 
         return images_list
+
+    def validate_bucket(self, bucket):
+        s3 = boto3.resource('s3')
+
+        try:
+            s3.meta.client.head_bucket(Bucket=bucket)
+        except ClientError:
+            raise CommandError(
+                "Wrong backup bucket name. "
+            )
 
     def validate_dates(self):
         if not self.start_date:
