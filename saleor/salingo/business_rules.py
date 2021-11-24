@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
 import logging
@@ -9,11 +9,11 @@ import yaml
 
 import rule_engine
 
-from django.forms.models import model_to_dict
 from django.core.exceptions import ValidationError
 
 from saleor.channel.models import Channel
-from saleor.product.models import Product, ProductVariantChannelListing, ProductChannelListing
+from saleor.product.models import (Category, Product, ProductVariantChannelListing,
+                                   ProductChannelListing)
 from saleor.plugins.models import PluginConfiguration
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from saleor.plugins.error_codes import PluginErrorCode
@@ -83,8 +83,8 @@ class Executors:
     @classmethod
     def move_from_unpublished(cls, mode, product, channel):
         message = f'{datetime.now()} moved from channel' \
-                  f'{product["channel"]} to channel {channel}'
-        logger.info(f'{product["product_variant"]["sku"]} {message}')
+                  f'{product["channel"]["slug"]} to channel {channel}'
+        logger.info(f'{product["sku"]} {message}')
 
         if mode == 'dry_run': return
 
@@ -94,9 +94,9 @@ class Executors:
     @classmethod
     def calculate_price(cls, mode, product, result):
         # eg. results: "k23.40", "i123.00"
-        current_price = product['product_variant_channellisting']['price_amount']
+        current_price = product['channel']['price_amount']
         result_price = Decimal(result[1:])
-        weight = Decimal(product['product']['weight'].value)
+        weight = Decimal(product['weight'])
         price_mode = result[:1]
 
         if price_mode == PriceEnum.KILOGRAM.value:
@@ -109,13 +109,13 @@ class Executors:
             return
 
         message = f'{datetime.now()} calculated price for channel ' \
-                  f'{product["channel"]} {PriceEnum(price_mode).name} {price}'
+                  f'{product["channel"]["slug"]} {PriceEnum(price_mode).name} {price}'
 
-        logger.info(f'{product["product_variant"]["sku"]}: {message}')
+        logger.info(f'{product["sku"]}: {message}')
 
         if mode == 'dry_run': return
 
-        variant_id = product['product_variant']['id']
+        variant_id = product['variant_id']
         variant_channel_listing = ProductVariantChannelListing.objects.get(variant_id=variant_id)
         variant_channel_listing.price_amount = price
         variant_channel_listing.save(update_fields=['price_amount'])
@@ -125,8 +125,8 @@ class Executors:
     @classmethod
     def change_product_channel(cls, product, channel):
         channel = Channel.objects.get(slug=channel)
-        product_id = product['product']['id']
-        variant_id = product['product_variant']['id']
+        product_id = product['id']
+        variant_id = product['variant_id']
 
         product_channel_listing = ProductChannelListing.objects.get(
             product_id=product_id)
@@ -141,7 +141,7 @@ class Executors:
 
     @classmethod
     def log_to_product_history(cls, product, message):
-        product_id = product['product']['id']
+        product_id = product['id']
         product_instance = Product.objects.get(pk=product_id)
         history = product_instance.private_metadata.get('history')
 
@@ -151,7 +151,6 @@ class Executors:
             product_instance.private_metadata['history'] = [message]
 
         product_instance.save(update_fields=['private_metadata'])
-        # TODO: []history pole i cena tez
 
 
 class Resolvers:
@@ -163,33 +162,75 @@ class Resolvers:
     @classmethod
     def get_products_custom_dict(cls, channel):
         product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
-            channel__slug=channel).select_related('variant', 'variant__product')
+            channel__slug=channel).select_related('variant', 'variant__product',
+                                                  'variant__product__product_type',
+                                                  'variant__product__category')
 
         product_ids = [pvcl.variant.product.id for pvcl in product_variant_channel_listing]
         product_channel_listings = ProductChannelListing.objects.filter(
             product_id__in=product_ids).select_related('channel')
 
-        product_fields_to_exclude = ['private_metadata', 'seo_title', 'seo_description',
-                                     'description', 'description_plaintext']
-
+        category_tree_ids = cls.get_main_category_tree_ids()
         products = []
         # TODO: validate if pcl is correct
         for pvcl, pcl in zip(product_variant_channel_listing, product_channel_listings):
             products.append(
                 {
-                    'product': model_to_dict(pvcl.variant.product, exclude=product_fields_to_exclude),
-                    'product_variant': model_to_dict(pvcl.variant, exclude=['media']),
-                    'product_variant_channellisting': model_to_dict(pvcl),
-                    'product_channel_listing': model_to_dict(pcl),
-                    'channel': pcl.channel.slug
+                    'id': pvcl.variant.product.id,
+                    'variant_id': pvcl.variant.id,
+                    'bundle_id': pvcl.variant.product.metadata.get('bundle.id'),
+                    'created_at': pvcl.variant.product.created_at,
+                    'type': pvcl.variant.product.product_type.name,
+                    'name': pvcl.variant.product.name,
+                    'slug': pvcl.variant.product.slug,
+                    'category': pvcl.variant.product.category.slug,
+                    'root_category': cls.get_root_category(category_tree_ids,
+                                                           pvcl.variant.product.category.tree_id),
+                    'weight': pvcl.variant.product.weight.kg,
+                    'age': cls.parse_datetime(pvcl.variant.product.created_at),
+                    'sku': pvcl.variant.sku,
+                    'channel': {
+                        'id': pcl.channel.id,
+                        'publication_date': pcl.publication_date,
+                        'age': cls.parse_date(pcl.publication_date),
+                        'is_published': pcl.is_published,
+                        'product_id': pcl.product_id,
+                        'slug': pcl.channel.slug,
+                        'visible_in_listings': pcl.visible_in_listings,
+                        'available_for_purchase': pcl.available_for_purchase,
+                        'currency': pvcl.currency,
+                        'price_amount': pvcl.price_amount,
+                        'cost_price_amount': pvcl.cost_price_amount
+                    },
+                    'location': cls.parse_location(pvcl.variant.private_metadata.get('location'))
                 }
             )
-        # transform location format
-        for product in products:
-            location = product.get('product_variant').get('private_metadata').get('location')
-            product['product_variant']['location'] = cls.parse_location(location)
 
         return products
+
+    @staticmethod
+    def get_main_category_tree_ids():
+        return {
+            'kobieta': Category.objects.get(slug='kobieta').tree_id,
+            'mezczyzna': Category.objects.get(slug='mezczyzna').tree_id,
+            'dziecko': Category.objects.get(slug='dziecko').tree_id
+        }
+
+    @staticmethod
+    def get_root_category(category_tree_ids, category_tree_id):
+        for k, v in category_tree_ids.items():
+            if v == category_tree_id:
+                return k
+
+    @staticmethod
+    def parse_date(publication_date):
+        delta = date.today() - publication_date
+        return delta.days
+
+    @staticmethod
+    def parse_datetime(publication_date):
+        delta = datetime.now(timezone.utc) - publication_date
+        return delta.days
 
     @staticmethod
     def parse_location(location):
