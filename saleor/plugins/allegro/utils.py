@@ -128,7 +128,8 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
                 status_date = datetime.now(pytz.timezone('Europe/Warsaw')).strftime('%Y-%m-%d %H:%M:%S')
                 product.store_value_in_private_metadata(
                     {'publish.status.date': status_date,
-                     'publish.allegro.status': ProductPublishState.MODERATED.value
+                     'publish.allegro.status': ProductPublishState.MODERATED.value,
+                     'publish.allegro.errors': []
                     })
                 products_to_update.append(product)
 
