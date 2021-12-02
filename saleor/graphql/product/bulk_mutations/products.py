@@ -863,7 +863,7 @@ class ProductBulkClearWarehouseLocation(BaseBulkMutation):
     def bulk_action(cls, queryset, **kwargs):
         pass
 
-
+from saleor.graphql.product.filters import ProductFilterInput
 class ProductBulkPublish(BaseBulkMutation):
     class Arguments:
         ids = graphene.List(
@@ -873,7 +873,13 @@ class ProductBulkPublish(BaseBulkMutation):
             required=True, description="Determine if products will be published or not."
         )
         offer_type = graphene.String(description="Determine product offer type.")
-        starting_at = graphene.String(description="Determine date for publish offer.")
+        starting_at = graphene.String(required=False)
+        starting_at_date = graphene.String(required=False)
+        ending_at_date = graphene.String(required=False)
+        publish_hour = graphene.String(required=False)
+        filter = ProductFilterInput(required=False)
+        channel = graphene.String(required=True)
+        mode = graphene.String(required=True)
 
     class Meta:
         description = "Publish products."
@@ -884,10 +890,59 @@ class ProductBulkPublish(BaseBulkMutation):
 
     @classmethod
     def bulk_action(cls, info, instances, product_ids, **data):
+        from saleor.graphql.product.filters import ProductFilter
+        from saleor.product.models import Product as ProductModel
+
+        queryset = ProductModel.objects.all()
+        data['filter']['channel'] = data['channel']
+
+        queryset = ProductFilter(
+            data=data['filter'], queryset=queryset
+        ).qs
+        '''
+        if data.get('mode') == 'SELECTED':
+            cls.publish_selected(instances, **data)
+        '''
+        if data.get('mode') == 'ALL':
+            cls.publish_all(**data)
+
+        return
         if data.get('is_published'):
             cls.bulk_publish(instances, **data)
         else:
             cls.bulk_unpublish(product_ids)
+
+    @classmethod
+    def publish_all(cls, **data):
+        from saleor.graphql.product.filters import ProductFilter
+        from saleor.product.models import Product as ProductModel
+        import datetime as dt
+
+        MAX_OFFERS_DAILY = 1000
+
+        products = ProductModel.objects.all()
+        data['filter']['channel'] = data['channel']
+
+        products = ProductFilter(
+            data=data['filter'], queryset=products
+        ).qs
+
+        products_amount = len(products)
+        date_format = '%Y-%m-%d'
+        starting_at = datetime.strptime(data.get('starting_at_date'), date_format)
+        starting_at = starting_at.replace(hour=13, minute=30)
+        ending_at = datetime.strptime(data.get('ending_at_date'), date_format)
+        ending_at = ending_at.replace(hour=13, minute=30)
+
+        day_diff = ending_at - starting_at
+        publication_days = day_diff.days + 1
+
+        amount_per_day = min(products_amount / publication_days, MAX_OFFERS_DAILY)
+        product_ids = []
+
+        for publication_day in range(publication_days):
+            publish_date = starting_at + dt.timedelta(days=publication_day)
+
 
     @classmethod
     def bulk_unpublish(cls, product_ids):
