@@ -10,9 +10,10 @@ from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish
                     can_publish, update_allegro_purchased_error, email_bulk_unpublish_result,
                     get_datetime_now, product_ids_to_skus, get_products_by_channels)
 from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import Category, Product, ProductVariant
+from saleor.product.models import Category, Product, ProductMedia, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.models import PluginConfiguration
+from saleor.plugins.allegro.utils import AllegroProductPublishValidator
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +56,27 @@ def check_bulk_unpublish_status_task(unique_id):
 
 
 @app.task()
-def async_product_publish(product_id, offer_type, starting_at, product_images, products_bulk_ids, channel):
+def publish_products(product_id, offer_type, starting_at, products_bulk_ids, channel):
     allegro_api_instance = AllegroAPI(channel)
+
     saleor_product = Product.objects.get(pk=product_id)
+    validator = AllegroProductPublishValidator(product_id=product_id, channel=channel)
+
+    if validator.validate():
+        saleor_product.store_value_in_private_metadata(
+            {'publish.allegro.status': ProductPublishState.MODERATED.value,
+             'publish.status.date': get_datetime_now()})
+        saleor_product.save(update_fields=["private_metadata"])
+        return
+
+    # TODO: clear errors sectoin
+    saleor_product.delete_value_from_private_metadata('publish.allegro.errors')
+    saleor_product.save()
+
+
+    product_images = ProductMedia.objects.filter(product=saleor_product)
+    product_images = [product_image.image.url for product_image in product_images]
+
     saleor_product.store_value_in_private_metadata(
         {'publish.allegro.status': ProductPublishState.MODERATED.value,
          'publish.type': offer_type,

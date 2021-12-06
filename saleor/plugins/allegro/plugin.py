@@ -14,12 +14,7 @@ from django.shortcuts import redirect
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
-from saleor.product.models import ProductMedia, ProductChannelListing, ProductVariantChannelListing
-from saleor.channel.models import Channel
-from saleor.product.models import ProductVariant
-from . import ProductPublishState
-from .utils import get_datetime_now
-from .tasks import async_product_publish
+from saleor.product.models import ProductVariantChannelListing
 from .api import AllegroAPI
 
 
@@ -324,56 +319,6 @@ class AllegroPlugin(BasePlugin):
             cursor.execute('select calculate_prices(%s)', [product_id])
             data = cursor.fetchall()
         return json.loads(data[0][0])
-
-    def create_product_channel_listing(self, product, channel):
-        product_channel_listing = ProductChannelListing.objects.create(
-            product=product,
-            channel=channel,
-            currency=channel.currency_code
-        )
-        product_channel_listing.save()
-        return product_channel_listing
-
-    def create_product_variant_channel_listing(self, product, channel):
-        product_variant = ProductVariant.objects.get(product=product)
-        prices = self.calculate_prices(product.id)
-
-        productvariant_channel_listing = ProductVariantChannelListing.objects.create(
-            variant=product_variant,
-            channel=channel,
-            currency=channel.currency_code,
-            price_amount=prices['price'],
-            cost_price_amount=prices['cost_price'],
-        )
-        productvariant_channel_listing.save()
-        return productvariant_channel_listing
-
-    def product_published(self, product_with_params: Any) -> Any:
-        product = product_with_params.get('product')
-        products_bulk_ids = product_with_params.get('products_bulk_ids')
-        product_images = ProductMedia.objects.filter(product=product)
-        product_images = [product_image.image.url for product_image in product_images]
-        product.delete_value_from_private_metadata('publish.allegro.errors')
-        product.save()
-
-        product_channel_listing = ProductChannelListing.objects.get(product_id=product.id)
-        channel_slug = product_channel_listing.channel.slug
-        product_channel_listing.is_published = True
-        product_channel_listing.save()
-
-        if not self.product_validate(product, channel_slug):
-            async_product_publish.delay(product_id=product.id,
-                                        offer_type=product_with_params.get('offer_type'),
-                                        starting_at=product_with_params.get('starting_at'),
-                                        product_images=product_images,
-                                        products_bulk_ids=products_bulk_ids,
-                                        channel=channel_slug)
-
-        else:
-            product.store_value_in_private_metadata(
-                {'publish.allegro.status': ProductPublishState.MODERATED.value,
-                 'publish.status.date': get_datetime_now()})
-            product.save(update_fields=["private_metadata"])
 
     def calculate_hours_to_token_expire(self):
         token_expire = datetime.strptime(self.config.token_access, '%d/%m/%Y %H:%M:%S')
