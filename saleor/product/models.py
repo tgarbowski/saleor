@@ -718,7 +718,7 @@ class DigitalContentUrl(models.Model):
 
 
 class ProductMedia(SortableModel):
-    product = models.ForeignKey(Product, related_name="media", on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, null=True, related_name="media", on_delete=models.SET_NULL)
     image = VersatileImageField(
         upload_to="products", ppoi_field="ppoi", blank=True, null=True
     )

@@ -100,9 +100,12 @@ class SumiPlugin(BasePlugin):
 
     @staticmethod
     def get_allegro_token(request):
-        if not SumiPlugin.is_auth(request.headers.get('X-API-KEY')) and \
+        if SumiPlugin.is_auth(request.headers.get('X-API-KEY')) and \
                 request.method == 'GET':
             channel = request.GET.get('channel')
+
+            if channel == 'SALINGO':
+                channel = 'allegro'
 
             if not channel:
                 errors = ['001: Nie podano wartości parametru channel.']

@@ -1598,6 +1598,7 @@ class ProductMediaDelete(BaseMutation):
     def perform_mutation(cls, _root, info, **data):
         media_obj = cls.get_node_or_error(info, data.get("id"), only_type=ProductMedia)
         media_id = media_obj.id
+        media_obj.image.delete(save=False)
         media_obj.delete()
         media_obj.id = media_id
         product = media_obj.product
