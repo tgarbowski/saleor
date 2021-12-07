@@ -14,8 +14,6 @@ from django.shortcuts import redirect
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
-from saleor.product.models import ProductVariantChannelListing
-from .api import AllegroAPI
 
 
 logger = logging.getLogger(__name__)
@@ -289,29 +287,6 @@ class AllegroPlugin(BasePlugin):
             structure_to_add = config_structure.get(configuration_field.get("name"))
             if structure_to_add:
                 configuration_field.update(structure_to_add)
-
-    def product_validate(self, product, channel):
-        errors = []
-
-        product_variant = product.variants.first()
-        product_variant_channel_listing = ProductVariantChannelListing.objects.get(
-            variant=product_variant)
-
-        if not self.active:
-            errors.append('003: plugin jest nieaktywny')
-        if product_variant.metadata.get('reserved') is True:
-            errors.append('003: produkt jest zarezerwowany')
-        if product_variant.stocks.first().quantity < 1:
-            errors.append('002: stan magazynowy produktu wynosi 0')
-        if product_variant.private_metadata.get('location') is None:
-            errors.append('003: brak lokacji magazynowej dla produktu')
-        if product_variant_channel_listing.price_amount == 0:
-            errors.append('003: cena produktu wynosi 0')
-        if product_variant_channel_listing.cost_price_amount == 0 \
-                or product_variant_channel_listing.cost_price_amount is None:
-            errors.append('003: cena zakupowa produktu wynosi 0')
-        AllegroAPI(channel=channel).update_errors_in_private_metadata(product, errors, channel)
-        return errors
 
     @staticmethod
     def calculate_prices(product_id):

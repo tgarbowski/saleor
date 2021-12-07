@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import math
 
 import graphene
@@ -864,6 +864,7 @@ class ProductBulkClearWarehouseLocation(BaseBulkMutation):
         pass
 
 from saleor.graphql.product.filters import ProductFilterInput
+
 class ProductBulkPublish(BaseBulkMutation):
     class Arguments:
         ids = graphene.List(
@@ -872,7 +873,7 @@ class ProductBulkPublish(BaseBulkMutation):
         is_published = graphene.Boolean(
             required=True, description="Determine if products will be published or not."
         )
-        offer_type = graphene.String(description="Determine product offer type.")
+        offer_type = graphene.String(required=True, description="Determine product offer type.")
         starting_at = graphene.String(required=False)
         starting_at_date = graphene.String(required=False)
         ending_at_date = graphene.String(required=False)
@@ -889,29 +890,74 @@ class ProductBulkPublish(BaseBulkMutation):
         error_type_field = "product_errors"
 
     @classmethod
+    def validate_input(cls, data):
+        if data.get('mode') == 'SELECTED':
+            cls.validate_datetime(data.get('starting_at'), '%Y-%m-%d %H:%M')
+        elif data.get('mode') == 'ALL':
+            if not data.get('filter'):
+                raise ValidationError(
+                    "Filters not provided.",
+                    'asd',
+                )
+            cls.validate_date(data.get('starting_at_date'), '%Y-%m-%d')
+            # TODO: validate publish hour
+
+    @classmethod
+    def validate_datetime(cls, date, format):
+        try:
+            starting_at = datetime.strptime(date, format)
+        except:
+            raise ValidationError(
+                "Wrong date format.",
+                'asd',
+            )
+        if type(starting_at) is not datetime:
+            raise ValidationError(
+                "Starting date not provided.",
+                'asd',
+            )
+
+    @classmethod
+    def validate_date(cls, date, format):
+        from datetime import date as d
+        try:
+            starting_at = datetime.strptime(date, format).date()
+        except:
+            raise ValidationError(
+                "Wrong date format.",
+                'asd',
+            )
+        if type(starting_at) is not d:
+            raise ValidationError(
+                "Starting date not provided.",
+                'asd',
+            )
+
+    @classmethod
+    def parse_time_string(cls, time_string):
+        try:
+            hour, minute = time_string.split(':')
+        except ValueError:
+            raise ValidationError(
+                "Wrong time format.",
+                'asd',
+            )
+        return hour, minute
+
+    @classmethod
     def bulk_action(cls, info, instances, product_ids, **data):
         from saleor.graphql.product.filters import ProductFilter
         from saleor.product.models import Product as ProductModel
+        cls.validate_input(data)
 
-        queryset = ProductModel.objects.all()
-        data['filter']['channel'] = data['channel']
-
-        queryset = ProductFilter(
-            data=data['filter'], queryset=queryset
-        ).qs
-        '''
         if data.get('mode') == 'SELECTED':
-            cls.publish_selected(instances, **data)
-        '''
-        if data.get('mode') == 'ALL':
+            publish_date = datetime.now()
+            cls.bulk_publish(instances, publish_date, **data)
+            return
+        elif data.get('mode') == 'ALL':
             cls.publish_all(**data)
-
-        if data.get('mode') == 'SELECTED':
-            cls.bulk_publish(instances, **data)
-        '''
-        else:
+        elif data.get('is_publish') is False:
             cls.bulk_unpublish(product_ids)
-        '''
 
     @classmethod
     def publish_all(cls, **data):
@@ -933,8 +979,10 @@ class ProductBulkPublish(BaseBulkMutation):
 
         products_amount = len(products)
         date_format = '%Y-%m-%d'
-        starting_at = datetime.strptime(data.get('starting_at_date'), date_format).replace(hour=13, minute=30)
-        ending_at = datetime.strptime(data.get('ending_at_date'), date_format).replace(hour=13, minute=30)
+        hour, minute = cls.parse_time_string(data.get('publish_hour'))
+
+        starting_at = datetime.strptime(data.get('starting_at_date'), date_format).replace(hour=hour, minute=minute)
+        ending_at = datetime.strptime(data.get('ending_at_date'), date_format).replace(hour=hour, minute=minute)
 
         day_diff = ending_at - starting_at
         publication_days = day_diff.days + 1
@@ -945,8 +993,6 @@ class ProductBulkPublish(BaseBulkMutation):
         for offset in range(0, products_amount, amount_per_day):
             publish_date = starting_at + dt.timedelta(days=publication_day)
             selected_products = product_ids[offset:offset + amount_per_day]
-            print('publish_date', publish_date)
-            print('selected_products', len(selected_products))
             cls.bulk_publish(instances=selected_products, publish_date=publish_date,**data)
             publication_day += 1
 
@@ -958,46 +1004,34 @@ class ProductBulkPublish(BaseBulkMutation):
     @classmethod
     def bulk_publish(cls, instances, publish_date, **data):
         from saleor.plugins.allegro.tasks import publish_products
-        manager = get_plugins_manager()
-        # TODO: parametrize channel_slug, interval/chunks
-        plugin = manager.get_plugin(plugin_id='allegro')
-        #interval, chunks = plugin.get_intervals_and_chunks()
         interval = 5
         chunks = 13
         step = math.ceil(len(instances) / (chunks))
         start = 0
-        instances_ids = []
+        product_ids = [instance.id for instance in instances]
+        # cls.bulk_set_is_publish_true(product_ids)
+        for i, instance in enumerate(product_ids):
+            date_format = '%Y-%m-%d %H:%M'
+            starting_at = (publish_date + timedelta(minutes=start)).strftime(date_format)
+            products_bulk_ids = product_ids if i == len(instances) - 1 else None
 
-        # TODO: bulk update is_publish = True
+            publish_products(product_id=instance.id,
+                             offer_type=data.get('offer_type'),
+                             starting_at=starting_at,
+                             products_bulk_ids=products_bulk_ids,
+                             channel=data.get('channel'))
 
-        for i, instance in enumerate(instances):
-            #instance.refresh_from_db()
-            instances_ids.append(instance)
-            # TODO: Validate input eg. data.get('starting_at'), data.get('offer_type')
-            #if can_publish(instance, data):
-            if data:
-                date_format = '%Y-%m-%d %H:%M'
-                '''
-                starting_at = (datetime.strptime(data.get('starting_at'), date_format)
-                               + timedelta(minutes=start)).strftime(date_format)
-                '''
-                starting_at = (publish_date + timedelta(minutes=start)).strftime(date_format)
-                products_bulk_ids = instances_ids if i == len(instances) - 1 else None
-                print('starting_at', starting_at)
-                # TODO: pass channel slug
-                '''
-                plugin.product_published(
-                    {"product": instance,
-                     "offer_type": data.get('offer_type'),
-                     "starting_at": starting_at,
-                     "products_bulk_ids": products_bulk_ids
-                     })
+            if (i + 1) % step == 0:
+                start += interval
 
-                publish_products.delay(product_id=product.id,
-                                       offer_type=data.get('offer_type'),
-                                       starting_at=product_with_params.get('starting_at'),
-                                       products_bulk_ids=product_with_params.get('products_bulk_ids'),
-                                       channel=channel_slug)
-                '''
-                if (i + 1) % step == 0:
-                    start += interval
+    @classmethod
+    def bulk_set_is_publish_true(cls, product_ids):
+        from saleor.product.models import ProductChannelListing
+        channel_listings = ProductChannelListing.objects.filter(product__in=product_ids)
+        channel_listings_amount = channel_listings.count()
+
+        for channel_listing in channel_listings:
+            channel_listing.is_published = True
+
+        for offset in range(0, channel_listings_amount, 1000):
+            ProductChannelListing.objects.bulk_update(channel_listings, ['is_published'])

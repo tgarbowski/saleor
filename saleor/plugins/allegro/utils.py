@@ -273,7 +273,7 @@ class AllegroProductPublishValidator:
             self.errors.append('003: produkt zbundlowany')
 
     def is_publish_status(self):
-        if self.product_channel_listing.is_published is False:
+        if self.product_channel_listing.is_published is True:
             self.errors.append('003: produkt w statusie publish')
 
     def is_allegro_publish_status(self):

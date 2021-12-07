@@ -60,7 +60,11 @@ def publish_products(product_id, offer_type, starting_at, products_bulk_ids, cha
     allegro_api_instance = AllegroAPI(channel)
 
     saleor_product = Product.objects.get(pk=product_id)
-    validator = AllegroProductPublishValidator(product_id=product_id, channel=channel)
+
+    saleor_product.delete_value_from_private_metadata('publish.allegro.errors')
+    saleor_product.save()
+
+    validator = AllegroProductPublishValidator(product=saleor_product, channel=channel)
 
     if validator.validate():
         saleor_product.store_value_in_private_metadata(
@@ -68,11 +72,6 @@ def publish_products(product_id, offer_type, starting_at, products_bulk_ids, cha
              'publish.status.date': get_datetime_now()})
         saleor_product.save(update_fields=["private_metadata"])
         return
-
-    # TODO: clear errors sectoin
-    saleor_product.delete_value_from_private_metadata('publish.allegro.errors')
-    saleor_product.save()
-
 
     product_images = ProductMedia.objects.filter(product=saleor_product)
     product_images = [product_image.image.url for product_image in product_images]
