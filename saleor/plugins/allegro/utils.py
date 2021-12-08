@@ -143,31 +143,6 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
             ProductChannelListing.objects.bulk_update(product_channel_listings, ['is_published'])
 
 
-def can_publish(instance, data):
-    can_be_published = False
-
-    is_bundled = False
-    bundle_id = instance.private_metadata.get("bundle.id")
-    is_bundled = bool(type(bundle_id) is str and len(bundle_id) > 0)
-
-    publish_status_verify = bool(
-        instance.private_metadata.get('publish.allegro.status') not in [
-            ProductPublishState.SOLD.value,
-            ProductPublishState.PUBLISHED.value
-        ]
-    )
-
-    if (    not product_is_published(instance.id)
-        and data.get('starting_at')
-        and data.get('offer_type')
-        and publish_status_verify
-        and not is_bundled
-    ):
-        can_be_published = True
-
-    return can_be_published
-
-
 def update_allegro_purchased_error(skus, allegro_data):
     product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
     products_to_update = []
@@ -309,7 +284,6 @@ class AllegroErrorHandler:
 
         if errors:
             product_channel_listing.is_published = False
-            #logger.error(str(product.variants.first()) + ' ' + str(errors))
             product.store_value_in_private_metadata({'publish.allegro.errors': errors})
         else:
             product_channel_listing.is_published = True

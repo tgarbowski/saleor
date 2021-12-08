@@ -13,8 +13,9 @@ from .products_mapper import ProductMapperFactory
 from .parameters_mapper import ParametersMapperFactory
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
-from saleor.product.models import ProductChannelListing, ProductVariant
-from .utils import get_datetime_now
+from saleor.product.models import ProductVariant
+from .utils import AllegroErrorHandler
+from saleor.plugins.allegro import ProductPublishState
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ class AllegroAPI:
                 category_id).run_mapper()
         except IndexError as err:
             self.errors.append(str(err))
-            self.update_errors_in_private_metadata(
+            AllegroErrorHandler.update_errors_in_private_metadata(
                 saleor_product,
                 [error for error in self.errors],
                 self.channel
@@ -346,37 +347,6 @@ class AllegroAPI:
             logger.error(err)
             self.errors.append('Attribute error ' + str(err))
 
-    def update_status_and_publish_data_in_private_metadata(self, product,
-                                                           allegro_offer_id, status,
-                                                           errors):
-        product.store_value_in_private_metadata(
-            {'publish.allegro.status': status,
-             'publish.allegro.date': get_datetime_now(),
-             'publish.status.date': get_datetime_now(),
-             'publish.allegro.id': str(allegro_offer_id)})
-        self.update_errors_in_private_metadata(product, errors, self.channel)
-        product.save()
-
-    @staticmethod
-    def update_errors_in_private_metadata(product, errors, channel):
-        product_channel_listing = ProductChannelListing.objects.get(
-            channel__slug=channel,
-            product=product)
-
-        if errors:
-            product_channel_listing.is_published = False
-            logger.error(str(product.variants.first()) + ' ' + str(errors))
-            product.store_value_in_private_metadata({'publish.allegro.errors': errors})
-        else:
-            product_channel_listing.is_published = True
-            product.store_value_in_private_metadata({'publish.allegro.errors': []})
-        product_channel_listing.save(update_fields=["is_published"])
-        product.save(update_fields=["private_metadata"])
-
-    def update_product_errors_in_private_metadata(self, product, errors):
-        product.store_value_in_private_metadata({'publish.allegro.errors': errors})
-        product.save(update_fields=["private_metadata"])
-
     def get_detailed_offer_publication(self, offer_id):
         endpoint = 'sale/offer-publication-commands/' + str(offer_id) + '/tasks'
         response = self.get_request(endpoint=endpoint)
@@ -613,24 +583,24 @@ class AllegroAPI:
                 logger.error(error)
             self.product_errors += product_errors
             self.errors += self.product_errors
-            self.update_product_errors_in_private_metadata(saleor_product, self.errors)
+            AllegroErrorHandler.update_product_errors_in_private_metadata(saleor_product, self.errors)
         if 'error' in allegro_product:
             self.product_errors.append(allegro_product.get('error_description'))
             self.errors += self.product_errors
-            self.update_product_errors_in_private_metadata(saleor_product, self.errors)
+            AllegroErrorHandler.update_product_errors_in_private_metadata(saleor_product, self.errors)
 
-    def error_handling(self, offer, saleor_product, ProductPublishState):
+    def error_handling(self, offer, saleor_product):
         must_assign_offer_to_product = False
         if 'error' in offer:
             self.errors.append(offer.get('error_description'))
-            self.update_errors_in_private_metadata(
+            AllegroErrorHandler.update_errors_in_private_metadata(
                 saleor_product,
                 [error for error in self.errors],
                 self.channel
             )
         elif 'errors' in offer:
             self.errors += offer['errors']
-            self.update_errors_in_private_metadata(
+            AllegroErrorHandler.update_errors_in_private_metadata(
                 saleor_product,
                 [error.get('message') for error in self.errors],
                 self.channel)
@@ -641,17 +611,17 @@ class AllegroAPI:
                         must_assign_offer_to_product = True
                     logger.error((error['message'] + ' dla ogłoszenia: ' + self.plugin_config['auth_env'] + '/offer/' + offer['id'] + '/restore'))
                     self.errors.append((error['message'] + 'dla ogłoszenia: ' + self.plugin_config['auth_env'] + '/offer/' + offer['id'] + '/restore'))
-                self.update_status_and_publish_data_in_private_metadata(
+                AllegroErrorHandler.update_status_and_publish_data_in_private_metadata(
                     saleor_product, offer['id'],
                     ProductPublishState.MODERATED.value,
-                    self.errors)
+                    self.errors, self.channel)
             else:
                 self.errors = []
                 self.offer_publication(offer.get('id'))
-                self.update_status_and_publish_data_in_private_metadata(
+                AllegroErrorHandler.update_status_and_publish_data_in_private_metadata(
                     saleor_product, offer['id'],
                     ProductPublishState.PUBLISHED.value,
-                    self.errors)
+                    self.errors, self.channel)
 
         if must_assign_offer_to_product:
             return 'must_assign_offer_to_product'

@@ -3559,7 +3559,7 @@ type Mutation {
   productCreate(input: ProductCreateInput!): ProductCreate
   productDelete(id: ID!): ProductDelete
   productBulkDelete(ids: [ID]!): ProductBulkDelete
-  productBulkPublish(channel: String!, endingAtDate: String, filter: ProductFilterInput, ids: [ID]!, isPublished: Boolean!, mode: String, offerType: String, publishHour: String, startingAt: String, startingAtDate: String): ProductBulkPublish
+  productBulkPublish(channel: String, endingAtDate: String, filter: ProductFilterInput, ids: [ID]!, isPublished: Boolean!, mode: String!, offerType: String!, publishHour: String, startingAt: String, startingAtDate: String): ProductBulkPublish
   productBulkClearWarehouseLocation(skus: [String]!): ProductBulkClearWarehouseLocation
   productUpdate(id: ID!, input: ProductInput!): ProductUpdate
   productTranslate(id: ID!, input: TranslationInput!, languageCode: LanguageCodeEnum!): ProductTranslate

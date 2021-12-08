@@ -48,8 +48,10 @@ from ..utils import (
     get_draft_order_lines_data_for_variants,
     get_used_variants_attribute_values,
 )
-from saleor.plugins.allegro.utils import can_publish
-from saleor.plugins.manager import get_plugins_manager
+from saleor.plugins.allegro.tasks import publish_products, unpublish_from_multiple_channels
+from saleor.graphql.product.filters import ProductFilter, ProductFilterInput
+from saleor.salingo.utils import SalingoDatetimeFormats, validate_date_string, validate_datetime_string
+from saleor.product.models import ProductChannelListing
 
 
 class CategoryBulkDelete(ModelBulkDeleteMutation):
@@ -863,7 +865,6 @@ class ProductBulkClearWarehouseLocation(BaseBulkMutation):
     def bulk_action(cls, queryset, **kwargs):
         pass
 
-from saleor.graphql.product.filters import ProductFilterInput
 
 class ProductBulkPublish(BaseBulkMutation):
     class Arguments:
@@ -874,12 +875,12 @@ class ProductBulkPublish(BaseBulkMutation):
             required=True, description="Determine if products will be published or not."
         )
         offer_type = graphene.String(required=True, description="Determine product offer type.")
-        starting_at = graphene.String(required=False)
-        starting_at_date = graphene.String(required=False)
-        ending_at_date = graphene.String(required=False)
-        publish_hour = graphene.String(required=False)
-        filter = ProductFilterInput(required=False)
-        channel = graphene.String(required=True)
+        starting_at = graphene.String()
+        starting_at_date = graphene.String()
+        ending_at_date = graphene.String()
+        publish_hour = graphene.String()
+        filter = ProductFilterInput()
+        channel = graphene.String()
         mode = graphene.String(required=True)
 
     class Meta:
@@ -891,142 +892,100 @@ class ProductBulkPublish(BaseBulkMutation):
 
     @classmethod
     def validate_input(cls, data):
-        if data.get('mode') == 'SELECTED':
-            cls.validate_datetime(data.get('starting_at'), '%Y-%m-%d %H:%M')
-        elif data.get('mode') == 'ALL':
+        if data.get('mode') == 'PUBLISH_SELECTED':
+            validate_datetime_string(data.get('starting_at'), SalingoDatetimeFormats.datetime)
+        elif data.get('mode') == 'PUBLISH_ALL':
             if not data.get('filter'):
-                raise ValidationError(
-                    "Filters not provided.",
-                    'asd',
-                )
-            cls.validate_date(data.get('starting_at_date'), '%Y-%m-%d')
-            # TODO: validate publish hour
-
-    @classmethod
-    def validate_datetime(cls, date, format):
-        try:
-            starting_at = datetime.strptime(date, format)
-        except:
-            raise ValidationError(
-                "Wrong date format.",
-                'asd',
-            )
-        if type(starting_at) is not datetime:
-            raise ValidationError(
-                "Starting date not provided.",
-                'asd',
-            )
-
-    @classmethod
-    def validate_date(cls, date, format):
-        from datetime import date as d
-        try:
-            starting_at = datetime.strptime(date, format).date()
-        except:
-            raise ValidationError(
-                "Wrong date format.",
-                'asd',
-            )
-        if type(starting_at) is not d:
-            raise ValidationError(
-                "Starting date not provided.",
-                'asd',
-            )
+                raise ValidationError("Filters not provided.")
+            validate_date_string(data.get('starting_at_date'), SalingoDatetimeFormats.date)
+            cls.parse_time_string(data.get('publish_hour'))
 
     @classmethod
     def parse_time_string(cls, time_string):
         try:
             hour, minute = time_string.split(':')
-        except ValueError:
-            raise ValidationError(
-                "Wrong time format.",
-                'asd',
-            )
+            hour, minute = int(hour), int(minute)
+        except (AttributeError, ValueError):
+            raise ValidationError("Wrong time format.")
         return hour, minute
 
     @classmethod
     def bulk_action(cls, info, instances, product_ids, **data):
-        from saleor.graphql.product.filters import ProductFilter
-        from saleor.product.models import Product as ProductModel
         cls.validate_input(data)
+        publish_mode = data['mode']
 
-        if data.get('mode') == 'SELECTED':
+        if publish_mode == 'PUBLISH_SELECTED':
             publish_date = datetime.now()
-            cls.bulk_publish(instances, publish_date, **data)
-            return
-        elif data.get('mode') == 'ALL':
+            cls.bulk_publish(product_ids, publish_date, **data)
+        elif publish_mode == 'PUBLISH_ALL':
+            data['filter']['channel'] = data['channel']
             cls.publish_all(**data)
-        elif data.get('is_publish') is False:
+        elif publish_mode == 'UNPUBLISH_SELECTED':
             cls.bulk_unpublish(product_ids)
 
     @classmethod
-    def publish_all(cls, **data):
-        from saleor.graphql.product.filters import ProductFilter
-        from saleor.product.models import Product as ProductModel
-        import datetime as dt
-
-        MAX_OFFERS_DAILY = 1000
-
-        products = ProductModel.objects.all()
-        data['filter']['channel'] = data['channel']
-
-        products = ProductFilter(
-            data=data['filter'], queryset=products
+    def get_filtered_product_ids(cls, filter):
+        all_products = models.Product.objects.all()
+        filtered_products = ProductFilter(
+            data=filter, queryset=all_products
         ).qs
 
-        product_ids = products.values_list('id', flat=True)
-        product_ids = list(product_ids)
+        return list(filtered_products.values_list('id', flat=True))
 
-        products_amount = len(products)
-        date_format = '%Y-%m-%d'
-        hour, minute = cls.parse_time_string(data.get('publish_hour'))
+    @classmethod
+    def publish_all(cls, **data):
+        product_ids = cls.get_filtered_product_ids(data['filter'])
+        products_amount = len(product_ids)
 
-        starting_at = datetime.strptime(data.get('starting_at_date'), date_format).replace(hour=hour, minute=minute)
-        ending_at = datetime.strptime(data.get('ending_at_date'), date_format).replace(hour=hour, minute=minute)
-
-        day_diff = ending_at - starting_at
-        publication_days = day_diff.days + 1
-
-        amount_per_day = min(products_amount / publication_days, MAX_OFFERS_DAILY)
+        MAX_OFFERS_DAILY = 1000
         publication_day = 0
 
+        hour, minute = cls.parse_time_string(data.get('publish_hour'))
+        starting_at = datetime.strptime(
+            data['starting_at_date'],
+            SalingoDatetimeFormats.date).replace(hour=hour, minute=minute)
+
+        if data.get('ending_at_date'):
+            ending_at = datetime.strptime(
+                data['ending_at_date'],
+                SalingoDatetimeFormats.date).replace(hour=hour, minute=minute)
+            day_diff = ending_at - starting_at
+            publication_days = day_diff.days + 1
+            amount_per_day = int(min(products_amount / publication_days, MAX_OFFERS_DAILY))
+        else:
+            amount_per_day = min(products_amount, MAX_OFFERS_DAILY)
+
         for offset in range(0, products_amount, amount_per_day):
-            publish_date = starting_at + dt.timedelta(days=publication_day)
+            publish_date = starting_at + timedelta(days=publication_day)
             selected_products = product_ids[offset:offset + amount_per_day]
-            cls.bulk_publish(instances=selected_products, publish_date=publish_date,**data)
+            cls.bulk_publish(product_ids=selected_products, publish_date=publish_date, **data)
             publication_day += 1
 
     @classmethod
     def bulk_unpublish(cls, product_ids):
-        from saleor.plugins.allegro.tasks import unpublish_from_multiple_channels
-        unpublish_from_multiple_channels.delay(product_ids=product_ids)
+        unpublish_from_multiple_channels(product_ids=product_ids)
 
     @classmethod
-    def bulk_publish(cls, instances, publish_date, **data):
-        from saleor.plugins.allegro.tasks import publish_products
+    def bulk_publish(cls, product_ids, publish_date, **data):
         interval = 5
         chunks = 13
-        step = math.ceil(len(instances) / (chunks))
+        step = math.ceil(len(product_ids) / chunks)
         start = 0
-        product_ids = [instance.id for instance in instances]
-        # cls.bulk_set_is_publish_true(product_ids)
-        for i, instance in enumerate(product_ids):
-            date_format = '%Y-%m-%d %H:%M'
-            starting_at = (publish_date + timedelta(minutes=start)).strftime(date_format)
-            products_bulk_ids = product_ids if i == len(instances) - 1 else None
-
-            publish_products(product_id=instance.id,
-                             offer_type=data.get('offer_type'),
+        cls.bulk_set_is_publish_true(product_ids)
+        for i, product_id in enumerate(product_ids):
+            starting_at = (publish_date + timedelta(minutes=start)).strftime(SalingoDatetimeFormats.datetime)
+            products_bulk_ids = product_ids if i == len(product_ids) - 1 else None
+            publish_products(product_id=product_id,
+                             offer_type=data['offer_type'],
                              starting_at=starting_at,
                              products_bulk_ids=products_bulk_ids,
-                             channel=data.get('channel'))
+                             channel=data['channel'])
 
             if (i + 1) % step == 0:
                 start += interval
 
     @classmethod
     def bulk_set_is_publish_true(cls, product_ids):
-        from saleor.product.models import ProductChannelListing
         channel_listings = ProductChannelListing.objects.filter(product__in=product_ids)
         channel_listings_amount = channel_listings.count()
 
