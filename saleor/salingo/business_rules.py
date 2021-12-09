@@ -82,7 +82,7 @@ class Executors:
 
     @classmethod
     def move_from_unpublished(cls, mode, product, channel):
-        message = f'{datetime.now()} moved from channel' \
+        message = f'{datetime.now()} moved from channel ' \
                   f'{product["channel"]["slug"]} to channel {channel}'
         logger.info(f'{product["sku"]} {message}')
 
@@ -157,23 +157,27 @@ class Resolvers:
 
     @classmethod
     def resolve_unpublished(cls):
-        return cls.get_products_custom_dict(channel='unpublished')
+        return cls.get_products_custom_dict(channel='allegro')
 
     @classmethod
     def get_products_custom_dict(cls, channel):
+        LIMIT = 5000
         product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
             channel__slug=channel).select_related('variant', 'variant__product',
                                                   'variant__product__product_type',
-                                                  'variant__product__category')
+                                                  'variant__product__category').order_by('-variant_id')[:LIMIT]
 
         product_ids = [pvcl.variant.product.id for pvcl in product_variant_channel_listing]
         product_channel_listings = ProductChannelListing.objects.filter(
-            product_id__in=product_ids).select_related('channel')
+            product_id__in=product_ids).select_related('channel', 'product').order_by('-product_id')
 
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
-        # TODO: validate if pcl is correct
+
         for pvcl, pcl in zip(product_variant_channel_listing, product_channel_listings):
+            if pvcl.variant_id != pcl.product.default_variant_id:
+                raise Exception('Wrong channel listings merge.')
+
             products.append(
                 {
                     'id': pvcl.variant.product.id,
@@ -186,7 +190,7 @@ class Resolvers:
                     'category': pvcl.variant.product.category.slug,
                     'root_category': cls.get_root_category(category_tree_ids,
                                                            pvcl.variant.product.category.tree_id),
-                    'weight': pvcl.variant.product.weight.kg,
+                    'weight': pvcl.variant.product.weight,
                     'age': cls.parse_datetime(pvcl.variant.product.created_at),
                     'sku': pvcl.variant.sku,
                     'channel': {
@@ -224,7 +228,10 @@ class Resolvers:
 
     @staticmethod
     def parse_date(publication_date):
-        delta = date.today() - publication_date
+        try:
+            delta = date.today() - publication_date
+        except TypeError:
+            return 0
         return delta.days
 
     @staticmethod
@@ -235,16 +242,19 @@ class Resolvers:
     @staticmethod
     def parse_location(location):
         # eg. input: R01K01
-        if location is None:
+        if not location:
             return {'type': None, 'number': None, 'box': None}
 
         digits = re.findall('\d+', location)
 
-        parsed_location = {
-            'type': location[0],
-            'number': int(digits[0]),
-            'box': int(digits[1])
-        }
+        try:
+            parsed_location = {
+                'type': location[1],
+                'number': int(digits[0]),
+                'box': int(digits[1])
+            }
+        except IndexError:
+            return {'type': None, 'number': None, 'box': None}
 
         return parsed_location
 
