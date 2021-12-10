@@ -10,6 +10,7 @@ import yaml
 import rule_engine
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 
 from saleor.channel.models import Channel
 from saleor.product.models import (Category, Product, ProductVariantChannelListing,
@@ -116,28 +117,21 @@ class Executors:
         if mode == 'dry_run': return
 
         variant_id = product['variant_id']
-        variant_channel_listing = ProductVariantChannelListing.objects.get(variant_id=variant_id)
-        variant_channel_listing.price_amount = price
-        variant_channel_listing.save(update_fields=['price_amount'])
+        ProductVariantChannelListing.objects.get(variant_id=variant_id).update(price_amount=price)
 
         cls.log_to_product_history(product=product, message=message)
 
     @classmethod
     def change_product_channel(cls, product, channel):
-        channel = Channel.objects.get(slug=channel)
+        channel_id = Channel.objects.get(slug=channel).pk
         product_id = product['id']
         variant_id = product['variant_id']
 
-        product_channel_listing = ProductChannelListing.objects.get(
-            product_id=product_id)
-        variant_channel_listing = ProductVariantChannelListing.objects.get(
-            variant_id=variant_id)
-
-        product_channel_listing.channel = channel
-        variant_channel_listing.channel = channel
-
-        product_channel_listing.save(update_fields=['channel'])
-        variant_channel_listing.save(update_fields=['channel'])
+        with transaction.atomic():
+            product_channel_listing = ProductChannelListing.objects.get(
+                product_id=product_id).update(channel_id=channel_id)
+            variant_channel_listing = ProductVariantChannelListing.objects.get(
+                variant_id=variant_id).update(channel_id=channel_id)
 
     @classmethod
     def log_to_product_history(cls, product, message):
