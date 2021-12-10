@@ -213,7 +213,6 @@ class AllegroProductPublishValidator:
         self.is_price_amount()
         self.is_cost_price_amount()
         self.is_bundled()
-        self.is_publish_status()
         self.is_allegro_publish_status()
 
         AllegroErrorHandler.update_errors_in_private_metadata(self.product, self.errors, self.channel)

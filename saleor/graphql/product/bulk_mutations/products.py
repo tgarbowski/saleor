@@ -915,7 +915,7 @@ class ProductBulkPublish(BaseBulkMutation):
         publish_mode = data['mode']
 
         if publish_mode == 'PUBLISH_SELECTED':
-            publish_date = datetime.now()
+            publish_date = datetime.strptime(data.get('starting_at'), SalingoDatetimeFormats.datetime)
             cls.bulk_publish(product_ids, publish_date, **data)
         elif publish_mode == 'PUBLISH_ALL':
             data['filter']['channel'] = data['channel']
@@ -975,22 +975,23 @@ class ProductBulkPublish(BaseBulkMutation):
         for i, product_id in enumerate(product_ids):
             starting_at = (publish_date + timedelta(minutes=start)).strftime(SalingoDatetimeFormats.datetime)
             products_bulk_ids = product_ids if i == len(product_ids) - 1 else None
-            publish_products(product_id=product_id,
-                             offer_type=data['offer_type'],
-                             starting_at=starting_at,
-                             products_bulk_ids=products_bulk_ids,
-                             channel=data['channel'])
+            publish_products.delay(
+                product_id=product_id,
+                offer_type=data['offer_type'],
+                starting_at=starting_at,
+                products_bulk_ids=products_bulk_ids,
+                channel=data['channel']
+            )
 
             if (i + 1) % step == 0:
                 start += interval
 
     @classmethod
     def bulk_set_is_publish_true(cls, product_ids):
-        channel_listings = ProductChannelListing.objects.filter(product__in=product_ids)
-        channel_listings_amount = channel_listings.count()
+        products_amount = len(product_ids)
+        limit = 1000
 
-        for channel_listing in channel_listings:
-            channel_listing.is_published = True
-
-        for offset in range(0, channel_listings_amount, 1000):
-            ProductChannelListing.objects.bulk_update(channel_listings, ['is_published'])
+        for offset in range(0, products_amount, limit):
+            ProductChannelListing.objects.filter(
+                product_id__in=product_ids[offset:offset + limit]
+            ).update(is_published=True)

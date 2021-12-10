@@ -62,6 +62,10 @@ def publish_products(product_id, offer_type, starting_at, products_bulk_ids, cha
     saleor_product = Product.objects.get(pk=product_id)
 
     saleor_product.delete_value_from_private_metadata('publish.allegro.errors')
+    saleor_product.store_value_in_private_metadata(
+        {'publish.allegro.status': ProductPublishState.MODERATED.value,
+         'publish.type': offer_type,
+         'publish.status.date': get_datetime_now()})
     saleor_product.save()
 
     validator = AllegroProductPublishValidator(product=saleor_product, channel=channel)
@@ -76,11 +80,6 @@ def publish_products(product_id, offer_type, starting_at, products_bulk_ids, cha
     product_images = ProductMedia.objects.filter(product=saleor_product)
     product_images = [product_image.image.url for product_image in product_images]
 
-    saleor_product.store_value_in_private_metadata(
-        {'publish.allegro.status': ProductPublishState.MODERATED.value,
-         'publish.type': offer_type,
-         'publish.status.date': get_datetime_now()})
-    saleor_product.save()
     publication_date = saleor_product.get_value_from_private_metadata("publish.allegro.date")
     # New offer
     if not publication_date:
