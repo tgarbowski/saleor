@@ -128,10 +128,8 @@ class Executors:
         variant_id = product['variant_id']
 
         with transaction.atomic():
-            product_channel_listing = ProductChannelListing.objects.get(
-                product_id=product_id).update(channel_id=channel_id)
-            variant_channel_listing = ProductVariantChannelListing.objects.get(
-                variant_id=variant_id).update(channel_id=channel_id)
+            ProductChannelListing.objects.get(product_id=product_id).update(channel_id=channel_id)
+            ProductVariantChannelListing.objects.get(variant_id=variant_id).update(channel_id=channel_id)
 
     @classmethod
     def log_to_product_history(cls, product, message):
