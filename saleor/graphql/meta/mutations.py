@@ -4,7 +4,7 @@ from typing import List
 
 import graphene
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
-from django.db import connection
+from django.db import connection, transaction
 from graphql.error.base import GraphQLError
 
 from ..product.utils import generate_description_json_for_megapack
@@ -205,20 +205,13 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def change_channel_listings(cls, data, channel_slug):
-        channel = Channel.objects.get(slug=channel_slug)
+        channel_id = Channel.objects.get(slug=channel_slug).pk
         product_ids = list(ProductVariant.objects.filter(sku__in=data).values_list('product_id', flat=True))
         variant_ids = list(ProductVariant.objects.filter(sku__in=data).values_list('pk', flat=True))
-        product_channel_listings = ProductChannelListing.objects.filter(product_id__in=product_ids)
-        variant_channel_listing = ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids)
 
-        for listing in product_channel_listings:
-            listing.channel = channel
-
-        for listing in variant_channel_listing:
-            listing.channel = channel
-
-        ProductChannelListing.objects.bulk_update(product_channel_listings, ['channel'])
-        ProductVariantChannelListing.objects.bulk_update(variant_channel_listing, ['channel'])
+        with transaction.atomic():
+            ProductChannelListing.objects.filter(product_id__in=product_ids).update(channel_id=channel_id)
+            ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids).update(channel_id=channel_id)
 
     @classmethod
     def assign_photos_from_products_to_megapack(cls, instance):

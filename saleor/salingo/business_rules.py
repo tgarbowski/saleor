@@ -10,6 +10,7 @@ import yaml
 import rule_engine
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 
 from saleor.channel.models import Channel
 from saleor.product.models import (Category, Product, ProductVariantChannelListing,
@@ -82,7 +83,7 @@ class Executors:
 
     @classmethod
     def move_from_unpublished(cls, mode, product, channel):
-        message = f'{datetime.now()} moved from channel' \
+        message = f'{datetime.now()} moved from channel ' \
                   f'{product["channel"]["slug"]} to channel {channel}'
         logger.info(f'{product["sku"]} {message}')
 
@@ -116,28 +117,19 @@ class Executors:
         if mode == 'dry_run': return
 
         variant_id = product['variant_id']
-        variant_channel_listing = ProductVariantChannelListing.objects.get(variant_id=variant_id)
-        variant_channel_listing.price_amount = price
-        variant_channel_listing.save(update_fields=['price_amount'])
+        ProductVariantChannelListing.objects.get(variant_id=variant_id).update(price_amount=price)
 
         cls.log_to_product_history(product=product, message=message)
 
     @classmethod
     def change_product_channel(cls, product, channel):
-        channel = Channel.objects.get(slug=channel)
+        channel_id = Channel.objects.get(slug=channel).pk
         product_id = product['id']
         variant_id = product['variant_id']
 
-        product_channel_listing = ProductChannelListing.objects.get(
-            product_id=product_id)
-        variant_channel_listing = ProductVariantChannelListing.objects.get(
-            variant_id=variant_id)
-
-        product_channel_listing.channel = channel
-        variant_channel_listing.channel = channel
-
-        product_channel_listing.save(update_fields=['channel'])
-        variant_channel_listing.save(update_fields=['channel'])
+        with transaction.atomic():
+            ProductChannelListing.objects.filter(product_id=product_id).update(channel_id=channel_id)
+            ProductVariantChannelListing.objects.filter(variant_id=variant_id).update(channel_id=channel_id)
 
     @classmethod
     def log_to_product_history(cls, product, message):
@@ -161,19 +153,23 @@ class Resolvers:
 
     @classmethod
     def get_products_custom_dict(cls, channel):
+        LIMIT = 5000
         product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
             channel__slug=channel).select_related('variant', 'variant__product',
                                                   'variant__product__product_type',
-                                                  'variant__product__category')
+                                                  'variant__product__category').order_by('-variant_id')[:LIMIT]
 
         product_ids = [pvcl.variant.product.id for pvcl in product_variant_channel_listing]
         product_channel_listings = ProductChannelListing.objects.filter(
-            product_id__in=product_ids).select_related('channel')
+            product_id__in=product_ids).select_related('channel', 'product').order_by('-product_id')
 
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
-        # TODO: validate if pcl is correct
+
         for pvcl, pcl in zip(product_variant_channel_listing, product_channel_listings):
+            if pvcl.variant_id != pcl.product.default_variant_id:
+                raise Exception('Wrong channel listings merge.')
+
             products.append(
                 {
                     'id': pvcl.variant.product.id,
@@ -186,7 +182,7 @@ class Resolvers:
                     'category': pvcl.variant.product.category.slug,
                     'root_category': cls.get_root_category(category_tree_ids,
                                                            pvcl.variant.product.category.tree_id),
-                    'weight': pvcl.variant.product.weight.kg,
+                    'weight': pvcl.variant.product.weight,
                     'age': cls.parse_datetime(pvcl.variant.product.created_at),
                     'sku': pvcl.variant.sku,
                     'channel': {
@@ -224,7 +220,10 @@ class Resolvers:
 
     @staticmethod
     def parse_date(publication_date):
-        delta = date.today() - publication_date
+        try:
+            delta = date.today() - publication_date
+        except TypeError:
+            return 0
         return delta.days
 
     @staticmethod
@@ -235,16 +234,19 @@ class Resolvers:
     @staticmethod
     def parse_location(location):
         # eg. input: R01K01
-        if location is None:
+        if not location:
             return {'type': None, 'number': None, 'box': None}
 
         digits = re.findall('\d+', location)
 
-        parsed_location = {
-            'type': location[0],
-            'number': int(digits[0]),
-            'box': int(digits[1])
-        }
+        try:
+            parsed_location = {
+                'type': location[1],
+                'number': int(digits[0]),
+                'box': int(digits[1])
+            }
+        except IndexError:
+            return {'type': None, 'number': None, 'box': None}
 
         return parsed_location
 
