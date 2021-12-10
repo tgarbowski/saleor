@@ -915,6 +915,8 @@ class ProductBulkPublish(BaseBulkMutation):
         publish_mode = data['mode']
 
         if publish_mode == 'PUBLISH_SELECTED':
+            product_ids = cls.filter_unpublished_products(product_ids)
+            if not product_ids: return
             publish_date = datetime.strptime(data.get('starting_at'), SalingoDatetimeFormats.datetime)
             cls.bulk_publish(product_ids, publish_date, **data)
         elif publish_mode == 'PUBLISH_ALL':
@@ -933,9 +935,21 @@ class ProductBulkPublish(BaseBulkMutation):
         return list(filtered_products.values_list('id', flat=True))
 
     @classmethod
+    def filter_unpublished_products(cls, product_ids):
+        channel_listings = ProductChannelListing.objects.filter(
+            product_id__in=product_ids,
+            is_published=False
+        )
+
+        return list(channel_listings.values_list('product_id', flat=True))
+
+    @classmethod
     def publish_all(cls, **data):
         product_ids = cls.get_filtered_product_ids(data['filter'])
+        product_ids = cls.filter_unpublished_products(product_ids)
         products_amount = len(product_ids)
+
+        if not product_ids: return
 
         MAX_OFFERS_DAILY = 1000
         publication_day = 0
