@@ -290,6 +290,7 @@ class AllegroErrorHandler:
         product_channel_listing.save(update_fields=["is_published"])
         product.save(update_fields=["private_metadata"])
 
-    def update_product_errors_in_private_metadata(self, product, errors):
+    @staticmethod
+    def update_product_errors_in_private_metadata(product, errors):
         product.store_value_in_private_metadata({'publish.allegro.errors': errors})
         product.save(update_fields=["private_metadata"])
