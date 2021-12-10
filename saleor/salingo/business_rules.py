@@ -128,8 +128,8 @@ class Executors:
         variant_id = product['variant_id']
 
         with transaction.atomic():
-            ProductChannelListing.objects.get(product_id=product_id).update(channel_id=channel_id)
-            ProductVariantChannelListing.objects.get(variant_id=variant_id).update(channel_id=channel_id)
+            ProductChannelListing.objects.filter(product_id=product_id).update(channel_id=channel_id)
+            ProductVariantChannelListing.objects.filter(variant_id=variant_id).update(channel_id=channel_id)
 
     @classmethod
     def log_to_product_history(cls, product, message):
@@ -149,7 +149,7 @@ class Resolvers:
 
     @classmethod
     def resolve_unpublished(cls):
-        return cls.get_products_custom_dict(channel='allegro')
+        return cls.get_products_custom_dict(channel='unpublished')
 
     @classmethod
     def get_products_custom_dict(cls, channel):
