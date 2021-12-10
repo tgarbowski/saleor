@@ -7,10 +7,11 @@ from .api import AllegroAPI
 from .enums import AllegroErrors
 from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish_message,
                     get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished,
-                    can_publish, update_allegro_purchased_error, email_bulk_unpublish_result,
-                    get_datetime_now, product_ids_to_skus, get_products_by_channels)
+                    update_allegro_purchased_error, email_bulk_unpublish_result,
+                    get_datetime_now, product_ids_to_skus, get_products_by_channels,
+                    AllegroProductPublishValidator, AllegroErrorHandler)
 from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import Category, Product, ProductVariant
+from saleor.product.models import Category, Product, ProductMedia, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.models import PluginConfiguration
 
@@ -55,14 +56,31 @@ def check_bulk_unpublish_status_task(unique_id):
 
 
 @app.task()
-def async_product_publish(product_id, offer_type, starting_at, product_images, products_bulk_ids, channel):
+def publish_products(product_id, offer_type, starting_at, products_bulk_ids, channel):
     allegro_api_instance = AllegroAPI(channel)
+
     saleor_product = Product.objects.get(pk=product_id)
+    saleor_product.delete_value_from_private_metadata('publish.allegro.errors')
+    saleor_product.save()
+
+    validator = AllegroProductPublishValidator(product=saleor_product, channel=channel)
+
+    if validator.validate():
+        saleor_product.store_value_in_private_metadata(
+            {'publish.allegro.status': ProductPublishState.MODERATED.value,
+             'publish.status.date': get_datetime_now()})
+        saleor_product.save(update_fields=["private_metadata"])
+        return
+
     saleor_product.store_value_in_private_metadata(
         {'publish.allegro.status': ProductPublishState.MODERATED.value,
          'publish.type': offer_type,
          'publish.status.date': get_datetime_now()})
     saleor_product.save()
+
+    product_images = ProductMedia.objects.filter(product=saleor_product)
+    product_images = [product_image.image.url for product_image in product_images]
+
     publication_date = saleor_product.get_value_from_private_metadata("publish.allegro.date")
     # New offer
     if not publication_date:
@@ -72,9 +90,10 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
         description = offer.get('description')
 
         if offer is None:
-            allegro_api_instance.update_errors_in_private_metadata(
+            AllegroErrorHandler.update_errors_in_private_metadata(
                 saleor_product,
-                [error for error in allegro_api_instance.errors])
+                [error for error in allegro_api_instance.errors],
+                channel)
 
             if products_bulk_ids: email_errors(products_bulk_ids)
             return
@@ -86,7 +105,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
                 allegro_id=offer.get('id'),
                 description=description)
         # Save errors if they exist
-        err_handling_response = allegro_api_instance.error_handling(offer, saleor_product, ProductPublishState)
+        err_handling_response = allegro_api_instance.error_handling(offer, saleor_product)
         # If must_assign_offer_to_product create new product and assign to offer
         if err_handling_response == 'must_assign_offer_to_product' and not existing_product_id:
             offer_id = saleor_product.private_metadata.get('publish.allegro.id')
@@ -111,7 +130,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
                 allegro_api_instance.error_handling_product(allegro_product, saleor_product)
                 # Validate final offer
                 offer = allegro_api_instance.get_offer(offer_id)
-                allegro_api_instance.error_handling(offer, saleor_product, ProductPublishState)
+                allegro_api_instance.error_handling(offer, saleor_product)
             else:
                 allegro_api_instance.error_handling_product(propose_product, saleor_product)
 
@@ -131,7 +150,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
             description = offer_update.get('description')
             logger.info('Offer update: ' + str(product.get('external').get('id')) + str(offer_update))
             offer = allegro_api_instance.get_offer(offer_id)
-            err_handling_response = allegro_api_instance.error_handling(offer, saleor_product, ProductPublishState)
+            err_handling_response = allegro_api_instance.error_handling(offer, saleor_product)
             # If must_assign_offer_to_product create new product and assign to offer
             if err_handling_response == 'must_assign_offer_to_product':
                 parameters = allegro_api_instance.prepare_product_parameters(saleor_product, 'requiredForProduct')
@@ -152,7 +171,7 @@ def async_product_publish(product_id, offer_type, starting_at, product_images, p
                     allegro_api_instance.error_handling_product(allegro_product, saleor_product)
                     # Validate final offer
                     offer = allegro_api_instance.get_offer(offer_id)
-                    allegro_api_instance.error_handling(offer, saleor_product, ProductPublishState)
+                    allegro_api_instance.error_handling(offer, saleor_product)
                 else:
                     allegro_api_instance.error_handling_product(propose_product, saleor_product)
 
@@ -282,17 +301,16 @@ def bulk_allegro_publish_unpublished_to_auction(limit):
     }
 
     for i, instance in enumerate(instances):
-        if can_publish(instance, dummy_data):
-            instance.delete_value_from_private_metadata('publish.allegro.date')
-            starting_at = calculate_date(i, day_limit)
-            products_bulk_ids = instances_ids if i == instances_length - 1 else None
-            offer_payload = {
-                "product": instance,
-                "offer_type": "AUCTION",
-                "starting_at": starting_at,
-                "products_bulk_ids": products_bulk_ids
-            }
-            plugin.product_published(offer_payload, None)
+        instance.delete_value_from_private_metadata('publish.allegro.date')
+        starting_at = calculate_date(i, day_limit)
+        products_bulk_ids = instances_ids if i == instances_length - 1 else None
+        offer_payload = {
+            "product": instance,
+            "offer_type": "AUCTION",
+            "starting_at": starting_at,
+            "products_bulk_ids": products_bulk_ids
+        }
+        plugin.product_published(offer_payload, None)
 
 
 @app.task()

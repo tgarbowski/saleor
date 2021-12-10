@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import math
 
 import graphene
@@ -48,8 +48,10 @@ from ..utils import (
     get_draft_order_lines_data_for_variants,
     get_used_variants_attribute_values,
 )
-from saleor.plugins.allegro.utils import can_publish
-from saleor.plugins.manager import get_plugins_manager
+from saleor.plugins.allegro.tasks import publish_products, unpublish_from_multiple_channels
+from saleor.graphql.product.filters import ProductFilter, ProductFilterInput
+from saleor.salingo.utils import SalingoDatetimeFormats, validate_date_string, validate_datetime_string
+from saleor.product.models import ProductChannelListing
 
 
 class CategoryBulkDelete(ModelBulkDeleteMutation):
@@ -872,8 +874,14 @@ class ProductBulkPublish(BaseBulkMutation):
         is_published = graphene.Boolean(
             required=True, description="Determine if products will be published or not."
         )
-        offer_type = graphene.String(description="Determine product offer type.")
-        starting_at = graphene.String(description="Determine date for publish offer.")
+        offer_type = graphene.String(required=True, description="Determine product offer type.")
+        starting_at = graphene.String()
+        starting_at_date = graphene.String()
+        ending_at_date = graphene.String()
+        publish_hour = graphene.String()
+        filter = ProductFilterInput()
+        channel = graphene.String()
+        mode = graphene.String(required=True)
 
     class Meta:
         description = "Publish products."
@@ -883,45 +891,121 @@ class ProductBulkPublish(BaseBulkMutation):
         error_type_field = "product_errors"
 
     @classmethod
+    def validate_input(cls, data):
+        if data.get('mode') == 'PUBLISH_SELECTED':
+            validate_datetime_string(data.get('starting_at'), SalingoDatetimeFormats.datetime)
+        elif data.get('mode') == 'PUBLISH_ALL':
+            if not data.get('filter'):
+                raise ValidationError("Filters not provided.")
+            validate_date_string(data.get('starting_at_date'), SalingoDatetimeFormats.date)
+            cls.parse_time_string(data.get('publish_hour'))
+
+    @classmethod
+    def parse_time_string(cls, time_string):
+        try:
+            hour, minute = time_string.split(':')
+            hour, minute = int(hour), int(minute)
+        except (AttributeError, ValueError):
+            raise ValidationError("Wrong time format.")
+        return hour, minute
+
+    @classmethod
     def bulk_action(cls, info, instances, product_ids, **data):
-        if data.get('is_published'):
-            cls.bulk_publish(instances, **data)
-        else:
+        cls.validate_input(data)
+        publish_mode = data['mode']
+
+        if publish_mode == 'PUBLISH_SELECTED':
+            product_ids = cls.filter_unpublished_products(product_ids)
+            if not product_ids: return
+            publish_date = datetime.strptime(data.get('starting_at'), SalingoDatetimeFormats.datetime)
+            cls.bulk_publish(product_ids, publish_date, **data)
+        elif publish_mode == 'PUBLISH_ALL':
+            data['filter']['channel'] = data['channel']
+            cls.publish_all(**data)
+        elif publish_mode == 'UNPUBLISH_SELECTED':
             cls.bulk_unpublish(product_ids)
 
     @classmethod
-    def bulk_unpublish(cls, product_ids):
-        from saleor.plugins.allegro.tasks import unpublish_from_multiple_channels
-        unpublish_from_multiple_channels.delay(product_ids=product_ids)
+    def get_filtered_product_ids(cls, filter):
+        all_products = models.Product.objects.all()
+        filtered_products = ProductFilter(
+            data=filter, queryset=all_products
+        ).qs
+
+        return list(filtered_products.values_list('id', flat=True))
 
     @classmethod
-    def bulk_publish(cls, instances, **data):
-        manager = get_plugins_manager()
-        # TODO: parametrize channel_slug, interval/chunks
-        plugin = manager.get_plugin(plugin_id='allegro')
-        #interval, chunks = plugin.get_intervals_and_chunks()
+    def filter_unpublished_products(cls, product_ids):
+        channel_listings = ProductChannelListing.objects.filter(
+            product_id__in=product_ids,
+            is_published=False
+        )
+
+        return list(channel_listings.values_list('product_id', flat=True))
+
+    @classmethod
+    def publish_all(cls, **data):
+        product_ids = cls.get_filtered_product_ids(data['filter'])
+        product_ids = cls.filter_unpublished_products(product_ids)
+        products_amount = len(product_ids)
+
+        if not product_ids: return
+
+        MAX_OFFERS_DAILY = 1000
+        publication_day = 0
+
+        hour, minute = cls.parse_time_string(data.get('publish_hour'))
+        starting_at = datetime.strptime(
+            data['starting_at_date'],
+            SalingoDatetimeFormats.date).replace(hour=hour, minute=minute)
+
+        if data.get('ending_at_date'):
+            ending_at = datetime.strptime(
+                data['ending_at_date'],
+                SalingoDatetimeFormats.date).replace(hour=hour, minute=minute)
+            day_diff = ending_at - starting_at
+            publication_days = day_diff.days + 1
+            amount_per_day = int(min(products_amount / publication_days, MAX_OFFERS_DAILY))
+        else:
+            amount_per_day = min(products_amount, MAX_OFFERS_DAILY)
+
+        for offset in range(0, products_amount, amount_per_day):
+            publish_date = starting_at + timedelta(days=publication_day)
+            selected_products = product_ids[offset:offset + amount_per_day]
+            cls.bulk_publish(product_ids=selected_products, publish_date=publish_date, **data)
+            publication_day += 1
+
+    @classmethod
+    def bulk_unpublish(cls, product_ids):
+        unpublish_from_multiple_channels(product_ids=product_ids)
+
+    @classmethod
+    def bulk_publish(cls, product_ids, publish_date, **data):
         interval = 5
         chunks = 13
-        step = math.ceil(len(instances) / (chunks))
+        step = math.ceil(len(product_ids) / chunks)
         start = 0
-        instances_ids = []
+        cls.bulk_set_is_publish_true(product_ids)
+        for i, product_id in enumerate(product_ids):
+            starting_at = (publish_date + timedelta(minutes=start)).strftime(SalingoDatetimeFormats.datetime)
+            products_bulk_ids = product_ids if i == len(product_ids) - 1 else None
+            publish_products.delay(
+                product_id=product_id,
+                offer_type=data['offer_type'],
+                starting_at=starting_at,
+                products_bulk_ids=products_bulk_ids,
+                channel=data['channel']
+            )
 
-        for i, instance in enumerate(instances):
-            instance.refresh_from_db()
-            instances_ids.append(instance.id)
+            if (i + 1) % step == 0:
+                start += interval
 
-            if can_publish(instance, data):
-                date_format = '%Y-%m-%d %H:%M'
-                starting_at = (datetime.strptime(data.get('starting_at'), date_format)
-                               + timedelta(minutes=start)).strftime(date_format)
-                products_bulk_ids = instances_ids if i == len(instances) - 1 else None
+    @classmethod
+    def bulk_set_is_publish_true(cls, product_ids):
+        products_amount = len(product_ids)
+        limit = 1000
 
-                plugin.product_published(
-                    {"product": instance,
-                     "offer_type": data.get('offer_type'),
-                     "starting_at": starting_at,
-                     "products_bulk_ids": products_bulk_ids
-                     })
-
-                if (i + 1) % step == 0:
-                    start += interval
+        for offset in range(0, products_amount, limit):
+            ProductChannelListing.objects.filter(
+                product_id__in=product_ids[offset:offset + limit]
+            ).update(is_published=True)

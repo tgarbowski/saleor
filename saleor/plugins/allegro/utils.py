@@ -8,7 +8,8 @@ from django.db.models import Q
 from saleor.plugins.allegro.enums import AllegroErrors
 from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import Product, ProductVariant, Category, ProductChannelListing
+from saleor.product.models import (Product, ProductVariant, Category, ProductChannelListing,
+                                   ProductVariantChannelListing)
 
 
 def email_errors(products_bulk_ids):
@@ -142,33 +143,6 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
             ProductChannelListing.objects.bulk_update(product_channel_listings, ['is_published'])
 
 
-def can_publish(instance, data):
-    can_be_published = False
-
-    is_bundled = False
-    bundle_id = instance.private_metadata.get("bundle.id")
-    is_bundled = bool(type(bundle_id) is str and len(bundle_id) > 0)
-
-    publish_status_verify = bool(
-        instance.private_metadata.get('publish.allegro.status') not in [
-            ProductPublishState.SOLD.value,
-            ProductPublishState.PUBLISHED.value
-        ]
-    )
-
-    if (    not product_is_published(instance.id)
-        and data.get('starting_at')
-        and data.get('offer_type')
-        and publish_status_verify
-        and not is_bundled
-    ):
-        can_be_published = True
-
-    return True
-
-    return can_be_published
-
-
 def update_allegro_purchased_error(skus, allegro_data):
     product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
     products_to_update = []
@@ -220,3 +194,102 @@ def get_products_by_channels(product_ids):
             filter=Q(product_id__in=product_ids)
         )
     ).order_by('channel__slug')
+
+
+class AllegroProductPublishValidator:
+    def __init__(self, product, channel):
+        self.product = product
+        self.product_channel_listing = ProductChannelListing.objects.get(product=product)
+        self.product_variant = product.variants.first()
+        self.product_variant_channel_listing = ProductVariantChannelListing.objects.get(
+            variant=self.product_variant)
+        self.channel = channel
+        self.errors = []
+
+    def validate(self):
+        self.is_reserved()
+        self.is_stock()
+        self.is_location()
+        self.is_price_amount()
+        self.is_cost_price_amount()
+        self.is_bundled()
+        self.is_allegro_publish_status()
+
+        AllegroErrorHandler.update_errors_in_private_metadata(self.product, self.errors, self.channel)
+
+        return self.errors
+
+    def is_reserved(self):
+        if self.product_variant.metadata.get('reserved') is True:
+            self.errors.append('003: produkt jest zarezerwowany')
+
+    def is_stock(self):
+        if self.product_variant.stocks.first().quantity < 1:
+            self.errors.append('002: stan magazynowy produktu wynosi 0')
+
+    def is_location(self):
+        if self.product_variant.private_metadata.get('location') is None:
+            self.errors.append('003: brak lokacji magazynowej dla produktu')
+
+    def is_price_amount(self):
+        if self.product_variant_channel_listing.price_amount == 0:
+            self.errors.append('003: cena produktu wynosi 0')
+
+    def is_cost_price_amount(self):
+        if self.product_variant_channel_listing.cost_price_amount == 0 \
+                or self.product_variant_channel_listing.cost_price_amount is None:
+            self.errors.append('003: cena zakupowa produktu wynosi 0')
+
+    def is_bundled(self):
+        bundle_id = self.product.private_metadata.get("bundle.id")
+        is_bundled = bool(type(bundle_id) is str and len(bundle_id) > 0)
+        if is_bundled:
+            self.errors.append('003: produkt zbundlowany')
+
+    def is_publish_status(self):
+        if self.product_channel_listing.is_published is True:
+            self.errors.append('003: produkt w statusie publish')
+
+    def is_allegro_publish_status(self):
+        publish_status_verify = bool(
+            self.product.private_metadata.get('publish.allegro.status') not in [
+                ProductPublishState.SOLD.value,
+                ProductPublishState.PUBLISHED.value
+            ]
+        )
+
+        if publish_status_verify is False:
+            self.errors.append('003: błędny status publikacji')
+
+
+class AllegroErrorHandler:
+
+    @staticmethod
+    def update_status_and_publish_data_in_private_metadata(product, allegro_offer_id, status,
+                                                           errors, channel):
+        product.store_value_in_private_metadata(
+            {'publish.allegro.status': status,
+             'publish.allegro.date': get_datetime_now(),
+             'publish.status.date': get_datetime_now(),
+             'publish.allegro.id': str(allegro_offer_id)})
+        AllegroErrorHandler.update_errors_in_private_metadata(product, errors, channel)
+        product.save()
+
+    @staticmethod
+    def update_errors_in_private_metadata(product, errors, channel):
+        product_channel_listing = ProductChannelListing.objects.get(
+            channel__slug=channel,
+            product=product)
+
+        if errors:
+            product_channel_listing.is_published = False
+            product.store_value_in_private_metadata({'publish.allegro.errors': errors})
+        else:
+            product_channel_listing.is_published = True
+            product.store_value_in_private_metadata({'publish.allegro.errors': []})
+        product_channel_listing.save(update_fields=["is_published"])
+        product.save(update_fields=["private_metadata"])
+
+    def update_product_errors_in_private_metadata(self, product, errors):
+        product.store_value_in_private_metadata({'publish.allegro.errors': errors})
+        product.save(update_fields=["private_metadata"])
