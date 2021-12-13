@@ -80,31 +80,31 @@ class Command(BaseCommand):
     def get_images(self):
         images = ProductMedia.objects.raw('''
                 select
-                ppi.id,
-                ppi.image,
-                ppi.ppoi
+                ppm.id,
+                ppm.image,
+                ppm.ppoi
                 from
                 product_product pp,
-                product_productimage ppi,
-                product_producttype pt,
-                product_productvariant pv,
-                product_assignedproductattribute paa,
-                product_assignedproductattribute_values paav,
-                product_attributevalue pav,
-                product_attribute pa
+                product_productmedia ppm,
+                product_producttype ppt,
+                product_productvariant ppv,
+                attribute_assignedproductattribute aapa,
+                attribute_assignedproductattributevalue aapav,
+                attribute_attributevalue aav,
+                attribute_attribute aa
                 where
-                pp.id = ppi.product_id
-                and pp.product_type_id = pt.id
-                and pp.id = pv.product_id
-                and pp.id = paa.product_id
-                and paa.id = paav.assignedproductattribute_id
-                and paav.attributevalue_id = pav.id
-                and pav.attribute_id = pa.id
+                pp.id = ppm.product_id
+                and pp.product_type_id = ppt.id
+                and pp.id = ppv.product_id
+                and pp.id = aapa.product_id
+                and aapa.id = aapav.assignment_id
+                and aapav.value_id = aav.id
+                and aav.attribute_id = aa.id
                 and cast(pp.created_at as date) between %s and %s
-                and pa."name" = 'Kolor'
-                and pav."name" != 'biały'
-                and pt."name" not like 'Biustonosz%%'
-                order by pv.sku
+                and aa."name" = 'Kolor'
+                and aav."name" != 'biały'
+                and ppt."name" not like 'Biustonosz%%'
+                order by ppv.sku
                 ''', [self.start_date, self.end_date])
 
         images_list = [image.image.name for image in images]
