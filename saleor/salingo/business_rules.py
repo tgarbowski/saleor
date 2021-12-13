@@ -153,22 +153,25 @@ class Resolvers:
 
     @classmethod
     def get_products_custom_dict(cls, channel):
-        LIMIT = 5000
+        LIMIT = 10000
         product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
             channel__slug=channel).select_related('variant', 'variant__product',
                                                   'variant__product__product_type',
-                                                  'variant__product__category').order_by('-variant_id')[:LIMIT]
+                                                  'variant__product__category').order_by('variant__product_id')[:LIMIT]
 
         product_ids = [pvcl.variant.product.id for pvcl in product_variant_channel_listing]
         product_channel_listings = ProductChannelListing.objects.filter(
-            product_id__in=product_ids).select_related('channel', 'product').order_by('-product_id')
+            product_id__in=product_ids, channel__slug=channel).select_related(
+                'channel', 'product').order_by('product_id')
 
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
 
         for pvcl, pcl in zip(product_variant_channel_listing, product_channel_listings):
-            if pvcl.variant_id != pcl.product.default_variant_id:
-                raise Exception('Wrong channel listings merge.')
+            if pvcl.variant.product_id != pcl.product_id:
+                raise Exception(f'Wrong channel listings merge for SKU = {pvcl.variant.sku}. '
+                                f'PVCL product_id = {pvcl.variant.product_id} != '
+                                f'PCL product_id = {pcl.product_id}')
 
             products.append(
                 {
