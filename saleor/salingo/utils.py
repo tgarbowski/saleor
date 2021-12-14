@@ -35,4 +35,5 @@ def validate_date_string(date_string, date_format):
 
 class SalingoDatetimeFormats:
     datetime = '%Y-%m-%d %H:%M'
+    datetime_with_seconds = '%Y-%m-%d %H:%M:%S'
     date = '%Y-%m-%d'
