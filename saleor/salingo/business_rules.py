@@ -7,6 +7,7 @@ import re
 from typing import List
 import yaml
 
+import pytz
 import rule_engine
 
 from django.core.exceptions import ValidationError
@@ -128,7 +129,11 @@ class Executors:
         variant_id = product['variant_id']
 
         with transaction.atomic():
-            ProductChannelListing.objects.filter(product_id=product_id).update(channel_id=channel_id)
+            ProductChannelListing.objects.filter(product_id=product_id).update(
+                channel_id=channel_id,
+                publication_date=None,
+                is_published=False
+            )
             ProductVariantChannelListing.objects.filter(variant_id=variant_id).update(channel_id=channel_id)
 
     @classmethod
@@ -179,7 +184,7 @@ class Resolvers:
                     'variant_id': pvcl.variant.id,
                     'bundle_id': pvcl.variant.product.metadata.get('bundle.id'),
                     'created_at': pvcl.variant.product.created_at,
-                    'type': pvcl.variant.product.product_type.name,
+                    'type': pvcl.variant.product.product_type.slug,
                     'name': pvcl.variant.product.name,
                     'slug': pvcl.variant.product.slug,
                     'category': pvcl.variant.product.category.slug,
@@ -231,7 +236,7 @@ class Resolvers:
 
     @staticmethod
     def parse_datetime(publication_date):
-        delta = datetime.now(timezone.utc) - publication_date
+        delta = datetime.now(pytz.timezone('Europe/Warsaw')) - publication_date
         return delta.days
 
     @staticmethod

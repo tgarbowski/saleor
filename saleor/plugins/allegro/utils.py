@@ -10,6 +10,7 @@ from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import (Product, ProductVariant, Category, ProductChannelListing,
                                    ProductVariantChannelListing)
+from saleor.salingo.utils import SalingoDatetimeFormats
 
 
 def email_errors(products_bulk_ids):
@@ -167,7 +168,13 @@ def product_is_published(product_id):
 
 
 def get_datetime_now():
-    return datetime.now(pytz.timezone('Europe/Warsaw')).strftime('%Y-%m-%d %H:%M:%S')
+    return datetime.now(pytz.timezone('Europe/Warsaw')).strftime(
+        SalingoDatetimeFormats.datetime_with_seconds)
+
+
+def get_date_now():
+    return datetime.now(pytz.timezone('Europe/Warsaw')).strftime(
+        SalingoDatetimeFormats.date)
 
 
 def product_ids_to_skus(product_ids):
@@ -283,11 +290,13 @@ class AllegroErrorHandler:
 
         if errors:
             product_channel_listing.is_published = False
+            product_channel_listing.publication_date = None
             product.store_value_in_private_metadata({'publish.allegro.errors': errors})
         else:
             product_channel_listing.is_published = True
+            product_channel_listing.publication_date = get_date_now()
             product.store_value_in_private_metadata({'publish.allegro.errors': []})
-        product_channel_listing.save(update_fields=["is_published"])
+        product_channel_listing.save(update_fields=["is_published", "publication_date"])
         product.save(update_fields=["private_metadata"])
 
     @staticmethod
