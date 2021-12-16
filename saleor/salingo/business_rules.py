@@ -1,6 +1,6 @@
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
-from decimal import Decimal
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 import logging
 import re
@@ -94,31 +94,66 @@ class Executors:
         cls.log_to_product_history(product=product, message=message)
 
     @classmethod
-    def calculate_price(cls, mode, product, result):
-        # eg. results: "k23.40", "i123.00"
-        current_price = product['channel']['price_amount']
-        result_price = Decimal(result[1:])
-        weight = Decimal(product['weight'])
+    def calculate_price(cls, payload: "PricingVariables"):
+        if payload.price_mode == PriceEnum.KILOGRAM.value:
+            price = payload.weight * payload.result_price
+        elif payload.price_mode == PriceEnum.ITEM.value:
+            price = payload.result_price
+        elif payload.price_mode == PriceEnum.DISCOUNT.value:
+            price = payload.current_price - (payload.current_price * payload.result_price / 100)
+        elif payload.price_mode == PriceEnum.MANUAL.value:
+            price = payload.current_price
+        else:
+            price = payload.current_price
+
+        return round(price, 2)
+
+    @classmethod
+    def get_validated_pricing_variables(cls, current_price, weight, result):
+        if not isinstance(result, str):
+            return None
+
         price_mode = result[:1]
 
-        if price_mode == PriceEnum.KILOGRAM.value:
-            price = weight * result_price
-        elif price_mode == PriceEnum.ITEM.value:
-            price = result_price
-        elif price_mode == PriceEnum.DISCOUNT.value:
-            price = current_price * result_price / 100
-        else:
-            return
+        if price_mode not in [e.value for e in PriceEnum]:
+            return None
+
+        try:
+            result_price = Decimal(result[1:])
+        except InvalidOperation:
+            return None
+
+        if weight is None:
+            return None
+
+        return PricingVariables(
+            price_mode=price_mode,
+            current_price=current_price,
+            result_price=result_price,
+            weight=Decimal(weight.kg)
+        )
+
+
+    @classmethod
+    def change_price(cls, mode, product, result):
+        validated_pricing_variables = cls.get_validated_pricing_variables(
+            current_price=product['channel']['price_amount'],
+            weight=product['weight'],
+            result=result
+        )
+
+        if validated_pricing_variables is None: return
+
+        price = cls.calculate_price(validated_pricing_variables)
 
         message = f'{datetime.now()} calculated price for channel ' \
-                  f'{product["channel"]["slug"]} {PriceEnum(price_mode).name} {price}'
+                  f'{product["channel"]["slug"]} {PriceEnum(validated_pricing_variables.price_mode).name} {price}'
 
         logger.info(f'{product["sku"]}: {message}')
 
         if mode == 'dry_run': return
 
-        variant_id = product['variant_id']
-        ProductVariantChannelListing.objects.get(variant_id=variant_id).update(price_amount=price)
+        ProductVariantChannelListing.objects.filter(variant_id=product['variant_id']).update(price_amount=price)
 
         cls.log_to_product_history(product=product, message=message)
 
@@ -157,22 +192,32 @@ class Resolvers:
         return cls.get_products_custom_dict(channel='unpublished')
 
     @classmethod
-    def get_products_custom_dict(cls, channel):
-        LIMIT = 10000
-        product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
-            channel__slug=channel).select_related('variant', 'variant__product',
-                                                  'variant__product__product_type',
-                                                  'variant__product__category').order_by('variant__product_id')[:LIMIT]
+    def resolve_allegro(cls):
+        filters = {"is_published": False}
+        return cls.get_products_custom_dict(channel='allegro', filters=filters)
 
-        product_ids = [pvcl.variant.product.id for pvcl in product_variant_channel_listing]
+    @classmethod
+    def get_products_custom_dict(cls, channel, filters={}):
+        LIMIT = 10000
+
         product_channel_listings = ProductChannelListing.objects.filter(
-            product_id__in=product_ids, channel__slug=channel).select_related(
-                'channel', 'product').order_by('product_id')
+            channel__slug=channel, **filters
+        ).select_related('channel', 'product').order_by('product_id')[:LIMIT]
+
+        product_ids = [pcl.product.id for pcl in product_channel_listings]
+
+        product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
+            channel__slug=channel, variant__product__id__in=product_ids
+        ).select_related(
+            'variant', 'variant__product', 'variant__product__product_type',
+            'variant__product__category'
+        ).order_by('variant__product_id')[:LIMIT]
+
 
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
 
-        for pvcl, pcl in zip(product_variant_channel_listing, product_channel_listings):
+        for pcl, pvcl in zip(product_channel_listings, product_variant_channel_listing):
             if pvcl.variant.product_id != pcl.product_id:
                 raise Exception(f'Wrong channel listings merge for SKU = {pvcl.variant.sku}. '
                                 f'PVCL product_id = {pvcl.variant.product_id} != '
@@ -260,6 +305,21 @@ class Resolvers:
 
 
 @dataclass
+class PricingVariables:
+    price_mode: str
+    current_price: Decimal
+    result_price: Decimal
+    weight: Decimal
+
+
+class PriceEnum(Enum):
+    DISCOUNT = 'd'
+    ITEM = 'i'
+    KILOGRAM = 'k'
+    MANUAL = 'm'
+
+
+@dataclass
 class BusinessRulesConfiguration:
     ruleset: str
     execute_order: int
@@ -336,10 +396,3 @@ class BusinessRulesBasePlugin(BasePlugin):
             structure_to_add = config_structure.get(configuration_field.get("name"))
             if structure_to_add:
                 configuration_field.update(structure_to_add)
-
-
-class PriceEnum(Enum):
-    DISCOUNT = 'd'
-    ITEM = 'i'
-    KILOGRAM = 'k'
-    MANUAL = 'm'
