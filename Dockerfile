@@ -10,7 +10,13 @@ RUN apt-get -y update \
 # Install Python dependencies
 COPY requirements_dev.txt /app/
 WORKDIR /app
-RUN pip install -r requirements_dev.txt
+# Only use the build arg for local development:
+ARG METADANE_DEPLOY_TOKEN
+COPY /scripts/install_metadane.sh .
+# Mount the secret to /run/secrets and install metadane private library + requirements:
+RUN --mount=type=secret,id=metadane_deploy_token ./install_metadane.sh \
+	&& pip install -r requirements_dev.txt
+
 
 ### Final image
 FROM python:3.8-slim
