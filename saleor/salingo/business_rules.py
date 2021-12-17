@@ -192,9 +192,13 @@ class Resolvers:
         return cls.get_products_custom_dict(channel='unpublished')
 
     @classmethod
-    def resolve_allegro(cls):
+    def resolve_allegro_unpublished(cls):
         filters = {"is_published": False}
         return cls.get_products_custom_dict(channel='allegro', filters=filters)
+
+    @classmethod
+    def resolve_allegro(cls):
+        return cls.get_products_custom_dict(channel='allegro')
 
     @classmethod
     def get_products_custom_dict(cls, channel, filters={}):
