@@ -9,6 +9,7 @@ from django.db.models import Exists, F, FloatField, OuterRef, Q, Subquery, Sum
 from django.db.models.fields import IntegerField
 from django.db.models.functions import Cast, Coalesce
 from graphene_django.filter import GlobalIDMultipleChoiceFilter
+from django.core.exceptions import ValidationError
 
 from ...attribute import AttributeInputType
 from ...attribute.models import (
@@ -323,16 +324,36 @@ def filter_products_by_stock_availability(qs, stock_availability, channel_slug):
 
 
 def filter_by_warehouse_locations(qs, warehouse_from=None, warehouse_to=None):
-    type_with_number = warehouse_from.split("K")[0]
-    box_from = warehouse_from.split("K")[1]
-    box_to = warehouse_to.split("K")[1]
+    # TODO: move validation somewhere else
+    try:
+        type_with_number_from = warehouse_from.split("K")[0]
+        type_with_number_to = warehouse_to.split("K")[0]
+        box_from = int(warehouse_from.split("K")[1])
+        box_to = int(warehouse_to.split("K")[1])
+    except (IndexError, ValueError):
+        raise ValidationError(
+            "Wrong warehouse location format in filter",
+            code="ValidationError",
+        )
+
+    if (    type_with_number_from != type_with_number_to
+        or 'K' not in warehouse_from
+        or 'K' not in warehouse_to
+        or '#' not in warehouse_from
+        or '#' not in warehouse_to
+        or box_from > box_to
+        ):
+        raise ValidationError(
+            "Wrong warehouse location format in filter",
+            code="ValidationError",
+        )
 
     variants = ProductVariant.objects.extra(
         where=[
             "private_metadata->>'location' like %s",
             "(split_part(private_metadata->>'location','K',2))::int between %s and %s"
         ],
-        params=[f'{type_with_number}%', box_from, box_to]
+        params=[f'{type_with_number_from}%', box_from, box_to]
     ).values("product_id")
 
     qs = qs.filter(Exists(variants.filter(product_id=OuterRef("pk"))))

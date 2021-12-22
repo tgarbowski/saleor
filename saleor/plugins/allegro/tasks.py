@@ -318,10 +318,11 @@ def unpublish_from_multiple_channels(product_ids):
     products_per_channels = get_products_by_channels(product_ids)
 
     for channel in products_per_channels:
-        bulk_allegro_unpublish(
-            channel=channel['channel__slug'],
-            product_ids=channel['product_ids']
-        )
+        if channel['channel__slug'] == 'allegro':
+            bulk_allegro_unpublish(
+                channel=channel['channel__slug'],
+                product_ids=channel['product_ids']
+            )
 
 
 def bulk_allegro_unpublish(channel, product_ids):
