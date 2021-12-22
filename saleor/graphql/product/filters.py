@@ -10,7 +10,6 @@ from django.db.models.fields import IntegerField
 from django.db.models.functions import Cast, Coalesce
 from graphene_django.filter import GlobalIDMultipleChoiceFilter
 
-from .utils import create_warehouse_locations_matrix
 from ...attribute import AttributeInputType
 from ...attribute.models import (
     AssignedProductAttribute,
@@ -324,9 +323,20 @@ def filter_products_by_stock_availability(qs, stock_availability, channel_slug):
 
 
 def filter_by_warehouse_locations(qs, warehouse_from=None, warehouse_to=None):
-    locations_matrix = create_warehouse_locations_matrix(warehouse_from, warehouse_to)
+    type_with_number = warehouse_from.split("K")[0]
+    box_from = warehouse_from.split("K")[1]
+    box_to = warehouse_to.split("K")[1]
 
-    qs = qs.filter(variants__private_metadata__location__in=locations_matrix)
+    variants = ProductVariant.objects.extra(
+        where=[
+            "private_metadata->>'location' like %s",
+            "(split_part(private_metadata->>'location','K',2))::int between %s and %s"
+        ],
+        params=[f'{type_with_number}%', box_from, box_to]
+    ).values("product_id")
+
+    qs = qs.filter(Exists(variants.filter(product_id=OuterRef("pk"))))
+
     return qs
 
 
