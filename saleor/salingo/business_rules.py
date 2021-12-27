@@ -242,6 +242,9 @@ class Resolvers:
                     'weight': pvcl.variant.product.weight,
                     'age': cls.parse_datetime(pvcl.variant.product.created_at),
                     'sku': pvcl.variant.sku,
+                    'brand': cls.get_attribute_from_description(pcl.product.description, 'Marka'),
+                    'material': cls.get_attribute_from_description(pcl.product.description, 'Materiał'),
+                    'condition': cls.get_attribute_from_description(pcl.product.description, 'Stan'),
                     'channel': {
                         'id': pcl.channel.id,
                         'publication_date': pcl.publication_date,
@@ -260,6 +263,16 @@ class Resolvers:
             )
 
         return products
+
+    @staticmethod
+    def get_attribute_from_description(description, attribute_name):
+        for block in description.get('blocks'):
+            text = block.get('data').get('text')
+
+            if text and attribute_name in text:
+                return text.partition(":")[2].lower()
+
+        return ''
 
     @staticmethod
     def get_main_category_tree_ids():
