@@ -3565,6 +3565,7 @@ type Mutation {
   productTranslate(id: ID!, input: TranslationInput!, languageCode: LanguageCodeEnum!): ProductTranslate
   productChannelListingUpdate(id: ID!, input: ProductChannelListingUpdateInput!): ProductChannelListingUpdate
   productMediaCreate(input: ProductMediaCreateInput!): ProductMediaCreate
+  productMediaRetrieveFromBackup(id: ID!): ProductMediaRetrieveFromBackup
   productVariantReorder(moves: [ReorderInput]!, productId: ID!): ProductVariantReorder
   productMediaDelete(id: ID!): ProductMediaDelete
   productMediaBulkDelete(ids: [ID]!): ProductMediaBulkDelete
@@ -5213,6 +5214,12 @@ type ProductMediaDelete {
 type ProductMediaReorder {
   product: Product
   media: [ProductMedia!]
+  productErrors: [ProductError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
+  errors: [ProductError!]!
+}
+
+type ProductMediaRetrieveFromBackup {
+  media: ProductMedia
   productErrors: [ProductError!]! @deprecated(reason: "Use errors field instead. This field will be removed in Saleor 4.0.")
   errors: [ProductError!]!
 }
