@@ -10,15 +10,13 @@ import yaml
 import pytz
 import rule_engine
 
-from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from saleor.channel.models import Channel
 from saleor.product.models import (Category, Product, ProductVariantChannelListing,
                                    ProductChannelListing)
 from saleor.plugins.models import PluginConfiguration
-from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
-from saleor.plugins.error_codes import PluginErrorCode
+from saleor.plugins.base_plugin import ConfigurationTypeField
 
 
 PluginConfigurationType = List[dict]
@@ -50,7 +48,8 @@ class BusinessRulesEvaluator:
                 for rule in engine_rules:
                     rule_object = rule_engine.Rule(rule['rule'])
                     if rule_object.matches(product):
-                        executor_function = getattr(Executors, executor)
+                        executor_instance = Executors(config=config)
+                        executor_function = getattr(executor_instance, executor)
                         executor_function(self.mode, product, rule['result'])
                         break
 
@@ -81,6 +80,8 @@ class BusinessRulesEvaluator:
 
 
 class Executors:
+    def __init__(self, config):
+        self.config = config
 
     @classmethod
     def move_from_unpublished(cls, mode, product, channel):
@@ -108,6 +109,12 @@ class Executors:
 
         return round(price, 2)
 
+    def calculate_cost_price_amount(self, payload: "PricingVariables"):
+        price_per_kg = BusinessRulesEvaluator.get_value_by_name(self.config, 'price_per_kg')
+        cost_price_amount = Decimal(price_per_kg) * payload.weight
+
+        return round(cost_price_amount, 2)
+
     @classmethod
     def get_validated_pricing_variables(cls, current_price, weight, result):
         if not isinstance(result, str):
@@ -133,10 +140,8 @@ class Executors:
             weight=Decimal(weight.kg)
         )
 
-
-    @classmethod
-    def change_price(cls, mode, product, result):
-        validated_pricing_variables = cls.get_validated_pricing_variables(
+    def change_price(self, mode, product, result):
+        validated_pricing_variables = self.get_validated_pricing_variables(
             current_price=product['channel']['price_amount'],
             weight=product['weight'],
             result=result
@@ -144,7 +149,8 @@ class Executors:
 
         if validated_pricing_variables is None: return
 
-        price = cls.calculate_price(validated_pricing_variables)
+        price = self.calculate_price(validated_pricing_variables)
+        cost_price_amount = self.calculate_cost_price_amount(payload=validated_pricing_variables)
 
         message = f'{datetime.now()} calculated price for channel ' \
                   f'{product["channel"]["slug"]} {PriceEnum(validated_pricing_variables.price_mode).name} {price}'
@@ -153,9 +159,10 @@ class Executors:
 
         if mode == 'dry_run': return
 
-        ProductVariantChannelListing.objects.filter(variant_id=product['variant_id']).update(price_amount=price)
+        ProductVariantChannelListing.objects.filter(variant_id=product['variant_id']).update(
+            price_amount=price, cost_price_amount=cost_price_amount)
 
-        cls.log_to_product_history(product=product, message=message)
+        self.log_to_product_history(product=product, message=message)
 
     @classmethod
     def change_product_channel(cls, product, channel):
@@ -233,7 +240,7 @@ class Resolvers:
                     'variant_id': pvcl.variant.id,
                     'bundle_id': pvcl.variant.product.metadata.get('bundle.id'),
                     'created_at': pvcl.variant.product.created_at,
-                    'type': pvcl.variant.product.product_type.slug,
+                    'type': pvcl.variant.product.product_type.name.lower(),
                     'name': pvcl.variant.product.name,
                     'slug': pvcl.variant.product.slug,
                     'category': pvcl.variant.product.category.slug,
@@ -344,15 +351,16 @@ class BusinessRulesConfiguration:
     executor: str
 
 
-class BusinessRulesBasePlugin(BasePlugin):
-    DEFAULT_CONFIGURATION = [
+DEFAULT_BUSINESS_RULES_CONFIGURATION = [
         {"name": "ruleset", "value": ""},
         {"name": "execute_order", "value": ""},
         {"name": "resolver", "value": ""},
         {"name": "executor", "value": ""},
         {"name": "rules", "value": ""}
     ]
-    CONFIG_STRUCTURE = {
+
+
+DEFAULT_BUSINESS_RULES_CONFIG_STRUCTURE = {
         "ruleset": {
             "type": ConfigurationTypeField.STRING,
             "label": "Ruleset"
@@ -374,42 +382,3 @@ class BusinessRulesBasePlugin(BasePlugin):
             "label": "Rules"
         }
     }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        configuration = {item["name"]: item["value"] for item in self.configuration}
-
-        self.config = BusinessRulesConfiguration(
-            ruleset=configuration["ruleset"],
-            execute_order=configuration["execute_order"],
-            resolver=configuration["resolver"],
-            executor=configuration["executor"]
-        )
-
-    @classmethod
-    def validate_plugin_configuration(self, plugin_configuration: "PluginConfiguration"):
-        config = plugin_configuration.configuration
-        yaml_rules = BusinessRulesEvaluator.get_value_by_name(config=config, name='rules')
-        engine_rules = BusinessRulesEvaluator.get_rules(yaml_rules)
-
-        try:
-            BusinessRulesEvaluator.validate_rules(engine_rules)
-        except Exception as e:
-            raise ValidationError(
-                {
-                    "rules": ValidationError(
-                        "Invalid engine rule.",
-                        code=PluginErrorCode.INVALID.value,
-                    )
-                }
-            )
-
-    @classmethod
-    def _append_config_structure(cls, configuration: PluginConfigurationType):
-        config_structure = getattr(cls, "CONFIG_STRUCTURE") or {}
-
-        for configuration_field in configuration:
-
-            structure_to_add = config_structure.get(configuration_field.get("name"))
-            if structure_to_add:
-                configuration_field.update(structure_to_add)
