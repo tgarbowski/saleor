@@ -27,6 +27,7 @@ class SalingoRoutingPlugin(BasePlugin):
             executor=configuration["executor"]
         )
 
+    @classmethod
     def validate_plugin_configuration(self, plugin_configuration: "PluginConfiguration"):
         config = plugin_configuration.configuration
         yaml_rules = BusinessRulesEvaluator.get_value_by_name(config=config, name='rules')
