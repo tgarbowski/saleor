@@ -9,7 +9,12 @@ begin
     for r in
         select * from product_product
         where Cast(private_metadata->>'publish.status.date' as DATE)::timestamp between dt_from and dt_to
-        and private_metadata->>'publish.allegro.status' = 'sold'
+        and (
+            private_metadata->>'publish.allegro.status' = 'sold'
+            or (private_metadata->>'publish.allegro.status' = 'moderated'
+                and private_metadata->>'publish.allegro.price' is not null
+                )
+            )
         and length(coalesce(metadata->>'bundle.id','')) = 0
     loop
         cnt := cnt + 1;

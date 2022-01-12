@@ -4,8 +4,9 @@ import logging
 from django.db import connection
 from django.core.management.base import BaseCommand, CommandError
 
-#from saleor.plugins.allegro.tasks import send_archive_email
 from saleor.product.models import Category, Product
+from saleor.plugins.allegro.api import AllegroAPI
+from saleor.plugins.allegro.utils import product_ids_to_skus
 
 
 logger = logging.getLogger(__name__)
@@ -25,13 +26,14 @@ class Command(BaseCommand):
         initial_amount = self.get_products_count()
         logger.info(f'Initial amount: {initial_amount}')
 
+        product_ids = self.get_products_ids()
+        self.check_active_allegro_offers(product_ids)
         archived_amount = self.archive_products()
         logger.info(f'Archived amount: {archived_amount}')
 
         if self.verify_archivisation(initial_amount, archived_amount):
             if archived_amount:
-                ids_to_delete = self.get_products_ids()
-                #self.delete_products(ids_to_delete)
+                self.delete_products(product_ids)
                 message = f'Pomyślnie zarchiwizowano {archived_amount} produktów.'
             else:
                 message = f'Brak produktów do archiwizacji za podany okres.'
@@ -39,19 +41,35 @@ class Command(BaseCommand):
             message = f'Początkowa ilość produktów {initial_amount} różna od' \
                       f'zarchwizowanej ilości produktow: {archived_amount}'
 
-        #send_archive_email.delay(message)
+        logger.info(f'Archived amount: {message}')
 
     def set_dates(self, **kwargs):
         self.start_date = kwargs.get('start_date')
         self.end_date = kwargs.get('end_date')
 
     @staticmethod
+    def check_active_allegro_offers(product_ids):
+        allegro_api = AllegroAPI(channel='allegro')
+        skus = product_ids_to_skus(product_ids)
+        offers = allegro_api.get_offers_by_skus(skus, publication_statuses=['ACTIVE', 'ACTIVATING'])
+
+        if isinstance(offers, list) and offers:
+            offers_active = [offer['external']['id'] for offer in offers]
+            raise Exception(f'Active offers: {offers_active}')
+        elif offers is False:
+            raise Exception(f'Errors with fetching offers')
+
+    @staticmethod
     def delete_products(ids):
-        Product.objects.filter(id__in=ids).delete()
+        total_count = len(ids)
+        limit = 100
+
+        for offset in range(0, total_count, limit):
+            Product.objects.filter(id__in=ids[offset:offset + limit]).delete()
 
     @staticmethod
     def verify_archivisation(initial_amount, archived_amount):
-        return True if initial_amount == archived_amount else False
+        return initial_amount == archived_amount
 
     def archive_products(self):
         with connection.cursor() as cursor:
@@ -66,8 +84,13 @@ class Command(BaseCommand):
             cursor.execute('''
                 select COUNT(id)
                 from product_product
-                where (private_metadata->>'publish.status.date')::timestamp between %s and %s
-                and private_metadata->>'publish.allegro.status' = 'sold'
+                where Cast(private_metadata->>'publish.status.date' as DATE)::timestamp between %s and %s
+                and (
+                    private_metadata->>'publish.allegro.status' = 'sold'
+                    or (private_metadata->>'publish.allegro.status' = 'moderated'
+                        and private_metadata->>'publish.allegro.price' is not null
+                        )
+                    )
                 and length(coalesce(metadata->>'bundle.id','')) = 0
             ''', [self.start_date, self.end_date])
             row = cursor.fetchone()
@@ -77,8 +100,13 @@ class Command(BaseCommand):
     def get_products_ids(self):
         products = Category.objects.raw('''
             select id from product_product
-            where (private_metadata->>'publish.status.date')::timestamp between %s and %s
-            and private_metadata->>'publish.allegro.status' = 'sold'
+            where Cast(private_metadata->>'publish.status.date' as DATE)::timestamp between %s and %s
+            and (
+                private_metadata->>'publish.allegro.status' = 'sold'
+                or (private_metadata->>'publish.allegro.status' = 'moderated'
+                    and private_metadata->>'publish.allegro.price' is not null
+                    )
+                )
             and length(coalesce(metadata->>'bundle.id','')) = 0
         ''', [self.start_date, self.end_date])
 
