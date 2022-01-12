@@ -41,17 +41,23 @@ class BusinessRulesEvaluator:
             engine_rules = self.get_rules(yaml_rules)
             self.validate_rules(engine_rules)
             # Resolve products for given config
+            offset = 0
             resolver_function = getattr(Resolvers, resolver)
-            products = resolver_function()
-            # Check rules
-            for product in products:
+            products = resolver_function(offset=offset)
+            executor_instance = Executors(config=config)
+            executor_function = getattr(executor_instance, executor)
+
+            while products:
+                already_processed = []
                 for rule in engine_rules:
                     rule_object = rule_engine.Rule(rule['rule'])
-                    if rule_object.matches(product):
-                        executor_instance = Executors(config=config)
-                        executor_function = getattr(executor_instance, executor)
-                        executor_function(self.mode, product, rule['result'])
-                        break
+                    matching_products = rule_object.filter(products)
+                    for product in matching_products:
+                        if product['id'] not in already_processed:
+                            executor_function(self.mode, product, rule['result'])
+                            already_processed.append(product['id'])
+                offset += 10000
+                products = resolver_function(offset=offset)
 
     def get_sorted_configs(self):
         configs = PluginConfiguration.objects.filter(identifier=self.plugin_slug, active=True)
@@ -195,27 +201,28 @@ class Executors:
 class Resolvers:
 
     @classmethod
-    def resolve_unpublished(cls):
-        return cls.get_products_custom_dict(channel='unpublished')
+    def resolve_unpublished(cls, offset):
+        return cls.get_products_custom_dict(channel='unpublished', offset=offset)
 
     @classmethod
-    def resolve_allegro_unpublished(cls):
+    def resolve_allegro_unpublished(cls, offset):
         filters = {"is_published": False}
-        return cls.get_products_custom_dict(channel='allegro', filters=filters)
+        return cls.get_products_custom_dict(channel='allegro', filters=filters, offset=offset)
 
     @classmethod
-    def resolve_allegro(cls):
-        return cls.get_products_custom_dict(channel='allegro')
+    def resolve_allegro(cls, offset):
+        return cls.get_products_custom_dict(channel='allegro', offset=offset)
 
     @classmethod
-    def get_products_custom_dict(cls, channel, filters={}):
+    def get_products_custom_dict(cls, channel, offset, filters={}):
         LIMIT = 10000
 
         product_channel_listings = ProductChannelListing.objects.filter(
             channel__slug=channel, **filters
-        ).select_related('channel', 'product').order_by('product_id')[:LIMIT]
+        ).select_related('channel', 'product').order_by('product_id')[offset:offset + LIMIT]
 
         product_ids = [pcl.product.id for pcl in product_channel_listings]
+        if not product_ids: return
 
         product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
             channel__slug=channel, variant__product__id__in=product_ids
@@ -223,7 +230,6 @@ class Resolvers:
             'variant', 'variant__product', 'variant__product__product_type',
             'variant__product__category'
         ).order_by('variant__product_id')[:LIMIT]
-
 
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
