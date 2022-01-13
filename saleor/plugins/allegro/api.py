@@ -354,7 +354,7 @@ class AllegroAPI:
         return json.loads(response.text)
 
     def bulk_offer_unpublish(self, skus):
-        offers = self.get_offers_by_skus(skus)
+        offers = self.get_offers_by_skus(skus, publication_statuses=['ACTIVE', 'ACTIVATING', 'ENDED'])
         if not isinstance(offers, list):
             logger.error('Error with fetching offers')
             return {'status': 'ERROR', 'message': AllegroErrors.ALLEGRO_ERROR, 'errors': 'Error with fetching allegro offers'}
@@ -439,10 +439,9 @@ class AllegroAPI:
 
         return offers_bid_or_purchased
 
-    def get_offers_by_skus(self, skus):
-        def get_offers_by_max_100_skus(sku_params):
-            endpoint = (f'sale/offers?publication.status=ACTIVE&publication.status=ACTIVATING'
-                        f'&publication.status=ENDED&limit=1000&{sku_params}')
+    def get_offers_by_skus(self, skus, publication_statuses):
+        def get_offers_by_max_100_skus(sku_params, publication_statuses_params):
+            endpoint = f'sale/offers?{publication_statuses_params}&limit=1000&{sku_params}'
             response = self.get_request(endpoint=endpoint)
             if response.status_code != 200:
                 logger.error('Error with fetching offers: ' + str(response.json()))
@@ -457,8 +456,7 @@ class AllegroAPI:
             while count < response['totalCount']:
                 counter += 1
                 offset += response['count']
-                endpoint = (f'sale/offers?publication.status=ACTIVE&publication.status=ACTIVATING'
-                            f'&publication.status=ENDED&limit=1000&offset={offset}&{sku_params}')
+                endpoint = f'sale/offers?{publication_statuses_params}&limit=1000&offset={offset}&{sku_params}'
                 response = self.get_request(endpoint=endpoint)
                 if response.status_code != 200:
                     logger.error('Error with fetching offers: ' + str(response.json()))
@@ -478,7 +476,9 @@ class AllegroAPI:
         for chunk in range(request_count):
             offers_list_of_tuples = [('external.id', sku) for sku in skus[start:end]]
             sku_params = urllib.parse.urlencode(offers_list_of_tuples)
-            fetched_offers = get_offers_by_max_100_skus(sku_params)
+            publication_statuses_dict = {"publication.status": publication_statuses}
+            publication_statuses_params = urllib.parse.urlencode(publication_statuses_dict, True)
+            fetched_offers = get_offers_by_max_100_skus(sku_params, publication_statuses_params)
             if not isinstance(fetched_offers, list):
                 return False
             offers += fetched_offers
