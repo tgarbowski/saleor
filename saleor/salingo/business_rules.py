@@ -54,8 +54,7 @@ class BusinessRulesEvaluator:
                             executor_function(product, rule['result'])
                             already_processed.append(product['id'])
                 offset += 10000
-                #products = resolver_function(offset=offset)
-                products = []
+                products = resolver_function(offset=offset)
 
     def get_sorted_configs(self):
         configs = PluginConfiguration.objects.filter(identifier=self.plugin_slug, active=True)
