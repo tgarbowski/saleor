@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 import logging
 import re
-from typing import List
+from typing import List, Dict
 import yaml
 
 import pytz
@@ -31,21 +31,18 @@ class BusinessRulesEvaluator:
 
     def evaluate_rules(self):
         sorted_configs = self.get_sorted_configs()
+        additional_config = self.get_additional_config()
 
         for config in sorted_configs:
-            ruleset = self.get_value_by_name(config=config, name='ruleset')
-            yaml_rules = self.get_value_by_name(config=config, name='rules')
-            resolver = self.get_value_by_name(config=config, name='resolver')
-            executor = self.get_value_by_name(config=config, name='executor')
-            logger.info(f'Przetwarzam ruleset: {ruleset} w trybie {self.mode}')
-            engine_rules = self.get_rules(yaml_rules)
+            logger.info(f'Przetwarzam ruleset: {config["ruleset"]} w trybie {self.mode}')
+            engine_rules = self.get_rules(config['rules'])
             self.validate_rules(engine_rules)
             # Resolve products for given config
             offset = 0
-            resolver_function = getattr(Resolvers, resolver)
+            resolver_function = getattr(Resolvers, config['resolver'])
             products = resolver_function(offset=offset)
-            executor_instance = Executors(config=config)
-            executor_function = getattr(executor_instance, executor)
+            executor = Executors(mode=self.mode, config=config, additional_config=additional_config)
+            executor_function = getattr(executor, config['executor'])
 
             while products:
                 already_processed = []
@@ -54,21 +51,26 @@ class BusinessRulesEvaluator:
                     matching_products = rule_object.filter(products)
                     for product in matching_products:
                         if product['id'] not in already_processed:
-                            executor_function(self.mode, product, rule['result'])
+                            executor_function(product, rule['result'])
                             already_processed.append(product['id'])
                 offset += 10000
-                products = resolver_function(offset=offset)
+                #products = resolver_function(offset=offset)
+                products = []
 
     def get_sorted_configs(self):
         configs = PluginConfiguration.objects.filter(identifier=self.plugin_slug, active=True)
-        configs_dict = [config.configuration for config in configs]
-        return sorted(configs_dict, key=lambda single_config: self.get_value_by_name(single_config, 'execute_order'))
+        configs_dict = []
+        for config in configs:
+            config = {item["name"]: item["value"] for item in config.configuration}
+            configs_dict.append(config)
 
-    @staticmethod
-    def get_value_by_name(config, name):
-        for item in config:
-            if item['name'] == name:
-                return item['value']
+        return sorted(configs_dict, key=lambda single_config: single_config['execute_order'])
+
+    def get_additional_config(self):
+        if self.plugin_slug == 'salingo_pricing':
+            config = PluginConfiguration.objects.get(identifier='salingo_pricing_global')
+            configuration = {item["name"]: item["value"] for item in config.configuration}
+            return configuration
 
     @staticmethod
     def get_rules(yaml_rules):
@@ -86,22 +88,22 @@ class BusinessRulesEvaluator:
 
 
 class Executors:
-    def __init__(self, config):
+    def __init__(self, mode, config, additional_config):
+        self.mode = mode
         self.config = config
+        self.additional_config = additional_config
 
-    @classmethod
-    def move_from_unpublished(cls, mode, product, channel):
+    def move_from_unpublished(self, product, channel):
         message = f'{datetime.now()} moved from channel ' \
                   f'{product["channel"]["slug"]} to channel {channel}'
         logger.info(f'{product["sku"]} {message}')
 
-        if mode == 'dry_run': return
+        if self.mode == 'dry_run': return
 
-        cls.change_product_channel(product=product, channel=channel)
-        cls.log_to_product_history(product=product, message=message)
+        self.change_product_channel(product=product, channel=channel)
+        self.log_to_product_history(product=product, message=message)
 
-    @classmethod
-    def calculate_price(cls, payload: "PricingVariables"):
+    def calculate_price(self, payload: "PricingVariables"):
         if payload.price_mode == PriceEnum.KILOGRAM.value:
             price = payload.weight * payload.result_price
         elif payload.price_mode == PriceEnum.ITEM.value:
@@ -110,19 +112,68 @@ class Executors:
             price = payload.current_price - (payload.current_price * payload.result_price / 100)
         elif payload.price_mode == PriceEnum.MANUAL.value:
             price = payload.current_price
+        elif payload.price_mode == PriceEnum.ALGORITHM.value:
+            price = self.calculate_price_by_algorithm(payload=payload)
         else:
             price = payload.current_price
 
         return round(price, 2)
 
-    def calculate_cost_price_amount(self, payload: "PricingVariables"):
-        price_per_kg = BusinessRulesEvaluator.get_value_by_name(self.config, 'price_per_kg')
-        cost_price_amount = Decimal(price_per_kg) * payload.weight
+    def calculate_price_by_algorithm(self, payload: "PricingVariables"):
+        pricing_config = self.get_pricing_config()
+        percentages = 0
+
+        if payload.product_type in pricing_config.product_type:
+            base_price = pricing_config.product_type[payload.product_type]
+        else:
+            return self.calculate_price_by_cost_price(
+                min_price=pricing_config.minimum_price,
+                price_per_kg=pricing_config.price_per_kg,
+                weight=payload.weight
+            )
+
+        if payload.condition in pricing_config.condition:
+            condition_percentage = pricing_config.condition[payload.condition]
+            percentages += self.percentage_string_to_int(percentage_string=condition_percentage)
+
+        if payload.material in pricing_config.material:
+            material_percentage = pricing_config.material[payload.material]
+            percentages += self.percentage_string_to_int(percentage_string=material_percentage)
+
+        if payload.brand in pricing_config.brand:
+            brand_percentage = pricing_config.brand[payload.brand]
+            percentages += self.percentage_string_to_int(percentage_string=brand_percentage)
+
+        price = Decimal(base_price) + Decimal(base_price) * Decimal(percentages) / 100
+        return price
+
+    def calculate_price_by_cost_price(self, min_price, price_per_kg, weight):
+        cost_price = self.calculate_cost_price_amount(
+            price_per_kg=price_per_kg,
+            weight=weight
+        )
+        price = cost_price * 2
+        if price < min_price:
+            price = min_price
+        return round(price, 2)
+
+    @staticmethod
+    def percentage_string_to_int(percentage_string):
+        percentage = int(percentage_string.split('%')[0])
+        return percentage
+
+    @staticmethod
+    def calculate_cost_price_amount(price_per_kg: Decimal, weight: Decimal):
+        cost_price_amount = price_per_kg * weight
 
         return round(cost_price_amount, 2)
 
+    @staticmethod
+    def load_yaml(rule):
+        return yaml.safe_load(rule)
+
     @classmethod
-    def get_validated_pricing_variables(cls, current_price, weight, result):
+    def get_validated_pricing_variables(cls, product, result):
         if not isinstance(result, str):
             return None
 
@@ -136,34 +187,51 @@ class Executors:
         except InvalidOperation:
             return None
 
-        if weight is None:
+        if product['weight'] is None:
             return None
 
         return PricingVariables(
             price_mode=price_mode,
-            current_price=current_price,
+            current_price=Decimal(product['channel']['price_amount']),
             result_price=result_price,
-            weight=Decimal(weight.kg)
+            weight=Decimal(product['weight'].kg),
+            brand=product['brand'],
+            product_type=product['type'],
+            material=product['material'],
+            condition=product['condition']
         )
 
-    def change_price(self, mode, product, result):
+    def get_pricing_config(self):
+        return PricingConfig(
+            condition=self.load_yaml(self.additional_config['condition_pricing']),
+            material=self.load_yaml(self.additional_config['material_pricing']),
+            product_type=self.load_yaml(self.additional_config['type_pricing']),
+            brand=self.load_yaml(self.additional_config['brand_pricing']),
+            minimum_price=Decimal(self.load_yaml(self.additional_config['minimum_price'])),
+            price_per_kg=Decimal(self.load_yaml(self.additional_config['price_per_kg']))
+        )
+
+    def change_price(self, product, result):
         validated_pricing_variables = self.get_validated_pricing_variables(
-            current_price=product['channel']['price_amount'],
-            weight=product['weight'],
+            product=product,
             result=result
         )
 
         if validated_pricing_variables is None: return
 
         price = self.calculate_price(validated_pricing_variables)
-        cost_price_amount = self.calculate_cost_price_amount(payload=validated_pricing_variables)
+        price_per_kg = Decimal(self.load_yaml(self.additional_config['price_per_kg']))
+        cost_price_amount = self.calculate_cost_price_amount(
+            price_per_kg=price_per_kg,
+            weight=validated_pricing_variables.weight
+        )
 
         message = f'{datetime.now()} calculated price for channel ' \
                   f'{product["channel"]["slug"]} {PriceEnum(validated_pricing_variables.price_mode).name} {price}'
 
         logger.info(f'{product["sku"]}: {message}')
 
-        if mode == 'dry_run': return
+        if self.mode == 'dry_run': return
 
         ProductVariantChannelListing.objects.filter(variant_id=product['variant_id']).update(
             price_amount=price, cost_price_amount=cost_price_amount)
@@ -283,7 +351,7 @@ class Resolvers:
             text = block.get('data').get('text')
 
             if text and attribute_name in text:
-                return text.partition(":")[2].lower()
+                return text.partition(":")[2].lower().strip()
 
         return ''
 
@@ -340,6 +408,20 @@ class PricingVariables:
     current_price: Decimal
     result_price: Decimal
     weight: Decimal
+    brand: str
+    product_type: str
+    material: str
+    condition: str
+
+
+@dataclass
+class PricingConfig:
+    condition: dict
+    product_type: dict
+    brand: dict
+    material: dict
+    minimum_price: Decimal
+    price_per_kg: Decimal
 
 
 class PriceEnum(Enum):
@@ -347,6 +429,7 @@ class PriceEnum(Enum):
     ITEM = 'i'
     KILOGRAM = 'k'
     MANUAL = 'm'
+    ALGORITHM = 'a'
 
 
 @dataclass
