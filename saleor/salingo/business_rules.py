@@ -69,7 +69,17 @@ class BusinessRulesEvaluator:
         if self.plugin_slug == 'salingo_pricing':
             config = PluginConfiguration.objects.get(identifier='salingo_pricing_global')
             configuration = {item["name"]: item["value"] for item in config.configuration}
-            return configuration
+            return self.get_pricing_config(configuration)
+
+    def get_pricing_config(self, config):
+        return PricingConfig(
+            condition=lowercase(Executors.load_yaml(config['condition_pricing'])),
+            material=lowercase(Executors.load_yaml(config['material_pricing'])),
+            product_type=lowercase(Executors.load_yaml(config['type_pricing'])),
+            brand=lowercase(Executors.load_yaml(config['brand_pricing'])),
+            minimum_price=Decimal(config['minimum_price']),
+            price_per_kg=Decimal(config['price_per_kg'])
+        )
 
     @staticmethod
     def get_rules(yaml_rules):
@@ -100,7 +110,7 @@ class Executors:
         if self.mode == 'dry_run': return
 
         self.change_product_channel(product=product, channel=channel)
-        self.log_to_product_history(product=product, message=message)
+        self.log_to_product_private_metadata(product_id=product['id'], key='history', value=message)
 
     def calculate_price(self, payload: "PricingVariables"):
         if payload.price_mode == PriceEnum.KILOGRAM.value:
@@ -119,7 +129,7 @@ class Executors:
         return round(price, 2)
 
     def calculate_price_by_algorithm(self, payload: "PricingVariables"):
-        pricing_config = self.get_pricing_config()
+        pricing_config = self.additional_config
         percentages = 0
 
         if payload.product_type in pricing_config.product_type:
@@ -128,7 +138,8 @@ class Executors:
             return self.calculate_price_by_cost_price(
                 min_price=pricing_config.minimum_price,
                 price_per_kg=pricing_config.price_per_kg,
-                weight=payload.weight
+                weight=payload.weight,
+                current_cost_price_amount=payload.current_cost_price_amount
             )
 
         if payload.condition in pricing_config.condition:
@@ -146,11 +157,14 @@ class Executors:
         price = Decimal(base_price) + Decimal(base_price) * Decimal(percentages) / 100
         return price
 
-    def calculate_price_by_cost_price(self, min_price, price_per_kg, weight):
-        cost_price = self.calculate_cost_price_amount(
-            price_per_kg=price_per_kg,
-            weight=weight
-        )
+    def calculate_price_by_cost_price(self, min_price, price_per_kg, weight, current_cost_price_amount):
+        if current_cost_price_amount:
+            cost_price = current_cost_price_amount
+        else:
+            cost_price = self.calculate_cost_price_amount(
+                price_per_kg=price_per_kg,
+                weight=weight
+            )
         price = cost_price * 2
         if price < min_price:
             price = min_price
@@ -187,6 +201,8 @@ class Executors:
             return None
 
         if product['weight'] is None:
+            message = 'Weight not provided, can not calculate price.'
+            cls.log_to_product_private_metadata(product_id=product['id'], key='publish.allegro.errors', value=message)
             return None
 
         return PricingVariables(
@@ -197,17 +213,8 @@ class Executors:
             brand=product['brand'],
             product_type=product['type'],
             material=product['material'],
-            condition=product['condition']
-        )
-
-    def get_pricing_config(self):
-        return PricingConfig(
-            condition=self.load_yaml(self.additional_config['condition_pricing']),
-            material=self.load_yaml(self.additional_config['material_pricing']),
-            product_type=self.load_yaml(self.additional_config['type_pricing']),
-            brand=self.load_yaml(self.additional_config['brand_pricing']),
-            minimum_price=Decimal(self.load_yaml(self.additional_config['minimum_price'])),
-            price_per_kg=Decimal(self.load_yaml(self.additional_config['price_per_kg']))
+            condition=product['condition'],
+            current_cost_price_amount=Decimal(product['channel']['cost_price_amount'])
         )
 
     def change_price(self, product, result):
@@ -219,11 +226,17 @@ class Executors:
         if validated_pricing_variables is None: return
 
         price = self.calculate_price(validated_pricing_variables)
-        price_per_kg = Decimal(self.load_yaml(self.additional_config['price_per_kg']))
-        cost_price_amount = self.calculate_cost_price_amount(
-            price_per_kg=price_per_kg,
-            weight=validated_pricing_variables.weight
-        )
+
+        if price < self.additional_config.minimum_price:
+            price = self.additional_config.minimum_price
+
+        if validated_pricing_variables.current_cost_price_amount:
+            cost_price_amount = validated_pricing_variables.current_cost_price_amount
+        else:
+            cost_price_amount = self.calculate_cost_price_amount(
+                price_per_kg=self.additional_config.price_per_kg,
+                weight=validated_pricing_variables.weight
+            )
 
         message = f'{datetime.now()} calculated price for channel ' \
                   f'{product["channel"]["slug"]} {PriceEnum(validated_pricing_variables.price_mode).name} {price}'
@@ -235,7 +248,7 @@ class Executors:
         ProductVariantChannelListing.objects.filter(variant_id=product['variant_id']).update(
             price_amount=price, cost_price_amount=cost_price_amount)
 
-        self.log_to_product_history(product=product, message=message)
+        self.log_to_product_private_metadata(product_id=product['id'], key='history', value=message)
 
     @classmethod
     def change_product_channel(cls, product, channel):
@@ -252,17 +265,16 @@ class Executors:
             ProductVariantChannelListing.objects.filter(variant_id=variant_id).update(channel_id=channel_id)
 
     @classmethod
-    def log_to_product_history(cls, product, message):
-        product_id = product['id']
-        product_instance = Product.objects.get(pk=product_id)
-        history = product_instance.private_metadata.get('history')
+    def log_to_product_private_metadata(cls, product_id, key, value):
+        product = Product.objects.get(pk=product_id)
+        field = product.private_metadata.get(key)
 
-        if history:
-            product_instance.private_metadata['history'].append('message')
+        if field:
+            field.append(value)
         else:
-            product_instance.private_metadata['history'] = [message]
+            product.private_metadata[key] = [value]
 
-        product_instance.save(update_fields=['private_metadata'])
+        product.save(update_fields=['private_metadata'])
 
 
 class Resolvers:
@@ -322,9 +334,9 @@ class Resolvers:
                     'weight': pvcl.variant.product.weight,
                     'age': cls.parse_datetime(pvcl.variant.product.created_at),
                     'sku': pvcl.variant.sku,
-                    'brand': cls.get_attribute_from_description(pcl.product.description, 'Marka'),
-                    'material': cls.get_attribute_from_description(pcl.product.description, 'Materiał'),
-                    'condition': cls.get_attribute_from_description(pcl.product.description, 'Stan'),
+                    'brand': cls.get_attribute_from_description(pcl.product.description, 'Marka').lower(),
+                    'material': cls.get_attribute_from_description(pcl.product.description, 'Materiał').lower(),
+                    'condition': cls.get_attribute_from_description(pcl.product.description, 'Stan').lower(),
                     'channel': {
                         'id': pcl.channel.id,
                         'publication_date': pcl.publication_date,
@@ -405,6 +417,7 @@ class Resolvers:
 class PricingVariables:
     price_mode: str
     current_price: Decimal
+    current_cost_price_amount: Decimal
     result_price: Decimal
     weight: Decimal
     brand: str
@@ -470,3 +483,7 @@ DEFAULT_BUSINESS_RULES_CONFIG_STRUCTURE = {
             "label": "Rules"
         }
     }
+
+
+def lowercase(obj: Dict):
+    return dict((k.lower(), v) for k, v in obj.items())

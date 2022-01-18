@@ -11,6 +11,7 @@ class SalingoPricingGlobalConfig:
     brand_pricing: str = None
     material_pricing: str = None
     condition_pricing: str = None
+    minimum_price: str = None
 
 
 class SalingoPricingGlobalPlugin(BasePlugin):
