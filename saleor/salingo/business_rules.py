@@ -4,10 +4,9 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 import logging
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
 import yaml
 
-import pytz
 import rule_engine
 
 from django.db import transaction
@@ -45,14 +44,14 @@ class BusinessRulesEvaluator:
             executor_function = getattr(executor, config['executor'])
 
             while products:
-                already_processed = []
+                already_processed = set()
                 for rule in engine_rules:
                     rule_object = rule_engine.Rule(rule['rule'])
                     matching_products = rule_object.filter(products)
                     for product in matching_products:
                         if product['id'] not in already_processed:
                             executor_function(product, rule['result'])
-                            already_processed.append(product['id'])
+                            already_processed.add(product['id'])
                 offset += 10000
                 products = resolver_function(offset=offset)
 
@@ -104,7 +103,7 @@ class Executors:
 
     def move_from_unpublished(self, product, channel):
         message = f'{datetime.now()} moved from channel ' \
-                  f'{product["channel"]["slug"]} to channel {channel}'
+                  f'{product["channel_slug"]} to channel {channel}'
         logger.info(f'{product["sku"]} {message}')
 
         if self.mode == 'dry_run': return
@@ -205,16 +204,26 @@ class Executors:
             cls.log_to_product_private_metadata(product_id=product['id'], key='publish.allegro.errors', value=message)
             return None
 
+        if product['channel_price_amount']:
+            channel_price_amount = Decimal(product['channel_price_amount'])
+        else:
+            channel_price_amount = None
+
+        if product['channel_cost_price_amount']:
+            channel_cost_price_amount = Decimal(product['channel_cost_price_amount'])
+        else:
+            channel_cost_price_amount = None
+
         return PricingVariables(
             price_mode=price_mode,
-            current_price=Decimal(product['channel']['price_amount']),
+            current_price=channel_price_amount,
             result_price=result_price,
             weight=Decimal(product['weight'].kg),
             brand=product['brand'],
             product_type=product['type'],
             material=product['material'],
             condition=product['condition'],
-            current_cost_price_amount=Decimal(product['channel']['cost_price_amount'])
+            current_cost_price_amount=channel_cost_price_amount
         )
 
     def change_price(self, product, result):
@@ -239,7 +248,7 @@ class Executors:
             )
 
         message = f'{datetime.now()} calculated price for channel ' \
-                  f'{product["channel"]["slug"]} {PriceEnum(validated_pricing_variables.price_mode).name} {price}'
+                  f'{product["channel_slug"]} {PriceEnum(validated_pricing_variables.price_mode).name} {price}'
 
         logger.info(f'{product["sku"]}: {message}')
 
@@ -300,7 +309,7 @@ class Resolvers:
             channel__slug=channel, **filters
         ).select_related('channel', 'product').order_by('product_id')[offset:offset + LIMIT]
 
-        product_ids = [pcl.product.id for pcl in product_channel_listings]
+        product_ids = list(product_channel_listings.values_list('product_id', flat=True))
         if not product_ids: return
 
         product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
@@ -337,19 +346,17 @@ class Resolvers:
                     'brand': cls.get_attribute_from_description(pcl.product.description, 'Marka').lower(),
                     'material': cls.get_attribute_from_description(pcl.product.description, 'Materiał').lower(),
                     'condition': cls.get_attribute_from_description(pcl.product.description, 'Stan').lower(),
-                    'channel': {
-                        'id': pcl.channel.id,
-                        'publication_date': pcl.publication_date,
-                        'age': cls.parse_date(pcl.publication_date),
-                        'is_published': pcl.is_published,
-                        'product_id': pcl.product_id,
-                        'slug': pcl.channel.slug,
-                        'visible_in_listings': pcl.visible_in_listings,
-                        'available_for_purchase': pcl.available_for_purchase,
-                        'currency': pvcl.currency,
-                        'price_amount': pvcl.price_amount,
-                        'cost_price_amount': pvcl.cost_price_amount
-                    },
+                    'channel_id': pcl.channel.id,
+                    'channel_publication_date': pcl.publication_date,
+                    'channel_age': cls.parse_date(pcl.publication_date),
+                    'channel_is_published': pcl.is_published,
+                    'channel_product_id': pcl.product_id,
+                    'channel_slug': pcl.channel.slug,
+                    'channel_visible_in_listings': pcl.visible_in_listings,
+                    'channel_available_for_purchase': pcl.available_for_purchase,
+                    'channel_currency': pvcl.currency,
+                    'channel_price_amount': pvcl.price_amount,
+                    'channel_cost_price_amount': pvcl.cost_price_amount,
                     'location': cls.parse_location(pvcl.variant.private_metadata.get('location'))
                 }
             )
@@ -390,7 +397,7 @@ class Resolvers:
 
     @staticmethod
     def parse_datetime(publication_date):
-        delta = datetime.now(pytz.timezone('Europe/Warsaw')) - publication_date
+        delta = date.today() - publication_date.date()
         return delta.days
 
     @staticmethod
@@ -416,8 +423,8 @@ class Resolvers:
 @dataclass
 class PricingVariables:
     price_mode: str
-    current_price: Decimal
-    current_cost_price_amount: Decimal
+    current_price: Optional[Decimal]
+    current_cost_price_amount: Optional[Decimal]
     result_price: Decimal
     weight: Decimal
     brand: str
