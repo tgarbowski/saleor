@@ -37,7 +37,8 @@ class SalingoPricingPlugin(BasePlugin):
     @classmethod
     def validate_plugin_configuration(self, plugin_configuration: "PluginConfiguration"):
         config = plugin_configuration.configuration
-        yaml_rules = BusinessRulesEvaluator.get_value_by_name(config=config, name='rules')
+        configuration = {item["name"]: item["value"] for item in config}
+        yaml_rules = configuration['rules']
         engine_rules = BusinessRulesEvaluator.get_rules(yaml_rules)
         prices = [rule['result'] for rule in engine_rules]
 
