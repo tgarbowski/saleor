@@ -1,4 +1,3 @@
-from __future__ import annotations
 from asyncio import run
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -66,7 +65,7 @@ class BusinessRulesEvaluator:
                     if output_for_update and self.mode == 'commit':
                         executor.bulk_handler(output_for_update)
 
-                offset += 10000
+                offset = self.calculate_offset(offset)
                 products = resolver_function(offset=offset)
 
     def get_sorted_configs(self):
@@ -91,6 +90,12 @@ class BusinessRulesEvaluator:
             r = rule['rule']
             if not rule_engine.Rule.is_valid(r):
                 raise Exception(f'Invalid engine rule: {r}')
+
+    def calculate_offset(self, current_offset):
+        if self.plugin_slug == 'salingo_routing' and self.mode == 'commit':
+            return current_offset
+        else:
+            return current_offset + 10000
 
 
 class ExecutorsFactory:
@@ -119,7 +124,7 @@ class RoutingExecutors:
     def bulk_handler(cls, products, channel):
         cls.bulk_change_channel_listings(products, channel)
 
-    def move_from_unpublished(self, product: ProductRulesVariables, result: str):
+    def move_from_unpublished(self, product: 'ProductRulesVariables', result: str):
         message = f'{datetime.now()} moved from channel ' \
                   f'{product.channel_slug} to channel {result}'
         logger.info(f'{product.sku} {message}')
@@ -132,7 +137,7 @@ class RoutingExecutors:
         )
 
     @classmethod
-    def bulk_change_channel_listings(cls, products: Dict[int, RoutingOutput]):
+    def bulk_change_channel_listings(cls, products: Dict[int, 'RoutingOutput']):
         for x in list(products)[0:1]:
             channel = x['channel']
         channel_id = Channel.objects.get(slug=channel).pk
@@ -161,7 +166,7 @@ class PricingExecutors:
         self.config = config
         self.global_config = global_config
 
-    def calculate_price(self, payload: PricingVariables) -> Decimal:
+    def calculate_price(self, payload: 'PricingVariables') -> Decimal:
         if payload.price_mode == PriceEnum.KILOGRAM.value:
             price = payload.weight * payload.result_price
         elif payload.price_mode == PriceEnum.ITEM.value:
@@ -177,7 +182,7 @@ class PricingExecutors:
 
         return round(price, 2)
 
-    def calculate_price_by_algorithm(self, payload: PricingVariables) -> Decimal:
+    def calculate_price_by_algorithm(self, payload: 'PricingVariables') -> Decimal:
         pricing_config = self.global_config
         percentages = 0
 
@@ -231,7 +236,7 @@ class PricingExecutors:
         return round(cost_price_amount, 2)
 
     @classmethod
-    def get_validated_pricing_variables(cls, product: ProductRulesVariables, result: str):
+    def get_validated_pricing_variables(cls, product: 'ProductRulesVariables', result: str):
         if not isinstance(result, str):
             return None
 
@@ -272,7 +277,7 @@ class PricingExecutors:
             current_cost_price_amount=channel_cost_price_amount
         )
 
-    def change_price(self, product: ProductRulesVariables, result):
+    def change_price(self, product: 'ProductRulesVariables', result):
         validated_pricing_variables = self.get_validated_pricing_variables(
             product=product,
             result=result
@@ -307,12 +312,12 @@ class PricingExecutors:
             sku=product.sku
         )
     @classmethod
-    def bulk_handler(cls, products: Dict[int, PricingCalculationOutput]) -> None:
+    def bulk_handler(cls, products: Dict[int, 'PricingCalculationOutput']) -> None:
         cls.bulk_update_pricing(products)
         cls.bulk_update_pricing_allegro(products)
 
     @classmethod
-    def bulk_update_pricing_allegro(cls, products: Dict[int, PricingCalculationOutput]):
+    def bulk_update_pricing_allegro(cls, products: Dict[int, 'PricingCalculationOutput']):
         # key:value > sku:price
         prices = {}
 
@@ -337,18 +342,22 @@ class PricingExecutors:
         offers_price_update = prepare_allegro_update_price_requests(allegro_api, offer_id_price)
         update_results = run(patch_async(offers_price_update))
 
-        retries = 1
-        max_retires = 5
-        # Retry 5 times in case of HTTP 429
-        while retries < max_retires:
-            for result in update_results:
-                if result:
-                    time.sleep(65)
-                    update_results = run(patch_async(offers_price_update))
-            retries += 1
+        if update_results:
+            retries = 1
+            # Retry 5 times in case of HTTP 429
+            while retries < 5 and update_results:
+                # Allegro API blocks for 60s when default limit 9000 req/s is exceeded
+                time.sleep(65)
+                index_from_start_again = get_backstep_offer_index(
+                    offers_price_update=offers_price_update,
+                    failed_result=update_results
+                )
+                offers_price_update = offers_price_update[index_from_start_again:]
+                update_results = run(patch_async(offers_price_update))
+                retries += 1
 
     @classmethod
-    def bulk_update_pricing(cls, products: Dict[int, PricingCalculationOutput]) -> None:
+    def bulk_update_pricing(cls, products: Dict[int, 'PricingCalculationOutput']) -> None:
         variant_ids = dict.keys(products)
         product_messages = {}
 
@@ -595,6 +604,23 @@ def prepare_allegro_update_price_requests(allegro_api, offer_id_price):
              }
         )
     return offers_price_update
+
+
+def get_backstep_offer_index(offers_price_update, failed_result):
+    failed_offer_index = None
+
+    for i, offer in enumerate(offers_price_update):
+        if offer['offer_id'] == failed_result.rsplit('/', 1)[1]:
+            failed_offer_index = i
+            break
+
+    if failed_offer_index > 20:
+        index_from_start_again = failed_offer_index - 20
+    else:
+        index_from_start_again = 0
+
+    return index_from_start_again
+
 
 @dataclass
 class ProductRulesVariables:
