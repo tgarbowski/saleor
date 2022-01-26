@@ -80,7 +80,7 @@ class AllegroProductMapper:
         return self
 
     def set_location_city(self, location_city):
-        self.product['location']['city'] = 'Poznań'
+        self.product['location']['city'] = location_city
         return self
 
     def set_location_post_code(self, location_post_code):

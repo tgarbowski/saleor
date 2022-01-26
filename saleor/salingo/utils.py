@@ -41,26 +41,33 @@ class SalingoDatetimeFormats:
     date = '%Y-%m-%d'
 
 
+class TooManyRequestsException(Exception):
+    def __init__(self, message):
+        self.message = message
+
+
 async def patch_async(objs):
     MAX_TASKS = 20
-    MAX_TIME = 1000
     tasks = []
     sem = asyncio.Semaphore(MAX_TASKS)
 
     async with ClientSession() as sess:
         for obj in objs:
             tasks.append(
-                asyncio.wait_for(
-                    patch_one(obj, sess, sem),
-                    timeout=MAX_TIME,
-                )
+                asyncio.create_task(patch_one(obj, sess, sem))
             )
-
-        return await asyncio.gather(*tasks)
+        try:
+            await asyncio.gather(*tasks)
+        except TooManyRequestsException as e:
+            for t in tasks:
+                t.cancel()
+            return e.message
 
 
 async def patch_one(obj, sess, sem):
     async with sem:
         async with sess.patch(url=obj['url'], json=obj['payload'], headers=obj['headers']) as res:
-            if res.status != 200:
-                return obj
+            if res.status == 429:
+                raise TooManyRequestsException(
+                    message=obj['url']
+                )
