@@ -1,7 +1,10 @@
+import asyncio
 import os
 from datetime import date, datetime
 
 from django.core.exceptions import ValidationError
+
+from aiohttp.client import ClientSession
 
 
 def read_sql_from_file(sql_file_name):
@@ -12,7 +15,6 @@ def read_sql_from_file(sql_file_name):
         for line in sql_file.readlines():
             body = body + line
     return body
-
 
 
 def validate_datetime_string(datetime_string, date_time_format):
@@ -37,3 +39,28 @@ class SalingoDatetimeFormats:
     datetime = '%Y-%m-%d %H:%M'
     datetime_with_seconds = '%Y-%m-%d %H:%M:%S'
     date = '%Y-%m-%d'
+
+
+async def patch_async(objs):
+    MAX_TASKS = 20
+    MAX_TIME = 1000
+    tasks = []
+    sem = asyncio.Semaphore(MAX_TASKS)
+
+    async with ClientSession() as sess:
+        for obj in objs:
+            tasks.append(
+                asyncio.wait_for(
+                    patch_one(obj, sess, sem),
+                    timeout=MAX_TIME,
+                )
+            )
+
+        return await asyncio.gather(*tasks)
+
+
+async def patch_one(obj, sess, sem):
+    async with sem:
+        async with sess.patch(url=obj['url'], json=obj['payload'], headers=obj['headers']) as res:
+            if res.status != 200:
+                return obj
