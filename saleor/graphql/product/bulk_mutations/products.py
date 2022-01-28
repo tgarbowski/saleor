@@ -925,6 +925,7 @@ class ProductBulkPublish(BaseBulkMutation):
         elif publish_mode == 'UNPUBLISH_SELECTED':
             cls.bulk_unpublish(product_ids)
         elif publish_mode == 'UNPUBLISH_ALL':
+            data['filter']['channel'] = data['channel']
             cls.bulk_unpublish_all(**data)
 
     @classmethod
