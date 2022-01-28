@@ -1,5 +1,6 @@
 from decimal import Decimal, InvalidOperation
 from typing import List
+import re
 
 from django.core.exceptions import ValidationError
 
@@ -70,7 +71,9 @@ class SalingoPricingPlugin(BasePlugin):
             )
 
         try:
-            result_price = Decimal(price[1:])
+            price_mode = re.findall('[a-z]+', price)[0]
+            if price_mode in ['d', 'i', 'k']:
+                result_price = Decimal(re.findall('\d+', price)[0])
         except InvalidOperation:
             raise ValidationError(
                 {
@@ -80,8 +83,6 @@ class SalingoPricingPlugin(BasePlugin):
                     )
                 }
             )
-
-        price_mode = price[:1]
 
         if price_mode not in [e.value for e in PriceEnum]:
             raise ValidationError(

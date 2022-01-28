@@ -121,8 +121,8 @@ class RoutingExecutors:
         self.config = config
 
     @classmethod
-    def bulk_handler(cls, products, channel):
-        cls.bulk_change_channel_listings(products, channel)
+    def bulk_handler(cls, products: Dict[int, 'RoutingOutput']):
+        cls.bulk_change_channel_listings(products)
 
     def move_from_unpublished(self, product: 'ProductRulesVariables', result: str):
         message = f'{datetime.now()} moved from channel ' \
@@ -138,10 +138,10 @@ class RoutingExecutors:
 
     @classmethod
     def bulk_change_channel_listings(cls, products: Dict[int, 'RoutingOutput']):
-        for x in list(products)[0:1]:
-            channel = x['channel']
+        first_variant_id = next(iter(products))
+        channel = products[first_variant_id].channel
         channel_id = Channel.objects.get(slug=channel).pk
-        variant_ids = dict.keys(products)
+        variant_ids = list(dict.keys(products))
         product_ids = []
         product_messages = {}
 
@@ -155,7 +155,7 @@ class RoutingExecutors:
                 publication_date=None,
                 is_published=False
             )
-            ProductVariantChannelListing.objects.filter(variant_id=variant_ids).update(
+            ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids).update(
                 channel_id=channel_id)
 
         bulk_log_to_private_metadata(product_messages=product_messages, key='history')
@@ -175,8 +175,16 @@ class PricingExecutors:
             price = payload.current_price - (payload.current_price * payload.result_price / 100)
         elif payload.price_mode == PriceEnum.MANUAL.value:
             price = payload.current_price
-        elif payload.price_mode == PriceEnum.ALGORITHM.value:
+        elif payload.price_mode == PriceEnum.ALGORITHM_NEW.value:
             price = self.calculate_price_by_algorithm(payload=payload)
+        elif payload.price_mode == PriceEnum.ALGORITHM_OLD.value:
+            price = self.calculate_price_by_cost_price(
+                min_price=self.global_config.minimum_price,
+                price_per_kg=self.global_config.price_per_kg,
+                weight=payload.weight,
+                current_cost_price_amount=payload.current_cost_price_amount
+            )
+
         else:
             price = payload.current_price
 
@@ -240,13 +248,16 @@ class PricingExecutors:
         if not isinstance(result, str):
             return None
 
-        price_mode = result[:1]
+        price_mode = re.findall('[a-z]+', result)[0]
 
         if price_mode not in [e.value for e in PriceEnum]:
             return None
 
         try:
-            result_price = Decimal(result[1:])
+            if price_mode in ['d', 'i', 'k']:
+                result_price = Decimal(re.findall('\d+', result)[0])
+            else:
+                result_price = None
         except InvalidOperation:
             return None
 
@@ -574,7 +585,7 @@ def bulk_log_to_private_metadata(product_messages: Dict[int, str], key: str):
     Product.objects.bulk_update(
         objs=db_products,
         fields=['private_metadata'],
-        batch_size=500
+        batch_size=100
     )
 
 
@@ -590,7 +601,7 @@ def prepare_allegro_update_price_requests(allegro_api, offer_id_price):
         payload = {
             "sellingMode": {
                 "startingPrice": {
-                    "amount": price,
+                    "amount": str(price),
                     "currency": "PLN"
                 }
             }
@@ -706,7 +717,8 @@ class PriceEnum(Enum):
     ITEM = 'i'
     KILOGRAM = 'k'
     MANUAL = 'm'
-    ALGORITHM = 'a'
+    ALGORITHM_OLD = 'ao'
+    ALGORITHM_NEW = 'an'
 
 
 @dataclass
