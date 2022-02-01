@@ -21,6 +21,8 @@ from saleor.plugins.base_plugin import ConfigurationTypeField
 from measurement.measures import Mass
 from saleor.salingo.utils import patch_async
 from saleor.plugins.allegro.api import AllegroAPI
+from saleor.plugins.allegro.tasks import bulk_allegro_unpublish
+from saleor.plugins.allegro.utils import skus_to_product_ids
 
 
 PluginConfigurationType = List[dict]
@@ -42,9 +44,8 @@ class BusinessRulesEvaluator:
             engine_rules = self.get_rules(config['rules'])
             self.validate_rules(engine_rules)
             # Resolve products for given config
-            offset = 0
             resolver_function = getattr(Resolvers, config['resolver'])
-            products = resolver_function(offset=offset)
+            products = resolver_function(cursor=0)
             executor = ExecutorsFactory.get_executor(plugin_slug=self.plugin_slug, config=config)
             executor_function = getattr(executor, config['executor'])
 
@@ -64,9 +65,7 @@ class BusinessRulesEvaluator:
                     # Bulk action on matching products
                     if output_for_update and self.mode == 'commit':
                         executor.bulk_handler(output_for_update)
-
-                offset = self.calculate_offset(offset)
-                products = resolver_function(offset=offset)
+                products = resolver_function(cursor=products[-1].id)
 
     def get_sorted_configs(self):
         configs = PluginConfiguration.objects.filter(identifier=self.plugin_slug, active=True)
@@ -122,7 +121,31 @@ class RoutingExecutors:
 
     @classmethod
     def bulk_handler(cls, products: Dict[int, 'RoutingOutput']):
-        cls.bulk_change_channel_listings(products)
+        channel = get_source_channel(products)
+
+        if channel in ['allegro']:
+            cls.handle_allegro_flow(products)
+        else:
+            cls.bulk_change_channel_listings(products)
+
+    @classmethod
+    def handle_allegro_flow(cls, products: Dict[int, 'RoutingOutput']):
+        purchased_product_ids = cls.remove_from_allegro(products)
+        product_to_change = {k: v for (k, v) in products.items() if v.id not in purchased_product_ids}
+        cls.bulk_change_channel_listings(product_to_change)
+
+    @classmethod
+    def remove_from_allegro(cls, products: Dict[int, 'RoutingOutput']):
+        channel = get_source_channel(products)
+        product_ids = []
+
+        for key, value in products.items():
+            product_ids.append(value.id)
+
+        skus_purchased = bulk_allegro_unpublish(channel=channel, product_ids=product_ids)
+
+        return skus_to_product_ids(skus_purchased)
+
 
     def move_from_unpublished(self, product: 'ProductRulesVariables', result: str):
         message = f'{datetime.now()} moved from channel ' \
@@ -133,6 +156,7 @@ class RoutingExecutors:
             variant_id=product.variant_id,
             id=product.id,
             channel=result,
+            source_channel=product.channel_slug,
             message=message
         )
 
@@ -320,12 +344,17 @@ class PricingExecutors:
             price_amount=price,
             cost_price_amount=cost_price_amount,
             message=message,
-            sku=product.sku
+            sku=product.sku,
+            source_channel=product.channel_slug
         )
+
     @classmethod
     def bulk_handler(cls, products: Dict[int, 'PricingCalculationOutput']) -> None:
+        channel = get_source_channel(products)
         cls.bulk_update_pricing(products)
-        cls.bulk_update_pricing_allegro(products)
+
+        if channel in ['allegro']:
+            cls.bulk_update_pricing_allegro(products)
 
     @classmethod
     def bulk_update_pricing_allegro(cls, products: Dict[int, 'PricingCalculationOutput']):
@@ -394,25 +423,25 @@ class PricingExecutors:
 class Resolvers:
 
     @classmethod
-    def resolve_unpublished(cls, offset):
-        return cls.get_products_custom_dict(channel='unpublished', offset=offset)
+    def resolve_unpublished(cls, cursor):
+        return cls.get_products_custom_dict(channel='unpublished', cursor=cursor)
 
     @classmethod
-    def resolve_allegro_unpublished(cls, offset):
+    def resolve_allegro_unpublished(cls, cursor):
         filters = {"is_published": False}
-        return cls.get_products_custom_dict(channel='allegro', filters=filters, offset=offset)
+        return cls.get_products_custom_dict(channel='allegro', filters=filters, cursor=cursor)
 
     @classmethod
-    def resolve_allegro(cls, offset):
-        return cls.get_products_custom_dict(channel='allegro', offset=offset)
+    def resolve_allegro(cls, cursor):
+        return cls.get_products_custom_dict(channel='allegro', cursor=cursor)
 
     @classmethod
-    def get_products_custom_dict(cls, channel, offset, filters={}):
+    def get_products_custom_dict(cls, channel, cursor, filters={}):
         LIMIT = 10000
 
         product_channel_listings = ProductChannelListing.objects.filter(
-            channel__slug=channel, **filters
-        ).select_related('channel', 'product').order_by('product_id')[offset:offset + LIMIT]
+            channel__slug=channel, product_id__gt=cursor, **filters
+        ).select_related('channel', 'product').order_by('product_id')[:LIMIT]
 
         product_ids = list(product_channel_listings.values_list('product_id', flat=True))
         if not product_ids: return
@@ -633,6 +662,18 @@ def get_backstep_offer_index(offers_price_update, failed_result):
     return index_from_start_again
 
 
+def get_source_channel(products):
+    first_variant_id = next(iter(products))
+    channel = products[first_variant_id].source_channel
+    return channel
+
+
+def get_target_channel(products):
+    first_variant_id = next(iter(products))
+    channel = products[first_variant_id].channel
+    return channel
+
+
 @dataclass
 class ProductRulesVariables:
     id: int
@@ -672,6 +713,7 @@ class PricingCalculationOutput:
     cost_price_amount: Decimal
     message: str
     sku: str
+    source_channel: str
 
 
 @dataclass
@@ -680,6 +722,7 @@ class RoutingOutput:
     id: int
     message: str
     channel: str
+    source_channel: str
 
 
 @dataclass

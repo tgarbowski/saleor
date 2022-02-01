@@ -140,8 +140,8 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
             for listing in product_channel_listings:
                 listing.is_published = False
 
-            Product.objects.bulk_update(products_to_update, ['private_metadata'])
-            ProductChannelListing.objects.bulk_update(product_channel_listings, ['is_published'])
+            Product.objects.bulk_update(products_to_update, ['private_metadata'], batch_size=100)
+            ProductChannelListing.objects.bulk_update(product_channel_listings, ['is_published'], batch_size=500)
 
 
 def update_allegro_purchased_error(skus, allegro_data):
@@ -156,6 +156,7 @@ def update_allegro_purchased_error(skus, allegro_data):
     for variant in product_variants:
         product = variant.product
         product.store_value_in_private_metadata({'publish.allegro.errors': [error_message]})
+        product.store_value_in_private_metadata({'allegro_unpublish_action': True})
         products_to_update.append(product)
 
     Product.objects.bulk_update(products_to_update, ['private_metadata'])

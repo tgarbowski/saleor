@@ -354,3 +354,5 @@ def bulk_allegro_unpublish(channel, product_ids):
         update_allegro_purchased_error(skus_purchased, allegro_data)
     # Send unpublished to email
     email_bulk_unpublish_result(skus_purchased)
+
+    return skus_purchased
