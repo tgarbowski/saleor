@@ -65,7 +65,6 @@ class BusinessRulesEvaluator:
                     # Bulk action on matching products
                     if output_for_update and self.mode == 'commit':
                         executor.bulk_handler(output_for_update)
-                return
                 products = resolver_function(cursor=products[-1].id)
 
     def get_sorted_configs(self):
