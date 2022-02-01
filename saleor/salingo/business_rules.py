@@ -65,6 +65,7 @@ class BusinessRulesEvaluator:
                     # Bulk action on matching products
                     if output_for_update and self.mode == 'commit':
                         executor.bulk_handler(output_for_update)
+                return
                 products = resolver_function(cursor=products[-1].id)
 
     def get_sorted_configs(self):
@@ -182,7 +183,7 @@ class RoutingExecutors:
             ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids).update(
                 channel_id=channel_id)
 
-        bulk_log_to_private_metadata(product_messages=product_messages, key='history')
+        bulk_log_to_private_metadata(product_messages=product_messages, key='history', obj_type='list')
 
 
 class PricingExecutors:
@@ -345,7 +346,10 @@ class PricingExecutors:
             cost_price_amount=cost_price_amount,
             message=message,
             sku=product.sku,
-            source_channel=product.channel_slug
+            source_channel=product.channel_slug,
+            current_price_amount=product.channel_price_amount,
+            is_published=product.channel_is_published,
+            initial_price_amount=product.initial_price_amount
         )
 
     @classmethod
@@ -353,7 +357,12 @@ class PricingExecutors:
         channel = get_source_channel(products)
         cls.bulk_update_pricing(products)
 
-        if channel in ['allegro']:
+        channels = list(
+            PluginConfiguration.objects.filter(identifier='allegro').values_list(
+                'channel__slug', flat=True)
+            )
+
+        if channel in channels:
             cls.bulk_update_pricing_allegro(products)
 
     @classmethod
@@ -362,9 +371,12 @@ class PricingExecutors:
         prices = {}
 
         for key, value in products.items():
-            prices[value.sku] = value.price_amount
+            if value.is_published and value.price_amount != value.current_price_amount:
+                prices[value.sku] = value.price_amount
 
         skus = list(dict.keys(prices))
+        if not skus:
+            return
         # GET offers by skus
         allegro_api = AllegroAPI(channel='allegro')
         offers = allegro_api.get_offers_by_skus(skus, publication_statuses=['ACTIVE'])
@@ -400,9 +412,12 @@ class PricingExecutors:
     def bulk_update_pricing(cls, products: Dict[int, 'PricingCalculationOutput']) -> None:
         variant_ids = dict.keys(products)
         product_messages = {}
+        initial_price_messages = {}
 
         for key, value in products.items():
             product_messages[value.id] = value.message
+            if value.initial_price_amount is None:
+                initial_price_messages[value.id] = value.price_amount
 
         pvcl = ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids)
 
@@ -417,7 +432,10 @@ class PricingExecutors:
             batch_size=500
         )
 
-        bulk_log_to_private_metadata(product_messages=product_messages, key='history')
+        if initial_price_messages:
+            bulk_log_to_private_metadata(product_messages=initial_price_messages, key='initial_price', obj_type='str')
+
+        bulk_log_to_private_metadata(product_messages=product_messages, key='history', obj_type='list')
 
 
 class Resolvers:
@@ -489,7 +507,8 @@ class Resolvers:
                 channel_currency=pvcl.currency,
                 channel_price_amount=pvcl.price_amount,
                 channel_cost_price_amount=pvcl.cost_price_amount,
-                location=cls.parse_location(pvcl.variant.private_metadata.get('location'))
+                location=cls.parse_location(pvcl.variant.private_metadata.get('location')),
+                initial_price_amount=pvcl.variant.product.metadata.get('initial_price')
             ))
 
         return products
@@ -594,7 +613,7 @@ def get_plugin_config_by_identifier(identifier):
     return configuration
 
 
-def bulk_log_to_private_metadata(product_messages: Dict[int, str], key: str):
+def bulk_log_to_private_metadata(product_messages: Dict, key: str, obj_type: str):
     product_ids = []
 
     for product_id, message in product_messages.items():
@@ -604,12 +623,15 @@ def bulk_log_to_private_metadata(product_messages: Dict[int, str], key: str):
 
     for x in db_products:
         message = product_messages[x.id]
-        field = x.private_metadata.get(key)
 
-        if field:
-            field.append(message)
+        if obj_type == 'list':
+            field = x.private_metadata.get(key)
+            if field:
+                field.append(message)
+            else:
+                x.private_metadata[key] = [message]
         else:
-            x.private_metadata[key] = [message]
+            x.private_metadata[key] = message
 
     Product.objects.bulk_update(
         objs=db_products,
@@ -626,7 +648,7 @@ def prepare_allegro_update_price_requests(allegro_api, offer_id_price):
         headers = {'Authorization': 'Bearer ' + allegro_api.token,
                    'Accept': f'application/vnd.allegro.public.v1+json',
                    'Content-Type': f'application/vnd.allegro.public.v1+json'}
-        # TODO: ustaw starting price
+
         payload = {
             "sellingMode": {
                 "startingPrice": {
@@ -703,6 +725,7 @@ class ProductRulesVariables:
     channel_price_amount: Decimal
     channel_cost_price_amount: Decimal
     location: Dict
+    initial_price_amount: Decimal
 
 
 @dataclass
@@ -714,6 +737,9 @@ class PricingCalculationOutput:
     message: str
     sku: str
     source_channel: str
+    initial_price_amount: Decimal
+    is_published: bool
+    current_price_amount: Decimal
 
 
 @dataclass
