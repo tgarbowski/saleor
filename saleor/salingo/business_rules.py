@@ -444,6 +444,18 @@ class Resolvers:
         return cls.get_products_custom_dict(channel='unpublished', cursor=cursor)
 
     @classmethod
+    def resolve_salingo_man(cls, cursor):
+        return cls.get_products_custom_dict(channel='salingo-man', cursor=cursor)
+
+    @classmethod
+    def resolve_salingo_woman(cls, cursor):
+        return cls.get_products_custom_dict(channel='salingo-woman', cursor=cursor)
+
+    @classmethod
+    def resolve_salingo_kids(cls, cursor):
+        return cls.get_products_custom_dict(channel='salingo-kids', cursor=cursor)
+
+    @classmethod
     def resolve_allegro_unpublished(cls, cursor):
         filters = {"is_published": False}
         return cls.get_products_custom_dict(channel='allegro', filters=filters, cursor=cursor)
@@ -507,10 +519,25 @@ class Resolvers:
                 channel_price_amount=pvcl.price_amount,
                 channel_cost_price_amount=pvcl.cost_price_amount,
                 location=cls.parse_location(pvcl.variant.private_metadata.get('location')),
-                initial_price_amount=pvcl.variant.product.metadata.get('initial_price')
+                initial_price_amount=pvcl.variant.product.metadata.get('initial_price'),
+                workstation=cls.get_workstation(pvcl.variant.sku),
+                user=cls.get_user(pvcl.variant.sku),
+                is_bundled=cls.is_bundled(pvcl.variant.product.metadata.get('bundle.id'))
             ))
 
         return products
+
+    @staticmethod
+    def is_bundled(bundle_id) -> bool:
+        return bool(bundle_id and bundle_id != '')
+
+    @staticmethod
+    def get_workstation(sku: str) -> str:
+        return sku[:2]
+
+    @staticmethod
+    def get_user(sku: str) -> str:
+        return sku[2:4]
 
     @staticmethod
     def get_attribute_from_description(description, attribute_name):
@@ -725,6 +752,9 @@ class ProductRulesVariables:
     channel_cost_price_amount: Decimal
     location: Dict
     initial_price_amount: Decimal
+    workstation: str
+    user: str
+    is_bundled: bool
 
 
 @dataclass
@@ -785,8 +815,8 @@ class PriceEnum(Enum):
     ITEM = 'i'
     KILOGRAM = 'k'
     MANUAL = 'm'
-    ALGORITHM_OLD = 'ao'
-    ALGORITHM_NEW = 'an'
+    ALGORITHM_OLD = 'aold'
+    ALGORITHM_NEW = 'anew'
 
 
 @dataclass

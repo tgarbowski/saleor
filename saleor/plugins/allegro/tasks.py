@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @app.task()
 def refresh_token_task():
-    channels = list(PluginConfiguration.objects.filter(identifier='allegro').values_list(
+    channels = list(PluginConfiguration.objects.filter(identifier='allegro', active=True).values_list(
         'channel__slug', flat=True))
 
     HOURS_BEFORE_WE_REFRESH_TOKEN = 6
