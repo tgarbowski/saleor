@@ -176,7 +176,7 @@ class RoutingExecutors:
         with transaction.atomic():
             ProductChannelListing.objects.filter(product_id__in=product_ids).update(
                 channel_id=channel_id,
-                publication_date=date.today(),
+                publication_date=None,
                 is_published=False
             )
             ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids).update(
