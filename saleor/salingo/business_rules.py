@@ -815,8 +815,8 @@ class PriceEnum(Enum):
     ITEM = 'i'
     KILOGRAM = 'k'
     MANUAL = 'm'
-    ALGORITHM_OLD = 'ao'
-    ALGORITHM_NEW = 'an'
+    ALGORITHM_OLD = 'aold'
+    ALGORITHM_NEW = 'anew'
 
 
 @dataclass
