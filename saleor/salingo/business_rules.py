@@ -521,10 +521,15 @@ class Resolvers:
                 location=cls.parse_location(pvcl.variant.private_metadata.get('location')),
                 initial_price_amount=pvcl.variant.product.metadata.get('initial_price'),
                 workstation=cls.get_workstation(pvcl.variant.sku),
-                user=cls.get_user(pvcl.variant.sku)
+                user=cls.get_user(pvcl.variant.sku),
+                is_bundled=cls.is_bundled(pvcl.variant.product.metadata.get('bundle.id'))
             ))
 
         return products
+
+    @staticmethod
+    def is_bundled(bundle_id) -> bool:
+        return bool(bundle_id and bundle_id != '')
 
     @staticmethod
     def get_workstation(sku: str) -> str:
@@ -749,6 +754,7 @@ class ProductRulesVariables:
     initial_price_amount: Decimal
     workstation: str
     user: str
+    is_bundled: bool
 
 
 @dataclass
