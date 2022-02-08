@@ -571,7 +571,8 @@ BUILTIN_PLUGINS = [
     "saleor.plugins.dpd.plugin.DpdPlugin",
     "saleor.plugins.salingo_routing.plugin.SalingoRoutingPlugin",
     "saleor.plugins.salingo_pricing.plugin.SalingoPricingPlugin",
-    "saleor.plugins.salingo_pricing_global.plugin.SalingoPricingGlobalPlugin"
+    "saleor.plugins.salingo_pricing_global.plugin.SalingoPricingGlobalPlugin",
+    "saleor.plugins.allegro_global.plugin.AllegroGlobalPlugin",
 ]
 
 # Plugin discovery

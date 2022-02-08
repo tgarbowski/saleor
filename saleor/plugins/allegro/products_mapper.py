@@ -30,7 +30,7 @@ class AllegroProductMapper:
         nested_dict = lambda: defaultdict(nested_dict)
         nest = nested_dict()
         self.product = nest
-        self.plugin_config = get_plugin_configuration(self.channel)
+        self.plugin_config = get_plugin_configuration(plugin_id='allegro', channel=self.channel)
 
     def map(self):
         return self

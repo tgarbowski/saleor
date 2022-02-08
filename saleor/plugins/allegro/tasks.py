@@ -26,7 +26,7 @@ def refresh_token_task():
     HOURS_BEFORE_WE_REFRESH_TOKEN = 6
 
     for channel in channels:
-        config = get_plugin_configuration(channel)
+        config = get_plugin_configuration(plugin_id='allegro', channel=channel)
         token_expiration = config.get('token_access')
 
         if config['token_access']:

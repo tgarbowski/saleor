@@ -176,6 +176,7 @@ class AllegroAPI:
             logger.info("Post request url: " + str(url))
 
             response = requests.post(url, data=json.dumps(data), headers=headers)
+            logger.info(f'trace-id: {response.headers.get("trace-id")}')
 
         except TypeError as err:
             self.errors.append('POST request error: ' + str(err))
@@ -199,6 +200,7 @@ class AllegroAPI:
             logger.info("Patch request url: " + str(url))
 
             response = requests.patch(url, data=json.dumps(data), headers=headers)
+            logger.info(f'trace-id: {response.headers.get("trace-id")}')
 
         except TypeError as err:
             self.errors.append('PATCH request error: ' + str(err))
@@ -222,6 +224,7 @@ class AllegroAPI:
             logger.info(f'GET request url: {url}')
 
             response = requests.get(url, headers=headers, params=params)
+            logger.info(f'trace-id: {response.headers.get("trace-id")}')
 
         except TypeError as err:
             self.errors.append('GET request error: ' + str(err))
@@ -245,6 +248,7 @@ class AllegroAPI:
             logger.info(f'PUT request url: {url}')
 
             response = requests.put(url, data=json.dumps(data), headers=headers)
+            logger.info(f'trace-id: {response.headers.get("trace-id")}')
 
         except TypeError as err:
             self.errors.append('PUT request error: ' + str(err))
