@@ -30,10 +30,10 @@ def email_errors(products_bulk_ids):
         plugin.send_mail_with_publish_errors(publish_errors, None)
 
 
-def get_plugin_configuration(channel):
+def get_plugin_configuration(plugin_id, channel=None):
     manager = get_plugins_manager()
     plugin = manager.get_plugin(
-        plugin_id='allegro',
+        plugin_id=plugin_id,
         channel_slug=channel)
     configuration = {item["name"]: item["value"] for item in plugin.configuration if plugin.configuration}
     return configuration
