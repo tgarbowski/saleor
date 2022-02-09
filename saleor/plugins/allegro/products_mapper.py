@@ -31,6 +31,7 @@ class AllegroProductMapper:
         nest = nested_dict()
         self.product = nest
         self.plugin_config = get_plugin_configuration(plugin_id='allegro', channel=self.channel)
+        self.global_config = get_plugin_configuration(plugin_id='allegro_global')
 
     def map(self):
         return self
@@ -283,7 +284,7 @@ class AllegroProductMapper:
             return name
 
     def get_offer_description_footer(self):
-        return self.plugin_config.get('offer_description_footer')
+        return self.global_config.get('offer_description_footer')
 
     def get_implied_warranty(self):
         return self.plugin_config.get('implied_warranty')
