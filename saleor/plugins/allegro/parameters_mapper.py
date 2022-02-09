@@ -135,7 +135,7 @@ class BaseParametersMapper:
 class AllegroParametersMapper(BaseParametersMapper):
     def __init__(self):
         self.mapped_parameters = []
-        self.plugin_config = get_plugin_configuration(plugin_id='allegro_global', channel=self.channel)
+        self.plugin_config = get_plugin_configuration(plugin_id='allegro_global')
 
     def map(self):
         return self

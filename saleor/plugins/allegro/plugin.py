@@ -37,12 +37,6 @@ class AllegroConfiguration:
     delivery_shipping_rates: str
     delivery_handling_time: str
     publication_duration: str
-    publication_starting_at: str
-    auction_format: str
-    interval_for_offer_publication: str
-    offer_publication_chunks: str
-    offer_description_footer: str
-    channel_slug: str
 
 
 class AllegroPlugin(BasePlugin):
@@ -72,13 +66,7 @@ class AllegroPlugin(BasePlugin):
                              {"name": "warranty", "value": None},
                              {"name": "delivery_shipping_rates", "value": None},
                              {"name": "delivery_handling_time", "value": None},
-                             {"name": "publication_duration", "value": None},
-                             {"name": "publication_starting_at", "value": ''},
-                             {"name": "auction_format", "value": 'AUCTION'},
-                             {"name": "interval_for_offer_publication", "value": '5'},
-                             {"name": "offer_publication_chunks", "value": '13'},
-                             {"name": "offer_description_footer", "value": ''},
-                             {"name": "channel_slug", "value": ''}]
+                             {"name": "publication_duration", "value": None}]
     CONFIG_STRUCTURE = {
         "redirect_url": {
             "type": ConfigurationTypeField.STRING,
@@ -158,36 +146,6 @@ class AllegroPlugin(BasePlugin):
             "type": ConfigurationTypeField.STRING,
             "help_text": "publication_duration (PT72H)",
             "label": "publication_duration",
-        },
-        "publication_starting_at": {
-            "type": ConfigurationTypeField.STRING,
-            "help_text": "publication_starting_at w formacie %Y-%m-%d %H:%M (2020-09-02 20:00)",
-            "label": "publication_starting_at",
-        },
-        "auction_format": {
-            "type": ConfigurationTypeField.STRING,
-            "help_text": "AUCTION lub BUY_NOW",
-            "label": "auction_format",
-        },
-        "interval_for_offer_publication": {
-            "type": ConfigurationTypeField.STRING,
-            "help_text": "Podaj liczbe minut co ile mają być publikowane oferty.",
-            "label": "interval_for_offer_publication",
-        },
-        "offer_publication_chunks": {
-            "type": ConfigurationTypeField.STRING,
-            "help_text": "Podaj liczbe przedziałow w ktorych mają być publikowane oferty.",
-            "label": "offer_publication_chunks",
-        },
-        "offer_description_footer": {
-            "type": ConfigurationTypeField.STRING,
-            "help_text": "Podaj tekst który będzie widoczny na dole opisu oferty.",
-            "label": "offer_description_footer",
-        },
-        "channel_slug": {
-            "type": ConfigurationTypeField.STRING,
-            "help_text": "Channel slug.",
-            "label": "channel_slug",
         }
     }
 
@@ -216,20 +174,7 @@ class AllegroPlugin(BasePlugin):
                                            delivery_handling_time=configuration[
                                                "delivery_handling_time"],
                                            publication_duration=configuration[
-                                               "publication_duration"],
-                                           publication_starting_at=configuration[
-                                               "publication_starting_at"],
-                                           auction_format=configuration[
-                                               "auction_format"],
-                                           interval_for_offer_publication=configuration[
-                                               "interval_for_offer_publication"],
-                                           offer_publication_chunks=configuration[
-                                               "offer_publication_chunks"],
-                                           offer_description_footer=configuration[
-                                               "offer_description_footer"],
-                                           channel_slug=configuration[
-                                               "channel_slug"]
-                                           )
+                                               "publication_duration"])
 
 
     @classmethod
