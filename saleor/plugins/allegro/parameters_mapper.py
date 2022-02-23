@@ -4,7 +4,6 @@ from slugify import slugify
 
 from .utils import get_plugin_configuration
 from saleor.attribute.models.product import AssignedProductAttribute
-from saleor.attribute.models.base import AttributeValue
 from saleor.product.models import ProductVariant
 from saleor.attribute.models import AssignedProductAttributeValue
 
@@ -48,24 +47,32 @@ class BaseParametersMapper:
         return self
 
     def get_product_attributes(self):
-        assigned_product_attributes = AssignedProductAttribute.objects.filter(
-            product=self.product)
-
         attributes = {}
+        attributes_metadata = {}
+        assigned_product_attributes = AssignedProductAttribute.objects.filter(product=self.product)
+        attributes_values = AssignedProductAttributeValue.objects.select_related(
+            'assignment__assignment__attribute', 'value'
+        ).filter(assignment__in=assigned_product_attributes)
 
-        for assigned_product_attribute in assigned_product_attributes:
-            try:
-                attributes[slugify(
-                    str(assigned_product_attribute.assignment.attribute.slug))] = \
-                    str(AssignedProductAttributeValue.objects.get(
-                        assignment=assigned_product_attribute).value)
+        for attribute in attributes_values:
+            attributes_metadata[attribute.assignment.attribute.slug] = attribute.assignment.attribute.metadata
+            attributes[attribute.assignment.attribute.slug] = attribute.value.name
+        # Transform "joinTo" attributes
+        return self.transform_join_to_attributes(attributes, attributes_metadata)
 
-            except AttributeValue.DoesNotExist:
-                pass
+    @staticmethod
+    def transform_join_to_attributes(attributes, attributes_metadata):
+        for attribute in attributes.keys():
+            join_to = attributes_metadata[attribute].get('joinTo')
+            if join_to:
+                separator = attributes_metadata[attribute].get('separator')
+                join_to_slugs = join_to.split(',')
+                for join_to_slug in join_to_slugs:
+                    if attributes.get(join_to_slug):
+                        produced_string = separator if separator else ''
+                        attributes[join_to_slug] += produced_string + attributes[attribute]
 
-        attributes_name = attributes.keys()
-
-        return attributes, attributes_name
+        return attributes
 
     # TODO: rebuild, too much if conditionals, and add case when dictionary is empty
     #  like for bluzki dzieciece
@@ -137,12 +144,9 @@ class AllegroParametersMapper(BaseParametersMapper):
         self.mapped_parameters = []
         self.plugin_config = get_plugin_configuration(plugin_id='allegro_global')
 
-    def map(self):
-        return self
-
     def run_mapper(self, parameters_type):
 
-        attributes, attributes_name = self.get_product_attributes()
+        attributes = self.get_product_attributes()
 
         self.set_product_attributes(attributes)
 
@@ -188,39 +192,28 @@ class AllegroParametersMapper(BaseParametersMapper):
         if parameter == 'Materiał dominujący':
             return 'Materiał'
 
-        custom_map = self.product.product_type.metadata.get(
-            'allegro.mapping.attributes')
+        custom_map = self.product.product_type.metadata.get('allegro.mapping.attributes')
         if custom_map is not None:
             custom_map = [m for m in custom_map if '*' not in m]
-            if bool(custom_map):
+            if custom_map:
                 return self.parse_attributes_to_map(custom_map).get(parameter)
 
     def get_global_parameter_key(self, parameter):
-        config = self.plugin_config
-        custom_map = config.get(
-            'allegro.mapping.' + self.parse_parameters_name(parameter))
-        if custom_map is not None:
-            if bool(custom_map):
-                if isinstance(custom_map, str):
-                    return self.parse_list_to_map(
-                        json.loads(custom_map.replace('\'', '\"'))).get(parameter)
-                else:
-                    if isinstance(custom_map, list):
-                        return self.parse_list_to_map(custom_map).get(parameter)
-                    else:
-                        return self.parse_list_to_map(json.loads(custom_map)).get(
-                            parameter)
+        custom_map = self.plugin_config.get('allegro.mapping.' + self.parse_parameters_name(parameter))
 
-    def get_global_parameter_map(self, parameter):
-        config = self.plugin_config
-        custom_map = config.get('allegro.mapping.' + parameter)
-        if custom_map is not None:
+        if custom_map:
             if isinstance(custom_map, str):
                 return self.parse_list_to_map(
-                    json.loads(custom_map.replace('\'', '\"')))
+                    json.loads(custom_map.replace('\'', '\"'))).get(parameter)
+            elif isinstance(custom_map, list):
+                return self.parse_list_to_map(custom_map).get(parameter)
             else:
-                pass
-                # return self.parse_list_to_map((custom_map))
+                return self.parse_list_to_map(json.loads(custom_map)).get(parameter)
+
+    def get_global_parameter_map(self, parameter):
+        custom_map = self.plugin_config.get('allegro.mapping.' + parameter)
+        if isinstance(custom_map, str):
+            return self.parse_list_to_map(json.loads(custom_map.replace('\'', '\"')))
 
     @staticmethod
     def parse_list_to_map(list_in):
@@ -232,14 +225,6 @@ class AllegroParametersMapper(BaseParametersMapper):
     @staticmethod
     def parse_attributes_to_map(list_in):
         return {item[0]: item[1:] for item in list_in}
-
-    def get_mapped_parameter_value(self, parameter):
-        mapped_parameter_map = self.get_global_parameter_map(parameter)
-        if mapped_parameter_map is not None and mapped_parameter_map.get(
-                self.product_attributes.get(parameter)) is not None:
-            return mapped_parameter_map.get(self.product_attributes.get(parameter))
-
-        return self.product_attributes.get(parameter)
 
     def get_mapped_parameter_key_and_value(self, parameter):
         mapped_parameter_key_in_saleor_scope = None
@@ -261,13 +246,12 @@ class AllegroParametersMapper(BaseParametersMapper):
         return mapped_parameter_key, mapped_parameter_value, mapped_parameter_key_in_saleor_scope
 
     def get_parameter_out_of_saleor_specyfic(self, parameter):
-        custom_map = self.product.product_type.metadata.get(
-            'allegro.mapping.attributes')
+        custom_map = self.product.product_type.metadata.get('allegro.mapping.attributes')
         if custom_map is not None:
             if isinstance(custom_map, str):
                 custom_map = json.loads(custom_map.replace('\'', '\"'))
             custom_map = [m for m in custom_map if '*' in m]
-            if bool(custom_map):
+            if custom_map:
                 return self.parse_list_to_map(custom_map).get(parameter)
 
     def get_parameter_out_of_saleor_global(self, parameter):
