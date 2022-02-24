@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import StringAgg
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import BTreeIndex, GinIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 from django.db.models import JSONField  # type: ignore
@@ -77,6 +77,7 @@ class Category(ModelWithMetadata, MPTTModel, SeoModel):
     name = models.CharField(max_length=250)
     slug = models.SlugField(max_length=255, unique=True, allow_unicode=True)
     description = SanitizedJSONField(blank=True, null=True, sanitizer=clean_editor_js)
+    description_plaintext = TextField(blank=True)
     parent = models.ForeignKey(
         "self", null=True, blank=True, related_name="children", on_delete=models.CASCADE
     )
@@ -88,6 +89,17 @@ class Category(ModelWithMetadata, MPTTModel, SeoModel):
     objects = models.Manager()
     tree = TreeManager()
     translated = TranslationProxy()
+
+    class Meta:
+        indexes = [
+            *ModelWithMetadata.Meta.indexes,
+            GinIndex(
+                name="category_search_name_slug_gin",
+                # `opclasses` and `fields` should be the same length
+                fields=["name", "slug", "description_plaintext"],
+                opclasses=["gin_trgm_ops"] * 3,
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -150,6 +162,15 @@ class ProductType(ModelWithMetadata):
                 "Manage product types and attributes.",
             ),
         )
+        indexes = [
+            *ModelWithMetadata.Meta.indexes,
+            GinIndex(
+                name="product_type_search_gin",
+                # `opclasses` and `fields` should be the same length
+                fields=["name", "slug"],
+                opclasses=["gin_trgm_ops"] * 2,
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -352,6 +373,8 @@ class ProductsQueryset(models.QuerySet):
             "variants__attributes__assignment__attribute",
             "variants__variant_media__media",
             "variants__stocks__allocations",
+            "variants__channel_listings__channel",
+            "channel_listings__channel",
         )
         if single_object:
             return self.prefetch_related(*common_fields)
@@ -529,6 +552,7 @@ class ProductChannelListing(PublishableModel):
         ordering = ("pk",)
         indexes = [
             models.Index(fields=["publication_date"]),
+            BTreeIndex(fields=["discounted_price_amount"]),
         ]
 
     def is_available_for_purchase(self):
@@ -572,12 +596,14 @@ class ProductVariant(SortableModel, ModelWithMetadata):
         channel_listing: "ProductVariantChannelListing",
         discounts: Optional[Iterable[DiscountInfo]] = None,
     ) -> "Money":
+
         return calculate_discounted_price(
             product=product,
             price=channel_listing.price,
             discounts=discounts,
             collections=collections,
             channel=channel,
+            variant_id=self.id,
         )
 
     def get_weight(self):
@@ -808,6 +834,15 @@ class Collection(SeoModel, ModelWithMetadata):
 
     class Meta(ModelWithMetadata.Meta):
         ordering = ("slug",)
+        indexes = [
+            *ModelWithMetadata.Meta.indexes,
+            GinIndex(
+                name="collection_search_gin",
+                # `opclasses` and `fields` should be the same length
+                fields=["name", "slug"],
+                opclasses=["gin_trgm_ops"] * 2,
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name

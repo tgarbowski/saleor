@@ -13,8 +13,6 @@ from django.db import connection
 from django.db.backends.postgresql.base import DatabaseWrapper
 from django.http import HttpRequest, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import render
-from django.urls import reverse
-from django.utils.functional import SimpleLazyObject
 from django.views.generic import View
 from graphene_django.settings import graphene_settings
 from graphene_django.views import instantiate_middleware
@@ -27,9 +25,10 @@ from jwt.exceptions import PyJWTError
 from .. import __version__ as saleor_version
 from ..core.exceptions import PermissionDenied, ReadOnlyException
 from ..core.utils import is_valid_ipv4, is_valid_ipv6
+from .api import API_PATH
+from .context import get_context_value
 from .utils import query_fingerprint
 
-API_PATH = SimpleLazyObject(lambda: reverse("api"))
 INT_ERROR_MSG = "Int cannot represent non 32-bit signed integer value"
 
 unhandled_errors_logger = logging.getLogger("saleor.graphql.errors.unhandled")
@@ -170,8 +169,6 @@ class GraphQLView(View):
                     span.set_tag(opentracing.tags.PEER_HOST_IPV6, ip)
                 else:
                     continue
-                span.set_tag("http.client_ip", ip)
-                span.set_tag("http.client_ip_originated_from", settings.REAL_IP_ENVIRON)
                 break
 
             response = self._handle_query(request)
@@ -252,6 +249,10 @@ class GraphQLView(View):
         with opentracing.global_tracer().start_active_span("graphql_query") as scope:
             span = scope.span
             span.set_tag(opentracing.tags.COMPONENT, "graphql")
+            span.set_tag(
+                opentracing.tags.HTTP_URL,
+                request.build_absolute_uri(request.get_full_path()),
+            )
 
             query, variables, operation_name = self.get_graphql_params(request, data)
 
@@ -291,15 +292,19 @@ class GraphQLView(View):
                             root=self.get_root_value(),
                             variables=variables,
                             operation_name=operation_name,
-                            context=request,
+                            context=get_context_value(request),
                             middleware=self.middleware,
                             **extra_options,
                         )
                         if should_use_cache_for_scheme:
                             cache.set(key, response)
+                    if app := getattr(request, "app", None):
+                        span.set_tag("app.name", app.name)
                     return response
             except Exception as e:
                 span.set_tag(opentracing.tags.ERROR, True)
+                if app := getattr(request, "app", None):
+                    span.set_tag("app.name", app.name)
                 # In the graphql-core version that we are using,
                 # the Exception is raised for too big integers value.
                 # As it's a validation error we want to raise GraphQLError instead.

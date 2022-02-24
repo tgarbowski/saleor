@@ -2417,15 +2417,10 @@ def test_products_query_with_filter_stock_availability_channel_without_shipping_
     query_products_with_filter,
     staff_api_client,
     product,
-    order_line,
     permission_manage_products,
     channel_USD,
 ):
     channel_USD.shipping_zones.clear()
-    stock = product.variants.first().stocks.first()
-    Allocation.objects.create(
-        order_line=order_line, stock=stock, quantity_allocated=stock.quantity
-    )
     variables = {
         "filter": {"stockAvailability": "OUT_OF_STOCK"},
         "channel": channel_USD.slug,
@@ -2434,8 +2429,10 @@ def test_products_query_with_filter_stock_availability_channel_without_shipping_
     response = staff_api_client.post_graphql(query_products_with_filter, variables)
     content = get_graphql_content(response)
     products = content["data"]["products"]["edges"]
+    product_id = graphene.Node.to_global_id("Product", product.id)
 
-    assert len(products) == 0
+    assert len(products) == 1
+    assert products[0]["node"]["id"] == product_id
 
 
 @pytest.mark.parametrize(
@@ -6826,16 +6823,20 @@ def test_delete_product_with_image(
     mocked_recalculate_orders_task.assert_not_called()
 
 
+@patch("saleor.plugins.webhook.plugin._get_webhooks_for_event")
 @patch("saleor.plugins.webhook.plugin.trigger_webhooks_for_event.delay")
 @patch("saleor.order.tasks.recalculate_orders_task.delay")
 def test_delete_product_trigger_webhook(
     mocked_recalculate_orders_task,
     mocked_webhook_trigger,
+    mocked_get_webhooks_for_event,
+    any_webhook,
     staff_api_client,
     product,
     permission_manage_products,
     settings,
 ):
+    mocked_get_webhooks_for_event.return_value = [any_webhook]
     settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
 
     query = DELETE_PRODUCT_MUTATION
@@ -9686,9 +9687,10 @@ def test_collections_query_with_sort(
 @pytest.mark.parametrize(
     "category_filter, count",
     [
-        ({"search": "slug_"}, 3),
+        ({"search": "slug_"}, 4),
         ({"search": "Category1"}, 1),
-        ({"search": "cat1"}, 2),
+        ({"search": "cat1"}, 3),
+        ({"search": "Description cat1."}, 2),
         ({"search": "Subcategory_description"}, 1),
         ({"ids": [to_global_id("Category", 2), to_global_id("Category", 3)]}, 2),
     ],
@@ -9705,12 +9707,14 @@ def test_categories_query_with_filter(
         name="Category1",
         slug="slug_category1",
         description=dummy_editorjs("Description cat1."),
+        description_plaintext="Description cat1.",
     )
     Category.objects.create(
         id=2,
         name="Category2",
         slug="slug_category2",
         description=dummy_editorjs("Description cat2."),
+        description_plaintext="Description cat2.",
     )
 
     Category.objects.create(
@@ -9719,6 +9723,14 @@ def test_categories_query_with_filter(
         slug="slug_subcategory",
         parent=Category.objects.get(name="Category1"),
         description=dummy_editorjs("Subcategory_description of cat1."),
+        description_plaintext="Subcategory_description of cat1.",
+    )
+    Category.objects.create(
+        id=4,
+        name="DoubleSubCategory",
+        slug="slug_subcategory4",
+        description=dummy_editorjs("Super important Description cat1."),
+        description_plaintext="Super important Description cat1.",
     )
     variables = {"filter": category_filter}
     staff_api_client.user.user_permissions.add(permission_manage_products)

@@ -7,7 +7,6 @@ from ...attribute import AttributeInputType
 from ...attribute import models as attribute_models
 from ...attribute.models import AttributeValue
 from ...core.permissions import DiscountPermissions, ShippingPermissions
-from ...core.tracing import traced_resolver
 from ...discount import models as discount_models
 from ...menu import models as menu_models
 from ...page import models as page_models
@@ -59,7 +58,6 @@ class BaseTranslationType(CountableDjangoObjectType):
         abstract = True
 
     @staticmethod
-    @traced_resolver
     def resolve_language(root, *_args):
         try:
             language = next(
@@ -534,7 +532,7 @@ class ShippingMethodTranslatableContent(CountableDjangoObjectType):
         ShippingMethodTranslation, type_name="shipping method"
     )
     shipping_method = graphene.Field(
-        "saleor.graphql.shipping.types.ShippingMethod",
+        "saleor.graphql.shipping.types.ShippingMethodType",
         description=(
             "Shipping method are the methods you'll use to get customer's orders "
             " to them. They are directly exposed to the customers."

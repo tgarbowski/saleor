@@ -18,6 +18,7 @@ from graphene.types.mutation import MutationOptions
 from graphene_django.registry import get_global_registry
 from graphql.error import GraphQLError
 
+from ...core.db.utils import set_mutation_flag_in_context
 from ...core.exceptions import PermissionDenied
 from ...core.permissions import AccountPermissions
 from ..decorators import staff_member_or_app_required
@@ -230,7 +231,7 @@ class BaseMutation(graphene.Mutation):
     def get_nodes_or_error(cls, ids, field, only_type=None, qs=None):
         try:
             instances = get_nodes(ids, only_type, qs=qs)
-        except GraphQLError as e:
+        except (ValueError, GraphQLError) as e:
             raise ValidationError(
                 {field: ValidationError(str(e), code="graphql_error")}
             )
@@ -335,6 +336,7 @@ class BaseMutation(graphene.Mutation):
 
     @classmethod
     def mutate(cls, root, info, **data):
+        set_mutation_flag_in_context(info.context)
         if not cls.check_permissions(info.context):
             raise PermissionDenied()
 

@@ -21,7 +21,7 @@ from ..payment import (
     gateway,
 )
 from ..payment.models import Payment, Transaction
-from ..payment.utils import create_payment
+from ..payment.utils import create_payment, create_refund_data
 from ..warehouse.management import (
     deallocate_stock,
     deallocate_stock_for_order,
@@ -286,6 +286,7 @@ def fulfillment_tracking_updated(
         tracking_number=tracking_number,
         fulfillment=fulfillment,
     )
+    manager.tracking_number_updated(fulfillment)
     manager.order_updated(fulfillment.order)
 
 
@@ -496,7 +497,11 @@ def _create_fulfillment_lines(
         order_line = line["order_line"]
         if quantity > 0:
             line_stocks = variant_to_stock.get(order_line.variant_id)
-            if line_stocks is None:
+            stock = line_stocks[0] if line_stocks else None
+
+            # If there is no stock but allow_stock_to_be_exceeded == True
+            # we proceed with fulfilling the order, treat as error otherwise
+            if stock is None and not allow_stock_to_be_exceeded:
                 error_data = InsufficientStockData(
                     variant=order_line.variant,
                     order_line=order_line,
@@ -504,7 +509,7 @@ def _create_fulfillment_lines(
                 )
                 insufficient_stocks.append(error_data)
                 continue
-            stock = line_stocks[0]
+
             lines_info.append(
                 OrderLineData(
                     line=order_line,
@@ -1230,7 +1235,16 @@ def _process_refund(
         amount = min(payment.captured_amount, amount)
         try:
             gateway.refund(
-                payment, manager, amount=amount, channel_slug=order.channel.slug
+                payment,
+                manager,
+                amount=amount,
+                channel_slug=order.channel.slug,
+                refund_data=create_refund_data(
+                    order,
+                    order_lines_to_refund,
+                    fulfillment_lines_to_refund,
+                    refund_shipping_costs,
+                ),
             )
         except PaymentError:
             raise ValidationError(

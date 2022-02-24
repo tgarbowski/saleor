@@ -3,7 +3,6 @@ from urllib.parse import urljoin
 import graphene
 from django.conf import settings
 
-from ....core.tracing import traced_resolver
 from ....product.product_images import get_thumbnail
 from ...account.enums import AddressTypeEnum
 from ..enums import (
@@ -132,6 +131,11 @@ class CheckoutError(Error):
     variants = graphene.List(
         graphene.NonNull(graphene.ID),
         description="List of varint IDs which causes the error.",
+        required=False,
+    )
+    lines = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of line Ids which cause the error.",
         required=False,
     )
     address_type = AddressTypeEnum(
@@ -300,6 +304,11 @@ class PageError(Error):
 
 class PaymentError(Error):
     code = PaymentErrorCode(description="The error code.", required=True)
+    variants = graphene.List(
+        graphene.NonNull(graphene.ID),
+        description="List of varint IDs which causes the error.",
+        required=False,
+    )
 
 
 class GiftCardError(Error):
@@ -436,7 +445,6 @@ class Job(graphene.Interface):
     message = graphene.String(description="Job message.")
 
     @classmethod
-    @traced_resolver
     def resolve_type(cls, instance, _info):
         """Map a data object to a Graphene type."""
         MODEL_TO_TYPE_MAP = {

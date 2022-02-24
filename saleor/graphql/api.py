@@ -1,3 +1,6 @@
+from django.urls import reverse
+from django.utils.functional import SimpleLazyObject
+
 from .account.schema import AccountMutations, AccountQueries
 from .app.schema import AppMutations, AppQueries
 from .attribute.schema import AttributeMutations, AttributeQueries
@@ -25,6 +28,8 @@ from .webhook.schema import WebhookMutations, WebhookQueries
 from .metaquery.schema import MetadataQueries
 from .wms.schema import (WmsDocumentQueries, WmsDocPositionQueries, WmsDocumentMutations,
                          WmsDelivererQueries)
+
+API_PATH = SimpleLazyObject(lambda: reverse("api"))
 
 
 class Query(

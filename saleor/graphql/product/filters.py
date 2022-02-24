@@ -6,6 +6,7 @@ import django_filters
 import graphene
 from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db.models import Exists, F, FloatField, OuterRef, Q, Subquery, Sum
+from django.db.models.expressions import ExpressionWrapper
 from django.db.models.fields import IntegerField
 from django.db.models.functions import Cast, Coalesce
 from graphene_django.filter import GlobalIDMultipleChoiceFilter
@@ -31,7 +32,7 @@ from ...product.models import (
     ProductVariant,
     ProductVariantChannelListing,
 )
-from ...warehouse.models import Allocation, Stock
+from ...warehouse.models import Allocation, Stock, Warehouse
 from ..channel.filters import get_channel_slug_from_filter_data
 from ..core.filters import (
     EnumFilter,
@@ -58,18 +59,23 @@ T_PRODUCT_FILTER_QUERIES = Dict[int, Iterable[int]]
 
 
 def _clean_product_attributes_filter_input(filter_value, queries):
+    attribute_slugs = []
+    value_slugs = []
+    for attr_slug, val_slugs in filter_value:
+        attribute_slugs.append(attr_slug)
+        value_slugs.extend(val_slugs)
     attributes_slug_pk_map: Dict[str, int] = {}
     attributes_pk_slug_map: Dict[int, str] = {}
     values_map: Dict[str, Dict[str, int]] = defaultdict(dict)
-    for attr_slug, attr_pk in Attribute.objects.values_list("slug", "id"):
+    for attr_slug, attr_pk in Attribute.objects.filter(
+        slug__in=attribute_slugs
+    ).values_list("slug", "id"):
         attributes_slug_pk_map[attr_slug] = attr_pk
         attributes_pk_slug_map[attr_pk] = attr_slug
 
-    for (
-        attr_pk,
-        value_pk,
-        value_slug,
-    ) in AttributeValue.objects.values_list("attribute_id", "pk", "slug"):
+    for (attr_pk, value_pk, value_slug,) in AttributeValue.objects.filter(
+        slug__in=value_slugs, attribute_id__in=attributes_pk_slug_map.keys()
+    ).values_list("attribute_id", "pk", "slug"):
         attr_slug = attributes_pk_slug_map[attr_pk]
         values_map[attr_slug][value_slug] = value_pk
 
@@ -267,19 +273,19 @@ def filter_products_by_variant_price(qs, channel_slug, price_lte=None, price_gte
 def filter_products_by_minimal_price(
     qs, channel_slug, minimal_price_lte=None, minimal_price_gte=None
 ):
-    channels = Channel.objects.filter(slug=channel_slug).values("pk")
+    channel = Channel.objects.filter(slug=channel_slug).first()
+    if not channel:
+        return qs
     product_channel_listings = ProductChannelListing.objects.filter(
-        Exists(channels.filter(pk=OuterRef("channel_id")))
+        channel_id=channel.id
     )
     if minimal_price_lte:
         product_channel_listings = product_channel_listings.filter(
-            discounted_price_amount__lte=minimal_price_lte,
-            discounted_price_amount__isnull=False,
+            discounted_price_amount__lte=minimal_price_lte
         )
     if minimal_price_gte:
         product_channel_listings = product_channel_listings.filter(
-            discounted_price_amount__gte=minimal_price_gte,
-            discounted_price_amount__isnull=False,
+            discounted_price_amount__gte=minimal_price_gte
         )
     product_channel_listings = product_channel_listings.values("product_id")
     return qs.filter(Exists(product_channel_listings.filter(product_id=OuterRef("pk"))))
@@ -308,13 +314,14 @@ def filter_products_by_stock_availability(qs, stock_availability, channel_slug):
     )
     allocated_subquery = Subquery(queryset=allocations, output_field=IntegerField())
 
-    stocks = list(
+    stocks = (
         Stock.objects.for_channel(channel_slug)
         .filter(quantity__gt=Coalesce(allocated_subquery, 0))
-        .values_list("product_variant_id", flat=True)
+        .values("product_variant_id")
     )
-
-    variants = ProductVariant.objects.filter(pk__in=stocks).values("product_id")
+    variants = ProductVariant.objects.filter(
+        Exists(stocks.filter(product_variant_id=OuterRef("pk")))
+    ).values("product_id")
 
     if stock_availability == StockAvailability.IN_STOCK:
         qs = qs.filter(Exists(variants.filter(product_id=OuterRef("pk"))))
@@ -531,13 +538,12 @@ def filter_product_type(qs, _, value):
 def filter_stocks(qs, _, value):
     warehouse_ids = value.get("warehouse_ids")
     quantity = value.get("quantity")
-    # distinct's wil be removed in separated PR
     if warehouse_ids and not quantity:
-        return filter_warehouses(qs, _, warehouse_ids).distinct()
+        return filter_warehouses(qs, _, warehouse_ids)
     if quantity and not warehouse_ids:
-        return filter_quantity(qs, quantity).distinct()
+        return filter_quantity(qs, quantity)
     if quantity and warehouse_ids:
-        return filter_quantity(qs, quantity, warehouse_ids).distinct()
+        return filter_quantity(qs, quantity, warehouse_ids)
     return qs
 
 
@@ -546,7 +552,12 @@ def filter_warehouses(qs, _, value):
         _, warehouse_pks = resolve_global_ids_to_primary_keys(
             value, warehouse_types.Warehouse
         )
-        return qs.filter(variants__stocks__warehouse__pk__in=warehouse_pks)
+        warehouses = Warehouse.objects.filter(pk__in=warehouse_pks).values("pk")
+        variant_ids = Stock.objects.filter(
+            Exists(warehouses.filter(pk=OuterRef("warehouse")))
+        ).values("product_variant_id")
+        variants = ProductVariant.objects.filter(id__in=variant_ids).values("pk")
+        return qs.filter(Exists(variants.filter(product=OuterRef("pk"))))
     return qs
 
 
@@ -554,32 +565,33 @@ def filter_sku_list(qs, _, value):
     return qs.filter(sku__in=value)
 
 
-def filter_quantity(qs, quantity_value, warehouses=None):
+def filter_quantity(qs, quantity_value, warehouse_ids=None):
     """Filter products queryset by product variants quantity.
 
     Return product queryset which contains at least one variant with aggregated quantity
     between given range. If warehouses is given, it aggregates quantity only
     from stocks which are in given warehouses.
     """
-    product_variants = ProductVariant.objects.filter(product__in=qs)
-    if warehouses:
+    stocks = Stock.objects.all()
+    if warehouse_ids:
         _, warehouse_pks = resolve_global_ids_to_primary_keys(
-            warehouses, warehouse_types.Warehouse
+            warehouse_ids, warehouse_types.Warehouse
         )
-        product_variants = product_variants.annotate(
-            total_quantity=Sum(
-                "stocks__quantity", filter=Q(stocks__warehouse__pk__in=warehouse_pks)
-            )
-        )
-    else:
-        product_variants = product_variants.annotate(
-            total_quantity=Sum("stocks__quantity")
-        )
-
-    product_variants = filter_range_field(
-        product_variants, "total_quantity", quantity_value
+        stocks = stocks.filter(warehouse_id__in=warehouse_pks)
+    stocks = stocks.values("product_variant_id").filter(
+        product_variant_id=OuterRef("pk")
     )
-    return qs.filter(variants__in=product_variants)
+
+    stocks = Subquery(stocks.values_list(Sum("quantity")))
+    variants = ProductVariant.objects.annotate(
+        total_quantity=ExpressionWrapper(stocks, output_field=IntegerField())
+    )
+    variants = list(
+        filter_range_field(variants, "total_quantity", quantity_value).values_list(
+            "product_id", flat=True
+        )
+    )
+    return qs.filter(pk__in=variants)
 
 
 def filter_allegro_status(qs, _, value):
@@ -633,14 +645,13 @@ class ProductFilter(MetadataFilterBase):
     product_types = GlobalIDMultipleChoiceFilter(method=filter_product_types)
     stocks = ObjectTypeFilter(input_class=ProductStockFilterInput, method=filter_stocks)
     search = django_filters.CharFilter(method=filter_search)
-    ids = GlobalIDMultipleChoiceFilter(field_name="id")
+    ids = GlobalIDMultipleChoiceFilter(method=filter_product_ids)
     allegro_status = django_filters.CharFilter(method=filter_allegro_status)
     updated_at = ObjectTypeFilter(input_class=DateRangeInput,
                                   method=filter_updated_at_range)
     created_at = ObjectTypeFilter(input_class=DateRangeInput,
                                   method=filter_created_at_range)
     warehouse_location = ObjectTypeFilter(input_class=WarehouseLocationRangeInput, method=filter_warehouse_location)
-    ids = GlobalIDMultipleChoiceFilter(method=filter_product_ids)
 
     class Meta:
         model = Product
@@ -685,28 +696,38 @@ class ProductFilter(MetadataFilterBase):
 
 
 class ProductVariantFilter(MetadataFilterBase):
-    search = django_filters.CharFilter(
-        method=filter_fields_containing_value("name", "product__name", "sku")
-    )
+    search = django_filters.CharFilter(method="product_variant_filter_search")
     sku = ListObjectTypeFilter(input_class=graphene.String, method=filter_sku_list)
 
     class Meta:
         model = ProductVariant
         fields = ["search", "sku"]
 
+    def product_variant_filter_search(self, queryset, _name, value):
+        if not value:
+            return queryset
+        qs = Q(name__ilike=value) | Q(sku__ilike=value)
+        products = Product.objects.filter(name__ilike=value).values("pk")
+        qs |= Q(Exists(products.filter(variants=OuterRef("pk"))))
+        return queryset.filter(qs)
+
 
 class CollectionFilter(MetadataFilterBase):
     published = EnumFilter(
         input_class=CollectionPublished, method="filter_is_published"
     )
-    search = django_filters.CharFilter(
-        method=filter_fields_containing_value("slug", "name")
-    )
+    search = django_filters.CharFilter(method="collection_filter_search")
     ids = GlobalIDMultipleChoiceFilter(field_name="id")
 
     class Meta:
         model = Collection
         fields = ["published", "search"]
+
+    def collection_filter_search(self, queryset, _name, value):
+        if not value:
+            return queryset
+        name_slug_qs = Q(name__ilike=value) | Q(slug__ilike=value)
+        return queryset.filter(name_slug_qs)
 
     def filter_is_published(self, queryset, name, value):
         channel_slug = get_channel_slug_from_filter_data(self.data)
@@ -718,20 +739,28 @@ class CollectionFilter(MetadataFilterBase):
 
 
 class CategoryFilter(MetadataFilterBase):
-    search = django_filters.CharFilter(
-        method=filter_fields_containing_value("slug", "name", "description")
-    )
+    search = django_filters.CharFilter(method="category_filter_search")
     ids = GlobalIDMultipleChoiceFilter(field_name="id")
 
     class Meta:
         model = Category
         fields = ["search"]
 
+    @classmethod
+    def category_filter_search(cls, queryset, _name, value):
+        if not value:
+            return queryset
+        name_slug_desc_qs = (
+            Q(name__ilike=value)
+            | Q(slug__ilike=value)
+            | Q(description_plaintext__ilike=value)
+        )
+
+        return queryset.filter(name_slug_desc_qs)
+
 
 class ProductTypeFilter(MetadataFilterBase):
-    search = django_filters.CharFilter(
-        method=filter_fields_containing_value("name", "slug")
-    )
+    search = django_filters.CharFilter(method="filter_product_type_searchable")
 
     configurable = EnumFilter(
         input_class=ProductTypeConfigurable, method=filter_product_type_configurable
@@ -743,6 +772,13 @@ class ProductTypeFilter(MetadataFilterBase):
     class Meta:
         model = ProductType
         fields = ["search", "configurable", "product_type"]
+
+    @classmethod
+    def filter_product_type_searchable(cls, queryset, _name, value):
+        if not value:
+            return queryset
+        name_slug_qs = Q(name__ilike=value) | Q(slug__ilike=value)
+        return queryset.filter(name_slug_qs)
 
 
 class ProductFilterInput(ChannelFilterInputObjectType):

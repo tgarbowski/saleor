@@ -15,7 +15,7 @@ from ...checkout.fetch import (
     CheckoutLineInfo,
     fetch_checkout_info,
     fetch_checkout_lines,
-    get_valid_shipping_method_list_for_checkout_info,
+    get_shipping_method_list_for_checkout_info,
 )
 from ...checkout.utils import (
     add_promo_code_to_checkout,
@@ -27,10 +27,9 @@ from ...checkout.utils import (
     is_shipping_required,
     recalculate_checkout_discount,
     remove_promo_code_from_checkout,
-    validate_variants_in_checkout_lines,
 )
 from ...core import analytics
-from ...core.exceptions import InsufficientStock, PermissionDenied, ProductNotPublished
+from ...core.exceptions import InsufficientStock, PermissionDenied
 from ...core.permissions import AccountPermissions
 from ...core.tracing import traced_atomic_transaction
 from ...core.transactions import transaction_with_commit_on_errors
@@ -38,6 +37,8 @@ from ...order import models as order_models
 from ...product import models as product_models
 from ...product.models import ProductChannelListing
 from ...shipping import models as shipping_models
+from ...shipping.interface import ShippingMethodData
+from ...shipping.utils import convert_to_shipping_method_data
 from ...warehouse.availability import check_stock_quantity_bulk
 from ..account.i18n import I18nMixin
 from ..account.types import AddressInput
@@ -53,9 +54,8 @@ from ..core.validators import (
 from ..order.types import Order
 from ..product.types import ProductVariant
 from ..shipping.types import ShippingMethod
-from ..utils import get_user_or_app_from_context
+from ..utils import get_user_or_app_from_context, resolve_global_ids_to_primary_keys
 from .types import Checkout, CheckoutLine
-from .utils import prepare_insufficient_stock_checkout_validation_error
 
 ERROR_DOES_NOT_SHIP = "This checkout doesn't need shipping"
 
@@ -68,7 +68,7 @@ if TYPE_CHECKING:
 def clean_shipping_method(
     checkout_info: "CheckoutInfo",
     lines: Iterable[CheckoutLineInfo],
-    method: Optional[models.ShippingMethod],
+    method: Optional[ShippingMethodData],
 ) -> bool:
     """Check if current shipping method is valid."""
 
@@ -104,7 +104,7 @@ def update_checkout_shipping_method_if_invalid(
     is_valid = clean_shipping_method(
         checkout_info=checkout_info,
         lines=lines,
-        method=checkout_info.shipping_method,
+        method=checkout_info.delivery_method_info.delivery_method,
     )
 
     if not is_valid:
@@ -192,12 +192,34 @@ def validate_variants_available_for_purchase(variants_id: set, channel_id: int):
             graphene.Node.to_global_id("ProductVariant", pk)
             for pk in not_available_variants
         ]
-        error_code = CheckoutErrorCode.PRODUCT_UNAVAILABLE_FOR_PURCHASE
+        error_code = CheckoutErrorCode.PRODUCT_UNAVAILABLE_FOR_PURCHASE.value
         raise ValidationError(
             {
                 "lines": ValidationError(
                     "Cannot add lines for unavailable for purchase variants.",
-                    code=error_code,  # type: ignore
+                    code=error_code,
+                    params={"variants": variant_ids},
+                )
+            }
+        )
+
+
+def validate_variants_are_published(variants_id: set, channel_id: int):
+    published_variants = product_models.ProductChannelListing.objects.filter(
+        channel_id=channel_id, product__variants__id__in=variants_id, is_published=True
+    ).values_list("product__variants__id", flat=True)
+    not_published_variants = variants_id.difference(set(published_variants))
+    if not_published_variants:
+        variant_ids = [
+            graphene.Node.to_global_id("ProductVariant", pk)
+            for pk in not_published_variants
+        ]
+        error_code = CheckoutErrorCode.PRODUCT_NOT_PUBLISHED.value
+        raise ValidationError(
+            {
+                "lines": ValidationError(
+                    "Cannot add lines for unpublished variants.",
+                    code=error_code,
                     params={"variants": variant_ids},
                 )
             }
@@ -295,6 +317,7 @@ class CheckoutCreate(ModelMutation, I18nMixin):
         validate_variants_available_in_channel(
             variant_db_ids, channel.id, CheckoutErrorCode.UNAVAILABLE_VARIANT_IN_CHANNEL
         )
+        validate_variants_are_published(variant_db_ids, channel.id)
         check_lines_quantity(variants, quantities, country, channel.slug)
         return variants, quantities
 
@@ -359,7 +382,6 @@ class CheckoutCreate(ModelMutation, I18nMixin):
     @classmethod
     @traced_atomic_transaction()
     def save(cls, info, instance: models.Checkout, cleaned_input):
-        channel = cleaned_input["channel"]
         # Create the checkout object
         instance.save()
 
@@ -371,16 +393,7 @@ class CheckoutCreate(ModelMutation, I18nMixin):
         variants = cleaned_input.get("variants")
         quantities = cleaned_input.get("quantities")
         if variants and quantities:
-            try:
-                add_variants_to_checkout(instance, variants, quantities, channel.slug)
-            except InsufficientStock as exc:
-                error = prepare_insufficient_stock_checkout_validation_error(exc)
-                raise ValidationError({"lines": error})
-            except ProductNotPublished as exc:
-                raise ValidationError(
-                    "Can't create checkout with unpublished product.",
-                    code=exc.code,
-                )
+            add_variants_to_checkout(instance, variants, quantities)
 
         # Save addresses
         shipping_address = cleaned_input.get("shipping_address")
@@ -468,35 +481,43 @@ class CheckoutLinesAdd(BaseMutation):
         cls.validate_checkout_lines(
             variants, quantities, checkout.get_country(), channel_slug, lines=lines
         )
-        variants_db_ids = {variant.id for variant in variants}
-        validate_variants_available_for_purchase(variants_db_ids, checkout.channel_id)
-        validate_variants_available_in_channel(
-            variants_db_ids,
-            checkout.channel_id,
-            CheckoutErrorCode.UNAVAILABLE_VARIANT_IN_CHANNEL,
-        )
+
+        variants_ids_to_validate = {
+            variant.id
+            for variant, quantity in zip(variants, quantities)
+            if quantity != 0
+        }
+
+        # validate variant only when line quantity is bigger than 0
+        if variants_ids_to_validate:
+            validate_variants_available_for_purchase(
+                variants_ids_to_validate, checkout.channel_id
+            )
+            validate_variants_available_in_channel(
+                variants_ids_to_validate,
+                checkout.channel_id,
+                CheckoutErrorCode.UNAVAILABLE_VARIANT_IN_CHANNEL,
+            )
+            validate_variants_are_published(
+                variants_ids_to_validate, checkout.channel_id
+            )
 
         if variants and quantities:
-            try:
-                checkout = add_variants_to_checkout(
-                    checkout,
-                    variants,
-                    quantities,
-                    channel_slug,
-                    skip_stock_check=True,  # already checked by validate_checkout_lines
-                    replace=replace,
-                )
-            except ProductNotPublished as exc:
-                raise ValidationError(
-                    "Can't add unpublished product.",
-                    code=exc.code,
-                )
-
-        lines = fetch_checkout_lines(checkout)
-        checkout_info.valid_shipping_methods = (
-            get_valid_shipping_method_list_for_checkout_info(
-                checkout_info, checkout_info.shipping_address, lines, discounts, manager
+            checkout = add_variants_to_checkout(
+                checkout,
+                variants,
+                quantities,
+                replace=replace,
             )
+
+        lines, _ = fetch_checkout_lines(checkout)
+        checkout_info.all_shipping_methods = get_shipping_method_list_for_checkout_info(
+            checkout_info,
+            checkout_info.shipping_address,
+            lines,
+            discounts,
+            manager,
+            checkout_info.channel.shipping_method_listings.all(),
         )
         return lines
 
@@ -526,7 +547,7 @@ class CheckoutLinesAdd(BaseMutation):
 
         checkout_info = fetch_checkout_info(checkout, [], discounts, manager)
 
-        lines = fetch_checkout_lines(checkout)
+        lines, _ = fetch_checkout_lines(checkout)
         lines = cls.clean_input(
             checkout,
             variants,
@@ -538,10 +559,13 @@ class CheckoutLinesAdd(BaseMutation):
             replace,
         )
 
-        checkout_info.valid_shipping_methods = (
-            get_valid_shipping_method_list_for_checkout_info(
-                checkout_info, checkout_info.shipping_address, lines, discounts, manager
-            )
+        checkout_info.all_shipping_methods = get_shipping_method_list_for_checkout_info(
+            checkout_info,
+            checkout_info.shipping_address,
+            lines,
+            discounts,
+            manager,
+            checkout_info.channel.shipping_method_listings.all(),
         )
 
         update_checkout_shipping_method_if_invalid(checkout_info, lines)
@@ -579,6 +603,67 @@ class CheckoutLinesUpdate(CheckoutLinesAdd):
         return super().perform_mutation(
             root, info, lines, checkout_id, token, replace=True
         )
+
+
+class CheckoutLinesDelete(BaseMutation):
+    checkout = graphene.Field(Checkout, description="An updated checkout.")
+
+    class Arguments:
+        token = UUID(description="Checkout token.", required=True)
+        lines_ids = graphene.List(
+            graphene.ID,
+            required=True,
+            description="A list of checkout lines.",
+        )
+
+    class Meta:
+        description = "Deletes checkout lines."
+        error_type_class = CheckoutError
+
+    @classmethod
+    def validate_lines(cls, checkout, lines_to_delete):
+        lines = checkout.lines.all()
+        all_lines_ids = [str(line.id) for line in lines]
+        invalid_line_ids = list()
+        for line_to_delete in lines_to_delete:
+            if line_to_delete not in all_lines_ids:
+                line_to_delete = graphene.Node.to_global_id(
+                    "CheckoutLine", line_to_delete
+                )
+                invalid_line_ids.append(line_to_delete)
+
+        if invalid_line_ids:
+            raise ValidationError(
+                {
+                    "line_id": ValidationError(
+                        "Provided line_ids aren't part of checkout.",
+                        params={"lines": invalid_line_ids},
+                    )
+                }
+            )
+
+    @classmethod
+    def perform_mutation(cls, _root, info, lines_ids, token=None):
+        checkout = get_checkout_by_token(token)
+
+        _, lines_to_delete = resolve_global_ids_to_primary_keys(
+            lines_ids, graphene_type="CheckoutLine", raise_error=True
+        )
+        cls.validate_lines(checkout, lines_to_delete)
+        checkout.lines.filter(id__in=lines_to_delete).delete()
+
+        lines, _ = fetch_checkout_lines(checkout)
+
+        manager = info.context.plugins
+        checkout_info = fetch_checkout_info(
+            checkout, lines, info.context.discounts, manager
+        )
+        update_checkout_shipping_method_if_invalid(checkout_info, lines)
+        recalculate_checkout_discount(
+            manager, checkout_info, lines, info.context.discounts
+        )
+        manager.checkout_updated(checkout)
+        return CheckoutLinesDelete(checkout=checkout)
 
 
 class CheckoutLineDelete(BaseMutation):
@@ -623,7 +708,7 @@ class CheckoutLineDelete(BaseMutation):
             line.delete()
 
         manager = info.context.plugins
-        lines = fetch_checkout_lines(checkout)
+        lines, _ = fetch_checkout_lines(checkout)
         checkout_info = fetch_checkout_info(
             checkout, lines, info.context.discounts, manager
         )
@@ -819,7 +904,7 @@ class CheckoutShippingAddressUpdate(BaseMutation, I18nMixin):
                     }
                 )
 
-        lines = fetch_checkout_lines(checkout)
+        lines, _ = fetch_checkout_lines(checkout)
         if not is_shipping_required(lines):
             raise ValidationError(
                 {
@@ -1010,7 +1095,7 @@ class CheckoutShippingMethodUpdate(BaseMutation):
         shipping_method_id = graphene.ID(required=True, description="Shipping method.")
 
     class Meta:
-        description = "Updates the shipping address of the checkout."
+        description = "Updates the shipping method of the checkout."
         error_type_class = CheckoutError
         error_type_field = "checkout_errors"
 
@@ -1032,7 +1117,9 @@ class CheckoutShippingMethodUpdate(BaseMutation):
             )
 
         manager = info.context.plugins
-        lines = fetch_checkout_lines(checkout)
+
+        lines, _ = fetch_checkout_lines(checkout)
+
         checkout_info = fetch_checkout_info(
             checkout, lines, info.context.discounts, manager
         )
@@ -1059,7 +1146,12 @@ class CheckoutShippingMethodUpdate(BaseMutation):
         shipping_method_is_valid = clean_shipping_method(
             checkout_info=checkout_info,
             lines=lines,
-            method=shipping_method,
+            method=convert_to_shipping_method_data(
+                shipping_method,
+                checkout_info.channel.shipping_method_listings.get(
+                    shipping_method=shipping_method
+                ),
+            ),
         )
         if not shipping_method_is_valid:
             raise ValidationError(
@@ -1187,8 +1279,30 @@ class CheckoutComplete(BaseMutation):
                 raise e
 
             manager = info.context.plugins
-            lines = fetch_checkout_lines(checkout)
-            validate_variants_in_checkout_lines(lines)
+            lines, unavailable_variant_pks = fetch_checkout_lines(checkout)
+            if unavailable_variant_pks:
+                not_available_variants_ids = {
+                    graphene.Node.to_global_id("ProductVariant", pk)
+                    for pk in unavailable_variant_pks
+                }
+                raise ValidationError(
+                    {
+                        "lines": ValidationError(
+                            "Some of the checkout lines variants are unavailable.",
+                            code=CheckoutErrorCode.UNAVAILABLE_VARIANT_IN_CHANNEL.value,
+                            params={"variants": not_available_variants_ids},
+                        )
+                    }
+                )
+            if not lines:
+                raise ValidationError(
+                    {
+                        "lines": ValidationError(
+                            "Cannot complete checkout without lines.",
+                            code=CheckoutErrorCode.NO_LINES.value,
+                        )
+                    }
+                )
             checkout_info = fetch_checkout_info(
                 checkout, lines, info.context.discounts, manager
             )
@@ -1263,7 +1377,9 @@ class CheckoutAddPromoCode(BaseMutation):
 
         manager = info.context.plugins
         discounts = info.context.discounts
-        lines = fetch_checkout_lines(checkout)
+
+        lines, _ = fetch_checkout_lines(checkout)
+
         checkout_info = fetch_checkout_info(checkout, lines, discounts, manager)
 
         add_promo_code_to_checkout(
@@ -1274,10 +1390,13 @@ class CheckoutAddPromoCode(BaseMutation):
             discounts,
         )
 
-        checkout_info.valid_shipping_methods = (
-            get_valid_shipping_method_list_for_checkout_info(
-                checkout_info, checkout_info.shipping_address, lines, discounts, manager
-            )
+        checkout_info.all_shipping_methods = get_shipping_method_list_for_checkout_info(
+            checkout_info,
+            checkout_info.shipping_address,
+            lines,
+            discounts,
+            manager,
+            checkout_info.channel.shipping_method_listings.all(),
         )
 
         update_checkout_shipping_method_if_invalid(checkout_info, lines)

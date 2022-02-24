@@ -15,3 +15,6 @@ class PaymentErrorCode(Enum):
     PAYMENT_ERROR = "payment_error"
     NOT_SUPPORTED_GATEWAY = "not_supported_gateway"
     CHANNEL_INACTIVE = "channel_inactive"
+    BALANCE_CHECK_ERROR = "balance_check_error"
+    UNAVAILABLE_VARIANT_IN_CHANNEL = "unavailable_variant_in_channel"
+    NO_CHECKOUT_LINES = "no_checkout_lines"
