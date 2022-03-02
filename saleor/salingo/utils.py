@@ -5,6 +5,7 @@ from datetime import date, datetime
 from django.core.exceptions import ValidationError
 
 from aiohttp.client import ClientSession
+import boto3
 
 
 def read_sql_from_file(sql_file_name):
@@ -71,3 +72,11 @@ async def patch_one(obj, sess, sem):
                 raise TooManyRequestsException(
                     message=obj['url']
                 )
+
+
+def get_aws_secret(secret_id: str) -> str:
+    client = boto3.client('secretsmanager', region_name='eu-central-1')
+    response = client.get_secret_value(
+        SecretId=secret_id,
+    )
+    return response.get('SecretString')

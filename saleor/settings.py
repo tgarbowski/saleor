@@ -22,6 +22,7 @@ from sentry_sdk.integrations.logging import ignore_logger
 
 from . import patched_print_object
 from .core.languages import LANGUAGES as CORE_LANGUAGES
+from .salingo.utils import get_aws_secret
 
 
 def get_list(text):
@@ -179,7 +180,13 @@ if not SECRET_KEY and DEBUG:
     warnings.warn("SECRET_KEY not configured, using a random temporary key.")
     SECRET_KEY = get_random_secret_key()
 
-RSA_PRIVATE_KEY = os.environ.get("RSA_PRIVATE_KEY", None)
+AWS_SECRET_ID = os.environ.get("AWS_SECRET_ID", None)
+
+if AWS_SECRET_ID:
+    RSA_PRIVATE_KEY = get_aws_secret(AWS_SECRET_ID)
+else:
+    RSA_PRIVATE_KEY = os.environ.get("RSA_PRIVATE_KEY", None)
+
 RSA_PRIVATE_PASSWORD = os.environ.get("RSA_PRIVATE_PASSWORD", None)
 JWT_MANAGER_PATH = os.environ.get(
     "JWT_MANAGER_PATH", "saleor.core.jwt_manager.JWTManager"
@@ -580,7 +587,7 @@ BUILTIN_PLUGINS = [
     #"saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
     "saleor.payment.gateways.authorize_net.plugin.AuthorizeNetGatewayPlugin",
     "saleor.payment.gateways.payu.plugin.PayuGatewayPlugin",
-    "saleor.payment.gateways.np_atobarai.plugin.NPAtobaraiGatewayPlugin",
+    #"saleor.payment.gateways.np_atobarai.plugin.NPAtobaraiGatewayPlugin",
     "saleor.plugins.invoicing.plugin.InvoicingPlugin",
     "saleor.plugins.user_email.plugin.UserEmailPlugin",
     "saleor.plugins.admin_email.plugin.AdminEmailPlugin",
