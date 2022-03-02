@@ -8,7 +8,7 @@ def resolve_json_metadata(metadata: dict):
     return metadata
 
 def resolve_json_private_metadata(root: ModelWithMetadata, info):
-    item_type = resolve_object_with_metadata_type(root)
+    item_type, item_id = resolve_object_with_metadata_type(root)
     if not item_type:
         raise NotImplementedError(
             f"Model {type(root)} can't be mapped to type with metadata. "
@@ -19,7 +19,7 @@ def resolve_json_private_metadata(root: ModelWithMetadata, info):
     if not get_required_permission:
         raise PermissionDenied()
 
-    required_permission = get_required_permission(info, root.pk)
+    required_permission = get_required_permission(info, item_id)
     if not required_permission:
         raise PermissionDenied()
 
