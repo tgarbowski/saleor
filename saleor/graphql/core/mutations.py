@@ -133,6 +133,7 @@ class BaseMutation(graphene.Mutation):
         _meta.permissions = permissions
         _meta.error_type_class = error_type_class
         _meta.error_type_field = error_type_field
+        _meta.errors_mapping = errors_mapping
         super().__init_subclass_with_meta__(
             description=description, _meta=_meta, **options
         )
