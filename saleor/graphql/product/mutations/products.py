@@ -890,24 +890,7 @@ class ProductVariantCreate(ModelMutation):
             except ValidationError as exc:
                 raise ValidationError({"attributes": exc})
 
-        cls.clean_sku(product_type, cleaned_input)
-
         return cleaned_input
-
-    @classmethod
-    def clean_sku(cls, product_type, cleaned_input):
-        if product_type and not product_type.has_variants:
-            input_sku = cleaned_input.get("sku")
-
-            if models.ProductVariant.objects.filter(sku=input_sku).exists():
-                raise ValidationError(
-                    {
-                        "sku": ValidationError(
-                            "Product with this SKU already exists.",
-                            code=ProductErrorCode.ALREADY_EXISTS,
-                        )
-                    }
-                )
 
     @classmethod
     def check_for_duplicates_in_stocks(cls, stocks_data):
