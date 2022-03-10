@@ -124,37 +124,7 @@ class PayuGatewayPlugin(BasePlugin):
 
     def _get_gateway_config(self):
         return self.config
-    '''
-    @require_active_plugin
-    def authorize_payment(
-        self, payment_information: "PaymentData", previous_value
-    ) -> "GatewayResponse":
-        raise NotImplementedError()
 
-    @require_active_plugin
-    def capture_payment(
-        self, payment_information: "PaymentData", previous_value
-    ) -> "GatewayResponse":
-        raise NotImplementedError()
-
-    @require_active_plugin
-    def confirm_payment(
-        self, payment_information: "PaymentData", previous_value
-    ) -> "GatewayResponse":
-        raise NotImplementedError()
-
-    @require_active_plugin
-    def refund_payment(
-        self, payment_information: "PaymentData", previous_value
-    ) -> "GatewayResponse":
-        raise NotImplementedError()
-
-    @require_active_plugin
-    def void_payment(
-        self, payment_information: "PaymentData", previous_value
-    ) -> "GatewayResponse":
-        raise NotImplementedError()
-    '''
     @require_active_plugin
     def process_payment(
         self, payment_information: "PaymentData", previous_value
