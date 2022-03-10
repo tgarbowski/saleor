@@ -168,7 +168,17 @@ class OrderFulfill(BaseMutation):
             )
 
     @classmethod
-    def clean_input(cls, data):
+    def clean_input(cls, order, data):
+        if not order.is_fully_paid():
+            raise ValidationError(
+                {
+                    "order": ValidationError(
+                        "Cannot fulfill unpaid order.",
+                        code=OrderErrorCode.CANNOT_FULFILL_UNPAID_ORDER.value,
+                    )
+                }
+            )
+
         lines = data["lines"]
 
         warehouse_ids_for_lines = [
@@ -211,7 +221,7 @@ class OrderFulfill(BaseMutation):
         order = cls.get_node_or_error(info, order, field="order", only_type=Order)
         data = data.get("input")
 
-        cleaned_input = cls.clean_input(data)
+        cleaned_input = cls.clean_input(order, data)
 
         user = info.context.user
         lines_for_warehouses = cleaned_input["lines_for_warehouses"]

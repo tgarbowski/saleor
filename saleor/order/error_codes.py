@@ -31,3 +31,4 @@ class OrderErrorCode(Enum):
     DUPLICATED_INPUT_ITEM = "duplicated_input_item"
     NOT_AVAILABLE_IN_CHANNEL = "not_available_in_channel"
     CHANNEL_INACTIVE = "channel_inactive"
+    CANNOT_FULFILL_UNPAID_ORDER = "cannot_fulfill_unpaid_order"
