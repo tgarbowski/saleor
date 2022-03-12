@@ -2,10 +2,10 @@ import logging
 import operator
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 from email.headerregistry import Address
-from typing import List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 import dateutil.parser
 import html2text
@@ -15,12 +15,17 @@ from babel.numbers import format_currency
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.core.mail.backends.smtp import EmailBackend
+from django.core.validators import EmailValidator
 from django_prices.utils.locale import get_locale_data
 
 from ..product.product_images import get_thumbnail_size
 from .base_plugin import ConfigurationTypeField
 from .error_codes import PluginErrorCode
-from .models import PluginConfiguration
+
+if TYPE_CHECKING:
+    from ..plugins.base_plugin import BasePlugin
+    from ..plugins.models import PluginConfiguration
+
 
 logger = logging.getLogger(__name__)
 
@@ -280,26 +285,36 @@ def validate_default_email_configuration(
             }
         )
 
+    EmailValidator(
+        message={
+            "sender_address": ValidationError(
+                "Invalid email", code=PluginErrorCode.INVALID.value
+            )
+        }
+    )(config.sender_address)
+
     try:
         validate_email_config(config)
     except Exception as e:
         logger.warning("Unable to connect to email backend.", exc_info=e)
         error_msg = (
-            "Unable to connect to email backend. Make sure that you provided "
-            "correct values."
+            f"Unable to connect to email backend. Make sure that you provided "
+            f"correct values. {e}"
         )
+
         raise ValidationError(
             {
                 c: ValidationError(
                     error_msg, code=PluginErrorCode.PLUGIN_MISCONFIGURED.value
                 )
-                for c in configuration.keys()
+                for c in asdict(config).keys()
             }
         )
 
 
 def validate_format_of_provided_templates(
-    plugin_configuration: "PluginConfiguration", template_fields: List[str]
+    plugin_configuration: "PluginConfiguration",
+    email_templates_data: List[Dict],
 ):
     """Make sure that the templates provided by the user have the correct structure."""
     configuration = plugin_configuration.configuration
@@ -309,8 +324,9 @@ def validate_format_of_provided_templates(
         return
     compiler = pybars.Compiler()
     errors = {}
-    for field in template_fields:
-        template_str = configuration.get(field)
+    for email_data in email_templates_data:
+        field = email_data.get("name")
+        template_str = email_data.get("value")
         if not template_str or template_str == DEFAULT_EMAIL_VALUE:
             continue
         try:
@@ -325,25 +341,31 @@ def validate_format_of_provided_templates(
 
 
 def get_email_template(
-    plugin_configuration: list, template_field_name: str, default: str
+    plugin: "BasePlugin", template_field_name: str, default: str
 ) -> str:
     """Get email template from plugin configuration."""
-    for config_field in plugin_configuration:
-        if config_field["name"] == template_field_name:
-            return config_field["value"] or default
-    return default
+    template_str = default
+
+    if plugin.db_config:
+        email_template = plugin.db_config.email_templates.filter(
+            name=template_field_name
+        ).first()
+        if email_template:
+            template_str = email_template.value
+
+    return template_str
 
 
 def get_email_template_or_default(
-    plugin_configuration: Optional[list],
+    plugin: "BasePlugin",
     template_field_name: str,
     default_template_file_name: str,
     default_template_path: str,
 ):
     email_template_str = DEFAULT_EMAIL_VALUE
-    if plugin_configuration:
+    if plugin:
         email_template_str = get_email_template(
-            plugin_configuration=plugin_configuration,
+            plugin=plugin,
             template_field_name=template_field_name,
             default=DEFAULT_EMAIL_VALUE,
         )

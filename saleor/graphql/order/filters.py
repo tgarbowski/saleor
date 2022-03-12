@@ -1,5 +1,5 @@
 import django_filters
-from django.db.models import Exists, OuterRef, Q, Sum
+from django.db.models import Exists, OuterRef, Q
 from graphene_django.filter import GlobalIDMultipleChoiceFilter
 
 from ...account.models import User
@@ -31,7 +31,10 @@ def get_payment_id_from_query(value):
 def get_order_id_from_query(value):
     if value.startswith("#"):
         value = value[1:]
-    return value if value.isnumeric() else None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def filter_order_by_payment(qs, payment_id):
@@ -47,9 +50,6 @@ def filter_status(qs, _, value):
         query_objects |= qs.filter(status__in=value)
 
     if OrderStatusFilter.READY_TO_FULFILL in value:
-        # to use & between queries both of them need to have applied the same
-        # annotate
-        qs = qs.annotate(amount_paid=Sum("payments__captured_amount"))
         query_objects |= qs.ready_to_fulfill()
 
     if OrderStatusFilter.READY_TO_CAPTURE in value:

@@ -22,6 +22,7 @@ from sentry_sdk.integrations.logging import ignore_logger
 
 from . import patched_print_object
 from .core.languages import LANGUAGES as CORE_LANGUAGES
+from .salingo.utils import get_aws_secret
 
 
 def get_list(text):
@@ -70,10 +71,22 @@ ALLOWED_CLIENT_HOSTS = get_list(ALLOWED_CLIENT_HOSTS)
 
 INTERNAL_IPS = get_list(os.environ.get("INTERNAL_IPS", "127.0.0.1"))
 
+DATABASE_CONNECTION_DEFAULT_NAME = "default"
+# TODO: For local envs will be activated in separate PR.
+# We need to update docs an saleor platform.
+# This variable should be set to `replica`
+DATABASE_CONNECTION_REPLICA_NAME = "default"
+
 DATABASES = {
-    "default": dj_database_url.config(
+    DATABASE_CONNECTION_DEFAULT_NAME: dj_database_url.config(
         default="postgres://saleor:saleor@localhost:5432/saleor", conn_max_age=600
-    )
+    ),
+    # TODO: We need to add read only user to saleor platfrom, and we need to update
+    # docs.
+    # DATABASE_CONNECTION_REPLICA_NAME: dj_database_url.config(
+    #     default="postgres://saleor_read_only:saleor@localhost:5432/saleor",
+    #     conn_max_age=600,
+    # ),
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
@@ -166,6 +179,18 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 if not SECRET_KEY and DEBUG:
     warnings.warn("SECRET_KEY not configured, using a random temporary key.")
     SECRET_KEY = get_random_secret_key()
+
+AWS_SECRET_ID = os.environ.get("AWS_SECRET_ID", None)
+
+if AWS_SECRET_ID:
+    RSA_PRIVATE_KEY = get_aws_secret(AWS_SECRET_ID)
+else:
+    RSA_PRIVATE_KEY = os.environ.get("RSA_PRIVATE_KEY", None)
+
+RSA_PRIVATE_PASSWORD = os.environ.get("RSA_PRIVATE_PASSWORD", None)
+JWT_MANAGER_PATH = os.environ.get(
+    "JWT_MANAGER_PATH", "saleor.core.jwt_manager.JWTManager"
+)
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -541,11 +566,13 @@ def SENTRY_INIT(dsn: str, sentry_opts: dict):
 GRAPHENE = {
     "RELAY_CONNECTION_ENFORCE_FIRST_OR_LAST": True,
     "RELAY_CONNECTION_MAX_LIMIT": 100,
-    "MIDDLEWARE": [
-        "saleor.graphql.middleware.app_middleware",
-        "saleor.graphql.middleware.JWTMiddleware",
-    ],
 }
+
+# Max number entities that can be requested in single query by Apollo Federation
+# Federation protocol implements no securities on its own part - malicious actor
+# may build a query that requests for potentially few thousands of entities.
+# Set FEDERATED_QUERY_MAX_ENTITIES=0 in env to disable (not recommended)
+FEDERATED_QUERY_MAX_ENTITIES = int(os.environ.get("FEDERATED_QUERY_MAX_ENTITIES", 100))
 
 BUILTIN_PLUGINS = [
     "saleor.plugins.avatax.plugin.AvataxPlugin",
@@ -560,6 +587,7 @@ BUILTIN_PLUGINS = [
     #"saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
     "saleor.payment.gateways.authorize_net.plugin.AuthorizeNetGatewayPlugin",
     "saleor.payment.gateways.payu.plugin.PayuGatewayPlugin",
+    #"saleor.payment.gateways.np_atobarai.plugin.NPAtobaraiGatewayPlugin",
     "saleor.plugins.invoicing.plugin.InvoicingPlugin",
     "saleor.plugins.user_email.plugin.UserEmailPlugin",
     "saleor.plugins.admin_email.plugin.AdminEmailPlugin",
@@ -601,6 +629,11 @@ if (
 # for getting response from the server.
 WEBHOOK_TIMEOUT = 10
 WEBHOOK_SYNC_TIMEOUT = 20
+
+# This is deprecated env which will be removed in Saleor 3.1
+WEBHOOK_EXCLUDED_SHIPPING_REQUEST_TIMEOUT = int(
+    os.environ.get("WEBHOOK_EXCLUDED_SHIPPING_REQUEST_TIMEOUT", 2)
+)
 
 # Initialize a simple and basic Jaeger Tracing integration
 # for open-tracing if enabled.

@@ -1,5 +1,4 @@
 from decimal import Decimal
-from operator import attrgetter
 from typing import Optional
 
 import graphene
@@ -18,14 +17,13 @@ from ...core.permissions import (
     ProductPermissions,
     has_one_of_permissions,
 )
-from ...core.taxes import display_gross_prices
 from ...core.tracing import traced_resolver
 from ...discount import OrderDiscountType
 from ...graphql.utils import get_user_or_app_from_context
 from ...graphql.warehouse.dataloaders import WarehouseByIdLoader
 from ...order import OrderStatus, models
 from ...order.models import FulfillmentStatus
-from ...order.utils import get_order_country, get_valid_shipping_methods_for_order
+from ...order.utils import get_order_country
 from ...payment import ChargeStatus
 from ...payment.dataloaders import PaymentsByOrderIdLoader
 from ...payment.model_helpers import (
@@ -36,6 +34,7 @@ from ...payment.model_helpers import (
 from ...product import ProductMediaTypes
 from ...product.models import ALL_PRODUCTS_PERMISSIONS
 from ...product.product_images import get_product_image_thumbnail
+from ...shipping.utils import convert_to_shipping_method_data
 from ..account.dataloaders import AddressByIdLoader, UserByUserIdLoader
 from ..account.types import User
 from ..account.utils import requestor_has_access
@@ -65,8 +64,11 @@ from ..product.dataloaders import (
     ProductVariantByIdLoader,
 )
 from ..product.types import ProductVariant
-from ..shipping.dataloaders import ShippingMethodByIdLoader
-from ..shipping.types import ShippingMethod
+from ..shipping.dataloaders import (
+    ShippingMethodByIdLoader,
+    ShippingMethodChannelListingByShippingMethodIdAndChannelSlugLoader,
+)
+from ..shipping.types import ShippingMethod, ShippingMethodChannelListing
 from ..warehouse.types import Allocation, Warehouse
 from .dataloaders import (
     AllocationsByOrderLineIdLoader,
@@ -78,6 +80,7 @@ from .dataloaders import (
     OrderLinesByOrderIdLoader,
 )
 from .enums import OrderEventsEmailsEnum, OrderEventsEnum, OrderOriginEnum
+from .resolvers import resolve_order_shipping_methods
 from .utils import validate_draft_order
 
 
@@ -212,7 +215,12 @@ class OrderEvent(CountableDjangoObjectType):
     @staticmethod
     def resolve_app(root: models.OrderEvent, info):
         requestor = get_user_or_app_from_context(info.context)
-        if requestor_has_access(requestor, root.user, AppPermission.MANAGE_APPS):
+        if requestor_has_access(
+            requestor,
+            root.user,
+            AppPermission.MANAGE_APPS,
+            OrderPermissions.MANAGE_ORDERS,
+        ):
             return (
                 AppByIdLoader(info.context).load(root.app_id) if root.app_id else None
             )
@@ -265,7 +273,6 @@ class OrderEvent(CountableDjangoObjectType):
         return root.parameters.get("invoice_number")
 
     @staticmethod
-    @traced_resolver
     def resolve_lines(root: models.OrderEvent, info):
         raw_lines = root.parameters.get("lines", None)
 
@@ -464,7 +471,6 @@ class OrderLine(CountableDjangoObjectType):
         ]
 
     @staticmethod
-    @traced_resolver
     def resolve_thumbnail(root: models.OrderLine, info, *, size=255):
         if not root.variant_id:
             return None
@@ -598,6 +604,12 @@ class Order(CountableDjangoObjectType):
         ShippingMethod,
         required=False,
         description="Shipping methods that can be used with this order.",
+        deprecation_reason="Use `shippingMethods`, this field will be removed in 4.0",
+    )
+    shipping_methods = graphene.List(
+        graphene.NonNull(ShippingMethod),
+        description="Shipping methods related to this order.",
+        required=True,
     )
     invoices = graphene.List(
         Invoice, required=False, description="List of order invoices."
@@ -625,6 +637,9 @@ class Order(CountableDjangoObjectType):
     )
     shipping_price = graphene.Field(
         TaxedMoney, description="Total price of shipping.", required=True
+    )
+    shipping_method = graphene.Field(
+        ShippingMethod, description="Shipping method for this order."
     )
     subtotal = graphene.Field(
         TaxedMoney,
@@ -718,7 +733,6 @@ class Order(CountableDjangoObjectType):
             "gift_cards",
             "id",
             "shipping_address",
-            "shipping_method",
             "shipping_method_name",
             "shipping_price",
             "shipping_tax_rate",
@@ -737,7 +751,6 @@ class Order(CountableDjangoObjectType):
         return OrderDiscountsByOrderIDLoader(info.context).load(root.id)
 
     @staticmethod
-    @traced_resolver
     def resolve_discount(root: models.Order, info):
         def return_voucher_discount(discounts) -> Optional[Money]:
             if not discounts:
@@ -754,7 +767,6 @@ class Order(CountableDjangoObjectType):
         )
 
     @staticmethod
-    @traced_resolver
     def resolve_discount_name(root: models.Order, info):
         def return_voucher_name(discounts) -> Optional[Money]:
             if not discounts:
@@ -771,7 +783,6 @@ class Order(CountableDjangoObjectType):
         )
 
     @staticmethod
-    @traced_resolver
     def resolve_translated_discount_name(root: models.Order, info):
         def return_voucher_translated_name(discounts) -> Optional[Money]:
             if not discounts:
@@ -816,7 +827,6 @@ class Order(CountableDjangoObjectType):
         )
 
     @staticmethod
-    @traced_resolver
     def resolve_shipping_address(root: models.Order, info):
         def _resolve_shipping_address(data):
             if isinstance(data, Address):
@@ -843,6 +853,33 @@ class Order(CountableDjangoObjectType):
         )
 
     @staticmethod
+    def resolve_shipping_method(root: models.Order, info):
+        if not root.shipping_method_id:
+            return None
+
+        def wrap_shipping_method_with_channel_context(data):
+            shipping_method, channel = data
+            listing = (
+                ShippingMethodChannelListingByShippingMethodIdAndChannelSlugLoader(
+                    info.context
+                ).load((shipping_method.id, channel.slug))
+            )
+
+            def calculate_price(listing: Optional[ShippingMethodChannelListing]):
+                return convert_to_shipping_method_data(shipping_method, listing)
+
+            return listing.then(calculate_price)
+
+        shipping_method = ShippingMethodByIdLoader(info.context).load(
+            root.shipping_method_id
+        )
+        channel = ChannelByIdLoader(info.context).load(root.channel_id)
+
+        return Promise.all([shipping_method, channel]).then(
+            wrap_shipping_method_with_channel_context
+        )
+
+    @staticmethod
     def resolve_shipping_price(root: models.Order, _info):
         return root.shipping_price
 
@@ -866,7 +903,6 @@ class Order(CountableDjangoObjectType):
         )
 
     @staticmethod
-    @traced_resolver
     def resolve_subtotal(root: models.Order, info):
         def _resolve_subtotal(order_lines):
             return get_subtotal(order_lines, root.currency)
@@ -942,7 +978,7 @@ class Order(CountableDjangoObjectType):
     @traced_resolver
     def resolve_payment_status(root: models.Order, info):
         def _resolve_payment_status(payments):
-            if last_payment := max(payments, default=None, key=attrgetter("pk")):
+            if last_payment := get_last_payment(payments):
                 return last_payment.charge_status
             return ChargeStatus.NOT_CHARGED
 
@@ -955,7 +991,7 @@ class Order(CountableDjangoObjectType):
     @staticmethod
     def resolve_payment_status_display(root: models.Order, info):
         def _resolve_payment_status(payments):
-            if last_payment := max(payments, default=None, key=attrgetter("pk")):
+            if last_payment := get_last_payment(payments):
                 return last_payment.get_charge_status_display()
             return dict(ChargeStatus.CHOICES).get(ChargeStatus.NOT_CHARGED)
 
@@ -974,12 +1010,11 @@ class Order(CountableDjangoObjectType):
         return root.get_status_display()
 
     @staticmethod
-    @traced_resolver
-    def resolve_can_finalize(root: models.Order, _info):
+    def resolve_can_finalize(root: models.Order, info):
         if root.status == OrderStatus.DRAFT:
             country = get_order_country(root)
             try:
-                validate_draft_order(root, country)
+                validate_draft_order(root, country, info.context.plugins)
             except ValidationError:
                 return False
         return True
@@ -1005,7 +1040,12 @@ class Order(CountableDjangoObjectType):
     def resolve_user(root: models.Order, info):
         def _resolve_user(user):
             requester = get_user_or_app_from_context(info.context)
-            if requestor_has_access(requester, user, AccountPermissions.MANAGE_USERS):
+            if requestor_has_access(
+                requester,
+                user,
+                AccountPermissions.MANAGE_USERS,
+                OrderPermissions.MANAGE_ORDERS,
+            ):
                 return user
             raise PermissionDenied()
 
@@ -1015,57 +1055,12 @@ class Order(CountableDjangoObjectType):
         return UserByUserIdLoader(info.context).load(root.user_id).then(_resolve_user)
 
     @staticmethod
-    def resolve_shipping_method(root: models.Order, info):
-        if not root.shipping_method_id:
-            return None
-
-        def wrap_shipping_method_with_channel_context(data):
-            shipping_method, channel = data
-            return ChannelContext(node=shipping_method, channel_slug=channel.slug)
-
-        shipping_method = ShippingMethodByIdLoader(info.context).load(
-            root.shipping_method_id
-        )
-        channel = ChannelByIdLoader(info.context).load(root.channel_id)
-
-        return Promise.all([shipping_method, channel]).then(
-            wrap_shipping_method_with_channel_context
-        )
+    def resolve_available_shipping_methods(root: models.Order, info):
+        return resolve_order_shipping_methods(root, info, include_active_only=True)
 
     @staticmethod
-    @traced_resolver
-    # TODO: We should optimize it in/after PR#5819
-    def resolve_available_shipping_methods(root: models.Order, info):
-        available = get_valid_shipping_methods_for_order(root)
-        if available is None:
-            return []
-        available_shipping_methods = []
-        manager = info.context.plugins
-        display_gross = display_gross_prices()
-        channel_slug = root.channel.slug
-        for shipping_method in available:
-            # Ignore typing check because it is checked in
-            # get_valid_shipping_methods_for_order
-            shipping_channel_listing = shipping_method.channel_listings.filter(
-                channel=root.channel
-            ).first()
-            if shipping_channel_listing:
-                taxed_price = manager.apply_taxes_to_shipping(
-                    shipping_channel_listing.price,
-                    root.shipping_address,  # type: ignore
-                    channel_slug,
-                )
-                if display_gross:
-                    shipping_method.price = taxed_price.gross
-                else:
-                    shipping_method.price = taxed_price.net
-                available_shipping_methods.append(shipping_method)
-        instances = [
-            ChannelContext(node=shipping, channel_slug=channel_slug)
-            for shipping in available_shipping_methods
-        ]
-
-        return instances
+    def resolve_shipping_methods(root: models.Order, info):
+        return resolve_order_shipping_methods(root, info)
 
     @staticmethod
     def resolve_invoices(root: models.Order, info):
@@ -1107,11 +1102,11 @@ class Order(CountableDjangoObjectType):
         return graphene.Node.to_global_id("Order", root.original_id)
 
     @traced_resolver
-    def resolve_errors(root, _info, **_kwargs):
+    def resolve_errors(root, info, **_kwargs):
         if root.status == OrderStatus.DRAFT:
             country = get_order_country(root)
             try:
-                validate_draft_order(root, country)
+                validate_draft_order(root, country, info.context.plugins)
             except ValidationError as e:
                 return validation_error_to_error_type(e, OrderError)
         return []

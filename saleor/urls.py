@@ -4,6 +4,7 @@ from django.conf.urls.static import static
 from django.contrib.staticfiles.views import serve
 from django.views.decorators.csrf import csrf_exempt
 
+from .core.views import jwks
 from .graphql.api import schema
 from .graphql.views import GraphQLView
 from .plugins.views import (
@@ -47,6 +48,7 @@ urlpatterns = [
     url(r'^sumi/v2/sell', SumiPlugin.sell_products_v2),
     url(r'^sumi/token(?P<channel_slug>[.0-9A-Za-z_\-]+)?$', SumiPlugin.get_allegro_token),
     url(r'^sumi/locate', SumiPlugin.locate_products),
+    url(r".well-known/jwks.json", jwks, name="jwks"),
 ]
 
 if settings.DEBUG:

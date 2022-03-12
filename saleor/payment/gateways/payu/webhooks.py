@@ -218,6 +218,7 @@ def create_payment_notification_for_order(
     external_notification_event(
         order=payment.order,
         user=None,
+        app=None,
         message=msg,
         parameters={"service": payment.gateway, "id": payment.token},
     )

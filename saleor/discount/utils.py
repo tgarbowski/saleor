@@ -1,6 +1,16 @@
 import datetime
 from collections import defaultdict
-from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Set
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Set,
+    Tuple,
+)
 
 from django.db.models import F
 from django.utils import timezone
@@ -50,21 +60,33 @@ def remove_voucher_usage_by_customer(voucher: "Voucher", customer_email: str) ->
         voucher_customer.delete()
 
 
+def release_voucher_usage(order_data: dict):
+    voucher = order_data.get("voucher")
+    if not voucher:
+        return
+    if voucher.usage_limit:
+        decrease_voucher_usage(voucher)
+    if "user_email" in order_data:
+        remove_voucher_usage_by_customer(voucher, order_data["user_email"])
+
+
 def get_product_discount_on_sale(
     product: "Product",
     product_collections: Set[int],
     discount: DiscountInfo,
     channel: "Channel",
-):
-    """Return discount value if product is on sale or raise NotApplicable."""
+    variant_id: Optional[int] = None,
+) -> Tuple[int, Callable]:
+    """Return sale id, discount value if product is on sale or raise NotApplicable."""
     is_product_on_sale = (
         product.id in discount.product_ids
         or product.category_id in discount.category_ids
         or product_collections.intersection(discount.collection_ids)
     )
-    if is_product_on_sale:
+    is_variant_on_sale = variant_id and variant_id in discount.variants_ids
+    if is_product_on_sale or is_variant_on_sale:
         sale_channel_listing = discount.channel_listings.get(channel.slug)
-        return discount.sale.get_discount(sale_channel_listing)  # type: ignore
+        return discount.sale.id, discount.sale.get_discount(sale_channel_listing)  # type: ignore
     raise NotApplicable("Discount not applicable for this product")
 
 
@@ -73,17 +95,48 @@ def get_product_discounts(
     product: "Product",
     collections: Iterable["Collection"],
     discounts: Iterable[DiscountInfo],
-    channel: "Channel"
-) -> Money:
-    """Return discount values for all discounts applicable to a product."""
+    channel: "Channel",
+    variant_id: Optional[int] = None
+) -> Iterator[Tuple[int, Callable]]:
+    """Return sale ids, discount values for all discounts applicable to a product."""
     product_collections = set(pc.id for pc in collections)
     for discount in discounts or []:
         try:
             yield get_product_discount_on_sale(
-                product, product_collections, discount, channel
+                product, product_collections, discount, channel, variant_id=variant_id
             )
         except NotApplicable:
             pass
+
+
+def get_sale_id_with_min_price(
+    *,
+    product: "Product",
+    price: Money,
+    collections: Iterable["Collection"],
+    discounts: Optional[Iterable[DiscountInfo]],
+    channel: "Channel",
+    variant_id: Optional[int] = None
+) -> Tuple[Optional[int], Money]:
+    """Return a sale_id and minimum product's price."""
+    available_discounts = [
+        (sale_id, discount)
+        for sale_id, discount in get_product_discounts(
+            product=product,
+            collections=collections,
+            discounts=discounts or [],
+            channel=channel,
+            variant_id=variant_id,
+        )
+    ]
+    if not available_discounts:
+        return None, price
+
+    applied_discount = min(
+        [(sale_id, discount(price)) for sale_id, discount in available_discounts],
+        key=lambda d: d[1],  # sort over a min price
+    )
+    return applied_discount
 
 
 def calculate_discounted_price(
@@ -92,21 +145,44 @@ def calculate_discounted_price(
     price: Money,
     collections: Iterable["Collection"],
     discounts: Optional[Iterable[DiscountInfo]],
-    channel: "Channel"
+    channel: "Channel",
+    variant_id: Optional[int] = None
 ) -> Money:
     """Return minimum product's price of all prices with discounts applied."""
     if discounts:
-        discount_prices = list(
-            get_product_discounts(
-                product=product,
-                collections=collections,
-                discounts=discounts,
-                channel=channel,
-            )
+        _, price = get_sale_id_with_min_price(
+            product=product,
+            price=price,
+            collections=collections,
+            discounts=discounts,
+            channel=channel,
+            variant_id=variant_id,
         )
-        if discount_prices:
-            price = min(discount(price) for discount in discount_prices)
     return price
+
+
+def get_sale_id_applied_as_a_discount(
+    *,
+    product: "Product",
+    price: Money,
+    collections: Iterable["Collection"],
+    discounts: Optional[Iterable[DiscountInfo]],
+    channel: "Channel",
+    variant_id: Optional[int] = None
+) -> Optional[int]:
+    """Return an ID of Sale applied to product."""
+    if not discounts:
+        return None
+
+    sale_id, _ = get_sale_id_with_min_price(
+        product=product,
+        price=price,
+        collections=collections,
+        discounts=discounts,
+        channel=channel,
+        variant_id=variant_id,
+    )
+    return sale_id
 
 
 def validate_voucher_for_checkout(
@@ -222,6 +298,18 @@ def fetch_products(sale_pks: Iterable[str]) -> Dict[int, Set[int]]:
     return product_map
 
 
+def fetch_variants(sale_pks: Iterable[str]) -> Dict[int, Set[int]]:
+    variants = (
+        Sale.variants.through.objects.filter(sale_id__in=sale_pks)
+        .order_by("id")
+        .values_list("sale_id", "productvariant_id")
+    )
+    variants_map: Dict[int, Set[int]] = defaultdict(set)
+    for sale_pk, variant_pk in variants:
+        variants_map[sale_pk].add(variant_pk)
+    return variants_map
+
+
 def fetch_sale_channel_listings(
     sale_pks: Iterable[str],
 ):
@@ -242,6 +330,7 @@ def fetch_discounts(date: datetime.date) -> List[DiscountInfo]:
     channel_listings = fetch_sale_channel_listings(pks)
     products = fetch_products(pks)
     categories = fetch_categories(pks)
+    variants = fetch_variants(pks)
 
     return [
         DiscountInfo(
@@ -250,6 +339,7 @@ def fetch_discounts(date: datetime.date) -> List[DiscountInfo]:
             channel_listings=channel_listings[sale.pk],
             collection_ids=collections[sale.pk],
             product_ids=products[sale.pk],
+            variants_ids=variants[sale.pk],
         )
         for sale in sales
     ]

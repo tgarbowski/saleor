@@ -99,6 +99,10 @@ class CategoryCreate(ModelMutation):
     @classmethod
     def clean_input(cls, info, instance, data):
         cleaned_input = super().clean_input(info, instance, data)
+        description = cleaned_input.get("description")
+        cleaned_input["description_plaintext"] = (
+            clean_editor_js(description, to_string=True) if description else ""
+        )
         try:
             cleaned_input = validate_slug_and_generate_if_needed(
                 instance, "name", cleaned_input
@@ -644,8 +648,9 @@ class ProductCreate(ModelMutation):
             instance.collections.set(collections)
 
     @classmethod
-    def post_save_action(cls, info, instance, cleaned_input):
-        info.context.plugins.product_created(instance)
+    def post_save_action(cls, info, instance, _cleaned_input):
+        product = models.Product.objects.prefetched_for_webhook().get(pk=instance.pk)
+        info.context.plugins.product_created(product)
 
     @classmethod
     def perform_mutation(cls, _root, info, **data):
@@ -684,8 +689,9 @@ class ProductUpdate(ProductCreate):
             AttributeAssignmentMixin.save(instance, attributes)
 
     @classmethod
-    def post_save_action(cls, info, instance, cleaned_input):
-        info.context.plugins.product_updated(instance)
+    def post_save_action(cls, info, instance, _cleaned_input):
+        product = models.Product.objects.prefetched_for_webhook().get(pk=instance.pk)
+        info.context.plugins.product_updated(product)
 
 
 class ProductDelete(ModelDeleteMutation):
@@ -884,24 +890,7 @@ class ProductVariantCreate(ModelMutation):
             except ValidationError as exc:
                 raise ValidationError({"attributes": exc})
 
-        cls.clean_sku(product_type, cleaned_input)
-
         return cleaned_input
-
-    @classmethod
-    def clean_sku(cls, product_type, cleaned_input):
-        if product_type and not product_type.has_variants:
-            input_sku = cleaned_input.get("sku")
-
-            if models.ProductVariant.objects.filter(sku=input_sku).exists():
-                raise ValidationError(
-                    {
-                        "sku": ValidationError(
-                            "Product with this SKU already exists.",
-                            code=ProductErrorCode.ALREADY_EXISTS,
-                        )
-                    }
-                )
 
     @classmethod
     def check_for_duplicates_in_stocks(cls, stocks_data):
@@ -1338,7 +1327,11 @@ class ProductMediaCreate(BaseMutation):
         data = data.get("input")
         cls.validate_input(data)
         product = cls.get_node_or_error(
-            info, data["product"], field="product", only_type=Product
+            info,
+            data["product"],
+            field="product",
+            only_type=Product,
+            qs=models.Product.objects.prefetched_for_webhook(),
         )
 
         alt = data.get("alt", "")
@@ -1389,7 +1382,9 @@ class ProductMediaUpdate(BaseMutation):
     @classmethod
     def perform_mutation(cls, _root, info, **data):
         media = cls.get_node_or_error(info, data.get("id"), only_type=ProductMedia)
-        product = media.product
+        product = models.Product.objects.prefetched_for_webhook().get(
+            pk=media.product_id
+        )
         alt = data.get("input").get("alt")
         if alt is not None:
             media.alt = alt
@@ -1423,7 +1418,11 @@ class ProductMediaReorder(BaseMutation):
     @classmethod
     def perform_mutation(cls, _root, info, product_id, media_ids):
         product = cls.get_node_or_error(
-            info, product_id, field="product_id", only_type=Product
+            info,
+            product_id,
+            field="product_id",
+            only_type=Product,
+            qs=models.Product.objects.prefetched_for_webhook(),
         )
         if len(media_ids) != product.media.count():
             raise ValidationError(
@@ -1626,7 +1625,9 @@ class ProductMediaDelete(BaseMutation):
         media_obj.image.delete(save=False)
         media_obj.delete()
         media_obj.id = media_id
-        product = media_obj.product
+        product = models.Product.objects.prefetched_for_webhook().get(
+            pk=media_obj.product_id
+        )
         info.context.plugins.product_updated(product)
         product = ChannelContext(node=product, channel_slug=None)
         return ProductMediaDelete(product=product, media=media_obj)

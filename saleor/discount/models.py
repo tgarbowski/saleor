@@ -63,7 +63,7 @@ class Voucher(ModelWithMetadata):
         max_length=20, choices=VoucherType.CHOICES, default=VoucherType.ENTIRE_ORDER
     )
     name = models.CharField(max_length=255, null=True, blank=True)
-    code = models.CharField(max_length=12, unique=True, db_index=True)
+    code = models.CharField(max_length=255, unique=True, db_index=True)
     usage_limit = models.PositiveIntegerField(null=True, blank=True)
     used = models.PositiveIntegerField(default=0, editable=False)
     start_date = models.DateTimeField(default=timezone.now)
@@ -85,6 +85,7 @@ class Voucher(ModelWithMetadata):
     countries = CountryField(multiple=True, blank=True)
     min_checkout_items_quantity = models.PositiveIntegerField(null=True, blank=True)
     products = models.ManyToManyField("product.Product", blank=True)
+    variants = models.ManyToManyField("product.ProductVariant", blank=True)
     collections = models.ManyToManyField("product.Collection", blank=True)
     categories = models.ManyToManyField("product.Category", blank=True)
 
@@ -102,7 +103,17 @@ class Voucher(ModelWithMetadata):
         )
 
     def get_discount(self, channel: Channel):
-        voucher_channel_listing = self.channel_listings.filter(channel=channel).first()
+        """Return proper discount amount for given channel.
+
+        It operates over all channel listings as assuming that we have prefetched them.
+        """
+        voucher_channel_listing = None
+
+        for channel_listing in self.channel_listings.all():
+            if channel.id == channel_listing.channel_id:
+                voucher_channel_listing = channel_listing
+                break
+
         if not voucher_channel_listing:
             raise NotApplicable("This voucher is not assigned to this channel")
         if self.discount_value_type == DiscountValueType.FIXED:
@@ -247,9 +258,10 @@ class Sale(ModelWithMetadata):
         choices=DiscountValueType.CHOICES,
         default=DiscountValueType.FIXED,
     )
-    products = models.ManyToManyField("product.Product", blank=True)
     categories = models.ManyToManyField("product.Category", blank=True)
     collections = models.ManyToManyField("product.Collection", blank=True)
+    products = models.ManyToManyField("product.Product", blank=True)
+    variants = models.ManyToManyField("product.ProductVariant", blank=True)
     start_date = models.DateTimeField(default=timezone.now)
     end_date = models.DateTimeField(null=True, blank=True)
 
