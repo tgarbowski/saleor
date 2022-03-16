@@ -1,15 +1,20 @@
 from copy import copy
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Callable, Iterable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Tuple, Union
 
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpResponse
+from django.utils.functional import SimpleLazyObject
 from django_countries.fields import Country
+from graphene import Mutation
+from graphql import GraphQLError, ResolveInfo
+from graphql.execution import ExecutionResult
 from prices import Money, TaxedMoney
 from promise.promise import Promise
 
 from ..checkout.interface import CheckoutTaxedPricesData
+from ..core.models import EventDelivery
 from ..payment.interface import (
     CustomerSource,
     GatewayResponse,
@@ -17,7 +22,6 @@ from ..payment.interface import (
     PaymentData,
     PaymentGateway,
 )
-from ..shipping.interface import ShippingMethodData
 from .models import PluginConfiguration
 
 if TYPE_CHECKING:
@@ -26,16 +30,21 @@ if TYPE_CHECKING:
     from ..channel.models import Channel
     from ..checkout.fetch import CheckoutInfo, CheckoutLineInfo
     from ..checkout.models import Checkout
+    from ..core.middleware import Requestor
     from ..core.notify_events import NotifyEventType
     from ..core.taxes import TaxType
     from ..discount import DiscountInfo
+    from ..discount.models import Sale
+    from ..graphql.discount.mutations import NodeCatalogueInfo
     from ..invoice.models import Invoice
     from ..order.models import Fulfillment, Order, OrderLine
     from ..page.models import Page
-    from ..product.models import Product, ProductType, ProductVariant
+    from ..product.models import Collection, Product, ProductType, ProductVariant
+    from ..shipping.interface import ShippingMethodData
 
 PluginConfigurationType = List[dict]
 NoneType = type(None)
+RequestorOrLazyObject = Union[SimpleLazyObject, "Requestor"]
 
 
 class ConfigurationTypeField:
@@ -86,6 +95,7 @@ class BasePlugin:
     CONFIGURATION_PER_CHANNEL = True
     DEFAULT_CONFIGURATION = []
     DEFAULT_ACTIVE = False
+    HIDDEN = False
 
     @classmethod
     def check_plugin_id(cls, plugin_id: str) -> bool:
@@ -98,11 +108,15 @@ class BasePlugin:
         configuration: PluginConfigurationType,
         active: bool,
         channel: Optional["Channel"] = None,
+        requestor_getter: Optional[Callable[[], "Requestor"]] = None,
         db_config: Optional["PluginConfiguration"] = None
     ):
         self.configuration = self.get_plugin_configuration(configuration)
         self.active = active
         self.channel = channel
+        self.requestor: Optional[RequestorOrLazyObject] = (
+            SimpleLazyObject(requestor_getter) if requestor_getter else requestor_getter
+        )
         self.db_config = db_config
 
     def __str__(self):
@@ -115,11 +129,6 @@ class BasePlugin:
         ["Product", Money, Country, TaxedMoney], TaxedMoney
     ]
 
-    #  Apply taxes to the shipping costs based on the shipping address.
-    #
-    #  Overwrite this method if you want to show available shipping methods with
-    #  taxes.
-    apply_taxes_to_shipping: Callable[[Money, "Address", TaxedMoney], TaxedMoney]
     #  Assign tax code dedicated to plugin.
     assign_tax_code_to_object_meta: Callable[
         [Union["Product", "ProductType"], Union[str, NoneType], Any], Any
@@ -236,6 +245,24 @@ class BasePlugin:
     #  updated.
     checkout_updated: Callable[["Checkout", Any], Any]
 
+    #  Trigger when collection is created.
+    #
+    #  Overwrite this method if you need to trigger specific logic after a collection is
+    #  created.
+    collection_created: Callable[["Collection", Any], Any]
+
+    #  Trigger when collection is deleted.
+    #
+    #  Overwrite this method if you need to trigger specific logic after a collection is
+    #  deleted.
+    collection_deleted: Callable[["Collection", Any], Any]
+
+    #  Trigger when collection is updated.
+    #
+    #  Overwrite this method if you need to trigger specific logic after a collection is
+    #  updated.
+    collection_updated: Callable[["Collection", Any], Any]
+
     confirm_payment: Callable[["PaymentData", Any], GatewayResponse]
 
     #  Trigger when user is created.
@@ -274,8 +301,8 @@ class BasePlugin:
     #  Verify the provided authentication data.
     #
     #  Overwrite this method if the plugin should validate the authentication data.
-
     external_verify: Callable[[dict, WSGIRequest], Tuple[Union["User", NoneType], dict]]
+
     #  Triggered when ShopFetchTaxRates mutation is called.
     fetch_taxes_data: Callable[[Any], Any]
 
@@ -284,6 +311,11 @@ class BasePlugin:
     #  Overwrite this method if you need to trigger specific logic when a fulfillment is
     #  created.
     fulfillment_created: Callable[["Fulfillment", Any], Any]
+
+    #  Trigger when fulfillemnt is cancelled.
+    #  Overwrite this method if you need to trigger specific logic when a fulfillment is
+    #  cancelled.
+    fulfillment_canceled: Callable[["Fulfillment", Any], Any]
 
     get_checkout_line_tax_rate: Callable[
         [
@@ -317,6 +349,10 @@ class BasePlugin:
 
     get_order_shipping_tax_rate: Callable[["Order", Any], Any]
     get_payment_config: Callable[[Any], Any]
+
+    get_shipping_methods_for_checkout: Callable[
+        ["Checkout", Any], List["ShippingMethodData"]
+    ]
 
     get_supported_currencies: Callable[[Any], Any]
 
@@ -433,7 +469,7 @@ class BasePlugin:
         Any,
     ]
 
-    process_payment: Callable[["PaymentData", Any], "GatewayResponse"]
+    process_payment: Callable[["PaymentData", Any], Any]
 
     #  Trigger when product is created.
     #
@@ -473,6 +509,21 @@ class BasePlugin:
 
     refund_payment: Callable[["PaymentData", Any], GatewayResponse]
 
+    #  Trigger when sale is created.
+    #
+    # Overwrite this method if you need to trigger specific logic after sale is created.
+    sale_created: Callable[["Sale", "NodeCatalogueInfo", Any], Any]
+
+    #  Trigger when sale is deleted.
+    #
+    #  Overwrite this method if you need to trigger specific logic after sale is deleted.
+    sale_deleted: Callable[["Sale", "NodeCatalogueInfo", Any], Any]
+
+    #  Trigger when sale is updated.
+    #
+    #  Overwrite this method if you need to trigger specific logic after sale is updated.
+    sale_updated: Callable[["Sale", "NodeCatalogueInfo", "NodeCatalogueInfo", Any], Any]
+
     #  Define if storefront should add info about taxes to the price.
     #
     #  It is used only by the old storefront. The returned value determines if
@@ -488,6 +539,29 @@ class BasePlugin:
     #
     #  Overwrite this method if the plugin expects the incoming requests.
     webhook: Callable[[WSGIRequest, str, Any], HttpResponse]
+
+    # Triggers retry mechanism for event delivery
+    event_delivery_retry: Callable[["EventDelivery", Any], EventDelivery]
+
+    # Invoked before each mutation is executed
+    #
+    # This allows to trigger specific logic before the mutation is executed
+    # but only once the permissions are checked.
+    #
+    # Returns one of:
+    #     - null if the execution shall continue
+    #     - an execution result
+    #     - graphql.GraphQLError
+    perform_mutation: Callable[
+        [
+            Optional[Union[ExecutionResult, GraphQLError]],  # previous value
+            Mutation,  # mutation class
+            Any,  # mutation root
+            ResolveInfo,  # resolve info
+            dict,  # mutation data
+        ],
+        Optional[Union[ExecutionResult, GraphQLError]],
+    ]
 
     def token_is_required_as_payment_input(self, previous_value):
         return previous_value
@@ -663,22 +737,6 @@ class BasePlugin:
     ) -> Union[PluginConfigurationType, Promise[PluginConfigurationType]]:
         # Override this function to customize resolving plugin configuration in API.
         return self.configuration
-
-    def excluded_shipping_methods_for_order(
-        self,
-        order: "Order",
-        available_shipping_methods: List[ShippingMethodData],
-        previous_value,
-    ) -> List[ExcludedShippingMethod]:
-        return NotImplemented
-
-    def excluded_shipping_methods_for_checkout(
-        self,
-        checkout: "Checkout",
-        available_shipping_methods: List[ShippingMethodData],
-        previous_value,
-    ) -> List[ExcludedShippingMethod]:
-        return NotImplemented
 
     def is_event_active(self, event: str, channel=Optional[str]):
         return hasattr(self, event)

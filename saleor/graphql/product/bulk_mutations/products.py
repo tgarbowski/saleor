@@ -1,11 +1,14 @@
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 import math
+from typing import Iterable
 
 import graphene
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q, Subquery
+from django.db.models.fields import IntegerField
+from django.db.models.functions import Coalesce
 from graphene.types import InputObjectType
 
 from ....attribute import AttributeInputType
@@ -17,6 +20,10 @@ from ....order import models as order_models
 from ....order.tasks import recalculate_orders_task
 from ....product import models
 from ....product.error_codes import ProductErrorCode
+from ....product.search import (
+    prepare_product_search_document_value,
+    update_product_search_document,
+)
 from ....product.tasks import update_product_discounted_price_task
 from ....product.utils import delete_categories
 from ....product.utils.variants import generate_and_set_variant_name
@@ -34,6 +41,9 @@ from ...core.types.common import (
 )
 from ...core.utils import get_duplicated_values
 from ...core.validators import validate_price_precision
+from ...warehouse.dataloaders import (
+    StocksWithAvailableQuantityByProductVariantIdCountryCodeAndChannelLoader,
+)
 from ...warehouse.types import Warehouse
 from ..mutations.channels import ProductVariantChannelListingAddInput
 from ..mutations.products import (
@@ -42,8 +52,16 @@ from ..mutations.products import (
     ProductVariantInput,
     StockInput,
 )
-from ..types import Product, ProductType, ProductVariant
+from ..types import (
+    Category,
+    Collection,
+    Product,
+    ProductMedia,
+    ProductType,
+    ProductVariant,
+)
 from ..utils import (
+    clean_variant_sku,
     create_stocks,
     get_draft_order_lines_data_for_variants,
     get_used_variants_attribute_values,
@@ -63,6 +81,7 @@ class CategoryBulkDelete(ModelBulkDeleteMutation):
     class Meta:
         description = "Deletes categories."
         model = models.Category
+        object_type = Category
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -81,6 +100,7 @@ class CollectionBulkDelete(ModelBulkDeleteMutation):
     class Meta:
         description = "Deletes collections."
         model = models.Collection
+        object_type = Collection
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = CollectionError
         error_type_field = "collection_errors"
@@ -93,7 +113,11 @@ class CollectionBulkDelete(ModelBulkDeleteMutation):
             .filter(collections__in=collections_ids)
             .distinct()
         )
+
+        for collection in queryset.iterator():
+            info.context.plugins.collection_deleted(collection)
         queryset.delete()
+
         for product in products:
             info.context.plugins.product_updated(product)
 
@@ -107,6 +131,7 @@ class ProductBulkDelete(ModelBulkDeleteMutation):
     class Meta:
         description = "Deletes products."
         model = models.Product
+        object_type = Product
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -210,7 +235,7 @@ class ProductVariantBulkCreateInput(ProductVariantInput):
         description="List of prices assigned to channels.",
         required=False,
     )
-    sku = graphene.String(required=True, description="Stock keeping unit.")
+    sku = graphene.String(description="Stock keeping unit.")
 
 
 class ProductVariantBulkCreate(BaseMutation):
@@ -276,6 +301,16 @@ class ProductVariantBulkCreate(BaseMutation):
         stocks = cleaned_input.get("stocks")
         if stocks:
             cls.clean_stocks(stocks, errors, variant_index)
+
+        cleaned_input["sku"] = clean_variant_sku(cleaned_input.get("sku"))
+
+        preorder_settings = cleaned_input.get("preorder")
+        if preorder_settings:
+            cleaned_input["is_preorder"] = True
+            cleaned_input["preorder_global_threshold"] = preorder_settings.get(
+                "global_threshold"
+            )
+            cleaned_input["preorder_end_date"] = preorder_settings.get("end_date")
 
         return cleaned_input
 
@@ -450,9 +485,10 @@ class ProductVariantBulkCreate(BaseMutation):
 
             cleaned_inputs.append(cleaned_input if cleaned_input else None)
 
-            if not variant_data.sku:
-                continue
-            cls.validate_duplicated_sku(variant_data.sku, index, sku_list, errors)
+            if cleaned_input["sku"]:
+                cls.validate_duplicated_sku(
+                    cleaned_input["sku"], index, sku_list, errors
+                )
         return cleaned_inputs
 
     @classmethod
@@ -465,6 +501,7 @@ class ProductVariantBulkCreate(BaseMutation):
             channel = channel_listing_data["channel"]
             price = channel_listing_data["price"]
             cost_price = channel_listing_data.get("cost_price")
+            preorder_quantity_threshold = channel_listing_data.get("preorder_threshold")
             variant_channel_listings.append(
                 models.ProductVariantChannelListing(
                     channel=channel,
@@ -472,6 +509,7 @@ class ProductVariantBulkCreate(BaseMutation):
                     price_amount=price,
                     cost_price_amount=cost_price,
                     currency=channel.currency_code,
+                    preorder_quantity_threshold=preorder_quantity_threshold,
                 )
             )
         models.ProductVariantChannelListing.objects.bulk_create(
@@ -523,6 +561,8 @@ class ProductVariantBulkCreate(BaseMutation):
             ChannelContext(node=instance, channel_slug=None) for instance in instances
         ]
 
+        update_product_search_document(product)
+
         transaction.on_commit(
             lambda: [
                 info.context.plugins.product_variant_created(instance.node)
@@ -546,6 +586,7 @@ class ProductVariantBulkDelete(ModelBulkDeleteMutation):
     class Meta:
         description = "Deletes product variants."
         model = models.ProductVariant
+        object_type = ProductVariant
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -576,6 +617,7 @@ class ProductVariantBulkDelete(ModelBulkDeleteMutation):
         )
 
         cls.delete_assigned_attribute_values(pks)
+        cls.delete_product_channel_listings_without_available_variants(product_pks, pks)
         response = super().perform_mutation(_root, info, ids, **data)
 
         transaction.on_commit(
@@ -606,8 +648,11 @@ class ProductVariantBulkDelete(ModelBulkDeleteMutation):
             pk__in=product_pks, default_variant__isnull=True
         )
         for product in products:
+            product.search_document = prepare_product_search_document_value(product)
             product.default_variant = product.variants.first()
-            product.save(update_fields=["default_variant"])
+            product.save(
+                update_fields=["default_variant", "search_document", "updated_at"]
+            )
 
         return response
 
@@ -617,6 +662,38 @@ class ProductVariantBulkDelete(ModelBulkDeleteMutation):
             variantassignments__variant_id__in=instance_pks,
             attribute__input_type__in=AttributeInputType.TYPES_WITH_UNIQUE_VALUES,
         ).delete()
+
+    @staticmethod
+    def delete_product_channel_listings_without_available_variants(
+        product_pks: Iterable[int], variant_pks: Iterable[int]
+    ):
+        """Delete invalid channel listings.
+
+        Delete product channel listings for product and channel for which
+        the last available variant has been deleted.
+        """
+        variants = models.ProductVariant.objects.filter(
+            product_id__in=product_pks
+        ).exclude(id__in=variant_pks)
+
+        variant_subquery = Subquery(
+            queryset=variants.filter(id=OuterRef("variant_id")).values("product_id"),
+            output_field=IntegerField(),
+        )
+        variant_channel_listings = models.ProductVariantChannelListing.objects.annotate(
+            product_id=Coalesce(variant_subquery, 0)
+        )
+
+        invalid_product_channel_listings = models.ProductChannelListing.objects.filter(
+            product_id__in=product_pks
+        ).exclude(
+            Exists(
+                variant_channel_listings.filter(
+                    channel_id=OuterRef("channel_id"), product_id=OuterRef("product_id")
+                )
+            )
+        )
+        invalid_product_channel_listings.delete()
 
 
 class ProductVariantStocksCreate(BaseMutation):
@@ -642,7 +719,9 @@ class ProductVariantStocksCreate(BaseMutation):
         error_type_field = "bulk_stock_errors"
 
     @classmethod
+    @traced_atomic_transaction()
     def perform_mutation(cls, root, info, **data):
+        manager = info.context.plugins
         errors = defaultdict(list)
         stocks = data["stocks"]
         variant = cls.get_node_or_error(
@@ -652,7 +731,16 @@ class ProductVariantStocksCreate(BaseMutation):
             warehouses = cls.clean_stocks_input(variant, stocks, errors)
             if errors:
                 raise ValidationError(errors)
-            create_stocks(variant, stocks, warehouses)
+            new_stocks = create_stocks(variant, stocks, warehouses)
+
+            for stock in new_stocks:
+                transaction.on_commit(
+                    lambda: manager.product_variant_back_in_stock(stock)
+                )
+
+        StocksWithAvailableQuantityByProductVariantIdCountryCodeAndChannelLoader(
+            info.context
+        ).clear((variant.id, None, None))
 
         variant = ChannelContext(node=variant, channel_slug=None)
         return cls(product_variant=variant)
@@ -722,21 +810,40 @@ class ProductVariantStocksUpdate(ProductVariantStocksCreate):
             warehouses = cls.get_nodes_or_error(
                 warehouse_ids, "warehouse", only_type=Warehouse
             )
-            cls.update_or_create_variant_stocks(variant, stocks, warehouses)
+
+            manager = info.context.plugins
+            cls.update_or_create_variant_stocks(variant, stocks, warehouses, manager)
+
+        StocksWithAvailableQuantityByProductVariantIdCountryCodeAndChannelLoader(
+            info.context
+        ).clear((variant.id, None, None))
 
         variant = ChannelContext(node=variant, channel_slug=None)
         return cls(product_variant=variant)
 
     @classmethod
     @traced_atomic_transaction()
-    def update_or_create_variant_stocks(cls, variant, stocks_data, warehouses):
+    def update_or_create_variant_stocks(cls, variant, stocks_data, warehouses, manager):
+
         stocks = []
         for stock_data, warehouse in zip(stocks_data, warehouses):
-            stock, _ = warehouse_models.Stock.objects.get_or_create(
+            stock, is_created = warehouse_models.Stock.objects.get_or_create(
                 product_variant=variant, warehouse=warehouse
             )
+
+            if is_created or (stock.quantity <= 0 and stock_data["quantity"] > 0):
+                transaction.on_commit(
+                    lambda: manager.product_variant_back_in_stock(stock)
+                )
+
+            if stock_data["quantity"] <= 0:
+                transaction.on_commit(
+                    lambda: manager.product_variant_out_of_stock(stock)
+                )
+
             stock.quantity = stock_data["quantity"]
             stocks.append(stock)
+
         warehouse_models.Stock.objects.bulk_update(stocks, ["quantity"])
 
 
@@ -761,16 +868,27 @@ class ProductVariantStocksDelete(BaseMutation):
         error_type_field = "stock_errors"
 
     @classmethod
+    @traced_atomic_transaction()
     def perform_mutation(cls, root, info, **data):
+        manager = info.context.plugins
         variant = cls.get_node_or_error(
             info, data["variant_id"], only_type=ProductVariant
         )
         warehouses_pks = cls.get_global_ids_or_error(
             data["warehouse_ids"], Warehouse, field="warehouse_ids"
         )
-        warehouse_models.Stock.objects.filter(
+        stocks_to_delete = warehouse_models.Stock.objects.filter(
             product_variant=variant, warehouse__pk__in=warehouses_pks
-        ).delete()
+        )
+
+        for stock in stocks_to_delete:
+            transaction.on_commit(lambda: manager.product_variant_out_of_stock(stock))
+
+        stocks_to_delete.delete()
+
+        StocksWithAvailableQuantityByProductVariantIdCountryCodeAndChannelLoader(
+            info.context
+        ).clear((variant.id, None, None))
 
         variant = ChannelContext(node=variant, channel_slug=None)
         return cls(product_variant=variant)
@@ -787,6 +905,7 @@ class ProductTypeBulkDelete(ModelBulkDeleteMutation):
     class Meta:
         description = "Deletes product types."
         model = models.ProductType
+        object_type = ProductType
         permissions = (ProductTypePermissions.MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -823,6 +942,7 @@ class ProductMediaBulkDelete(ModelBulkDeleteMutation):
     class Meta:
         description = "Deletes product media."
         model = models.ProductMedia
+        object_type = ProductMedia
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"

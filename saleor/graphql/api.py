@@ -1,13 +1,14 @@
 from django.urls import reverse
 from django.utils.functional import SimpleLazyObject
 
+from ..graphql.notifications.schema import ExternalNotificationMutations
 from .account.schema import AccountMutations, AccountQueries
 from .app.schema import AppMutations, AppQueries
 from .attribute.schema import AttributeMutations, AttributeQueries
 from .channel.schema import ChannelMutations, ChannelQueries
 from .checkout.schema import CheckoutMutations, CheckoutQueries
 from .core.enums import unit_enums
-from .core.federation import build_federated_schema
+from .core.federation.schema import build_federated_schema
 from .core.schema import CoreMutations, CoreQueries
 from .csv.schema import CsvMutations, CsvQueries
 from .discount.schema import DiscountMutations, DiscountQueries
@@ -71,6 +72,7 @@ class Mutation(
     CoreMutations,
     CsvMutations,
     DiscountMutations,
+    ExternalNotificationMutations,
     PluginsMutations,
     GiftCardMutations,
     InvoiceMutations,
@@ -89,4 +91,4 @@ class Mutation(
     pass
 
 
-schema = build_federated_schema(Query, mutation=Mutation, types=unit_enums)
+schema = build_federated_schema(query=Query, mutation=Mutation, types=unit_enums)

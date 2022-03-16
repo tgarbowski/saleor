@@ -1,26 +1,28 @@
 import decimal
+import json
 import logging
-from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from time import time
+from typing import TYPE_CHECKING, Any, List, Optional
 
-from django.conf import settings
-from django.core.cache import cache
 from django.db.models import QuerySet
-from graphql import GraphQLError
 
-from ...graphql.core.utils import from_global_id_or_error
+from ...core.models import (
+    EventDelivery,
+    EventDeliveryAttempt,
+    EventDeliveryStatus,
+    EventPayload,
+)
 from ...payment.interface import GatewayResponse, PaymentGateway, PaymentMethodInfo
-from ..base_plugin import ExcludedShippingMethod
-from .const import CACHE_EXCLUDED_SHIPPING_TIME
-from .tasks import _get_webhooks_for_event, send_webhook_request_sync
 
 if TYPE_CHECKING:
     from ...app.models import App
     from ...payment.interface import PaymentData
+    from .tasks import WebhookResponse
 
 
-APP_GATEWAY_ID_PREFIX = "app"
+APP_ID_PREFIX = "app"
 
 logger = logging.getLogger(__name__)
 
@@ -31,17 +33,19 @@ class PaymentAppData:
     name: str
 
 
+@dataclass
+class ShippingAppData:
+    app_pk: int
+    shipping_method_id: str
+
+
 def to_payment_app_id(app: "App", gateway_id: str) -> "str":
-    return f"{APP_GATEWAY_ID_PREFIX}:{app.pk}:{gateway_id}"
+    return f"{APP_ID_PREFIX}:{app.pk}:{gateway_id}"
 
 
 def from_payment_app_id(app_gateway_id: str) -> Optional["PaymentAppData"]:
     splitted_id = app_gateway_id.split(":")
-    if (
-        len(splitted_id) == 3
-        and splitted_id[0] == APP_GATEWAY_ID_PREFIX
-        and all(splitted_id)
-    ):
+    if len(splitted_id) == 3 and splitted_id[0] == APP_ID_PREFIX and all(splitted_id):
         try:
             app_pk = int(splitted_id[1])
         except (TypeError, ValueError):
@@ -54,7 +58,10 @@ def from_payment_app_id(app_gateway_id: str) -> Optional["PaymentAppData"]:
 def parse_list_payment_gateways_response(
     response_data: Any, app: "App"
 ) -> List["PaymentGateway"]:
-    gateways = []
+    gateways: List[PaymentGateway] = []
+    if not isinstance(response_data, list):
+        return gateways
+
     for gateway_data in response_data:
         gateway_id = gateway_data.get("id")
         gateway_name = gateway_data.get("name")
@@ -119,110 +126,74 @@ def parse_payment_action_response(
     )
 
 
-def get_excluded_shipping_methods_from_response(
-    response_data: dict,
-) -> List[dict]:
-    excluded_methods = []
-    for method_data in response_data.get("excluded_methods", []):
-        try:
-            typename, method_id = from_global_id_or_error(method_data["id"])
-            if typename != "ShippingMethod":
-                raise ValueError(
-                    f"Invalid type received. Expected ShippingMethod, got {typename}"
-                )
-        except (KeyError, ValueError, TypeError, GraphQLError) as e:
-            logger.warning(f"Malformed ShippingMethod id was provided: {e}")
-            continue
-        excluded_methods.append(
-            {"id": method_id, "reason": method_data.get("reason", "")}
-        )
-    return excluded_methods
+@contextmanager
+def catch_duration_time():
+    start = time()
+    yield lambda: time() - start
 
 
-def parse_excluded_shipping_methods(
-    excluded_methods: List[dict],
-) -> Dict[str, List[ExcludedShippingMethod]]:
-    excluded_methods_map = defaultdict(list)
-    for excluded_method in excluded_methods:
-        method_id = excluded_method["id"]
-        excluded_methods_map[method_id].append(
-            ExcludedShippingMethod(
-                id=method_id, reason=excluded_method.get("reason", "")
-            )
-        )
-    return excluded_methods_map
-
-
-def get_excluded_shipping_methods_or_fetch(
-    webhooks: QuerySet, event_type: str, payload: str, cache_key: str
-) -> Dict[str, List[ExcludedShippingMethod]]:
-    """Return data of all excluded shipping methods.
-
-    The data will be fetched from the cache. If missing it will fetch it from all
-    defined webhooks by calling a request to each of them one by one.
-    """
-    cached_data = cache.get(cache_key)
-    if cached_data:
-        cached_payload, excluded_shipping_methods = cached_data
-        if payload == cached_payload:
-            return parse_excluded_shipping_methods(excluded_shipping_methods)
-
-    excluded_methods = []
-    # Gather responses from webhooks
-    for webhook in webhooks:
-        response_data = send_webhook_request_sync(
-            webhook.app.name,
-            webhook.target_url,
-            webhook.secret_key,
-            event_type,
-            payload,
-            timeout=settings.WEBHOOK_EXCLUDED_SHIPPING_REQUEST_TIMEOUT,
-        )
-        # TODO handle a case when we didn't receive a proper response
-        if response_data:
-            excluded_methods.extend(
-                get_excluded_shipping_methods_from_response(response_data)
-            )
-    cache.set(cache_key, (payload, excluded_methods), CACHE_EXCLUDED_SHIPPING_TIME)
-    return parse_excluded_shipping_methods(excluded_methods)
-
-
-def get_excluded_shipping_data(
+def create_event_delivery_list_for_webhooks(
+    webhooks: QuerySet,
+    event_payload: "EventPayload",
     event_type: str,
-    previous_value: List[ExcludedShippingMethod],
-    payload_fun: Callable[[], str],
-    cache_key: str,
-) -> List[ExcludedShippingMethod]:
-    """Exclude not allowed shipping methods by sync webhook.
+) -> List[EventDelivery]:
 
-    Fetch excluded shipping methods from sync webhooks and return them as a list of
-    excluded shipping methods.
-    The function uses a cache_key to reduce the number of
-    requests which we call to the external APIs. In case when we have the same payload
-    in a cache as we're going to send now, we will skip an additional request and use
-    the response fetched from cache.
-    The function will fetch the payload only in the case that we have any defined
-    webhook.
-    """
+    event_deliveries = EventDelivery.objects.bulk_create(
+        [
+            EventDelivery(
+                status=EventDeliveryStatus.PENDING,
+                event_type=event_type,
+                payload=event_payload,
+                webhook=webhook,
+            )
+            for webhook in webhooks
+        ]
+    )
+    return event_deliveries
 
-    excluded_methods_map: Dict[str, List[ExcludedShippingMethod]] = defaultdict(list)
-    webhooks = _get_webhooks_for_event(event_type)
-    if webhooks:
-        payload = payload_fun()
 
-        excluded_methods_map = get_excluded_shipping_methods_or_fetch(
-            webhooks, event_type, payload, cache_key
-        )
+def create_attempt(
+    delivery: "EventDelivery",
+    task_id: str = None,
+):
+    attempt = EventDeliveryAttempt.objects.create(
+        delivery=delivery,
+        task_id=task_id,
+        duration=None,
+        response=None,
+        request_headers=None,
+        response_headers=None,
+        status=EventDeliveryStatus.PENDING,
+    )
+    return attempt
 
-    # Gather responses for previous plugins
-    for method in previous_value:
-        excluded_methods_map[method.id].append(method)
 
-    # Return a list of excluded methods, unique by id
-    excluded_methods = []
-    for method_id, methods in excluded_methods_map.items():
-        reason = None
-        if reasons := [m.reason for m in methods if m.reason]:
-            reason = " ".join(reasons)
-        excluded_methods.append(ExcludedShippingMethod(id=method_id, reason=reason))
-    return excluded_methods
+def attempt_update(
+    attempt: "EventDeliveryAttempt",
+    webhook_response: "WebhookResponse",
+):
+
+    attempt.duration = webhook_response.duration
+    attempt.response = webhook_response.content
+    attempt.response_headers = json.dumps(webhook_response.response_headers)
+    attempt.request_headers = json.dumps(webhook_response.request_headers)
+    attempt.status = webhook_response.status
+    attempt.save(
+        update_fields=[
+            "duration",
+            "response",
+            "response_headers",
+            "request_headers",
+            "status",
+        ]
+    )
+
+
+def delivery_update(delivery: "EventDelivery", status: str):
+    delivery.status = status
+    delivery.save(update_fields=["status"])
+
+
+def clear_successful_delivery(delivery: "EventDelivery"):
+    if delivery.status == EventDeliveryStatus.SUCCESS:
+        delivery.delete()

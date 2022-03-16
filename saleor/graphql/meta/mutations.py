@@ -4,7 +4,7 @@ import warnings
 from typing import List
 
 import graphene
-from django.core.exceptions import ValidationError, ObjectDoesNotExist
+from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist, ValidationError
 from django.db import connection, transaction
 from graphql.error.base import GraphQLError
 
@@ -22,6 +22,7 @@ from ..channel import ChannelContext
 from ..core.mutations import BaseMutation
 from ..core.types.common import MetadataError
 from ..core.utils import from_global_id_or_error
+from ..payment.utils import metadata_contains_empty_key
 from .extra_methods import MODEL_EXTRA_METHODS, MODEL_EXTRA_PREFETCH
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from ..product.utils import create_collage
@@ -34,6 +35,18 @@ from saleor.product.models import ProductChannelListing, ProductVariantChannelLi
 from saleor.channel.models import Channel
 
 logger = logging.getLogger(__name__)
+
+
+def _save_instance(instance, metadata_field: str):
+    fields = [metadata_field]
+
+    try:
+        if bool(instance._meta.get_field("updated_at")):
+            fields.append("updated_at")
+    except FieldDoesNotExist:
+        pass
+
+    instance.save(update_fields=fields)
 
 
 class MetadataPermissionOptions(graphene.types.mutation.MutationOptions):
@@ -70,16 +83,20 @@ class BaseMetadataMutation(BaseMutation):
 
         try:
             type_name, _ = from_global_id_or_error(object_id)
-            if type_name == "Order":
-                warnings.warn("DEPRECATED. Use token for changing order metadata.")
-            # ShippingMethod type isn't model-based class
-            if type_name == "ShippingMethod":
+            # ShippingMethodType represents the ShippingMethod model
+            if type_name == "ShippingMethodType":
                 qs = shipping_models.ShippingMethod.objects
             return cls.get_node_or_error(info, object_id, qs=qs)
         except GraphQLError as e:
             if instance := cls.get_instance_by_token(object_id, qs):
                 return instance
-            raise ValidationError({"id": ValidationError(str(e), code="graphql_error")})
+            raise ValidationError(
+                {
+                    "id": ValidationError(
+                        str(e), code=MetadataErrorCode.GRAPHQL_ERROR.value
+                    )
+                }
+            )
 
     @classmethod
     def get_instance_by_token(cls, object_id, qs):
@@ -108,8 +125,7 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def validate_metadata_keys(cls, metadata_list: List[dict]):
-        # raise an error when any of the key is empty
-        if not all([data["key"].strip() for data in metadata_list]):
+        if metadata_contains_empty_key(metadata_list):
             raise ValidationError(
                 {
                     "input": ValidationError(
@@ -137,9 +153,14 @@ class BaseMetadataMutation(BaseMutation):
 
     @classmethod
     def get_model_for_type_name(cls, info, type_name):
-        if type_name == "ShippingMethod":
+        if type_name in ["ShippingMethodType", "ShippingMethod"]:
             return shipping_models.ShippingMethod
+
         graphene_type = info.schema.get_type(type_name).graphene_type
+
+        if hasattr(graphene_type, "get_model"):
+            return graphene_type.get_model()
+
         return graphene_type._meta.model
 
     @classmethod
@@ -155,7 +176,7 @@ class BaseMetadataMutation(BaseMutation):
         except ValidationError as e:
             return cls.handle_errors(e)
         if not cls.check_permissions(info.context, permissions):
-            raise PermissionDenied()
+            raise PermissionDenied(permissions=permissions)
         try:
             result = super().mutate(root, info, **data)
             if not result.errors:
@@ -456,7 +477,7 @@ class UpdateMetadata(BaseMetadataMutation):
             cls.validate_metadata_keys(metadata_list)
             items = {data.key: data.value for data in metadata_list}
             instance.store_value_in_metadata(items=items)
-            instance.save(update_fields=["metadata"])
+            _save_instance(instance, "metadata")
         return cls.success_response(instance)
 
 
@@ -485,7 +506,7 @@ class DeleteMetadata(BaseMetadataMutation):
             metadata_keys = data.pop("keys")
             for key in metadata_keys:
                 instance.delete_value_from_metadata(key)
-            instance.save(update_fields=["metadata"])
+            _save_instance(instance, "metadata")
         return cls.success_response(instance)
 
 
@@ -528,7 +549,7 @@ class UpdatePrivateMetadata(BaseMetadataMutation):
                 cls.validate_mega_pack(instance, data, products_sold_in_allegro)
             if 'skus' not in items:
                 instance.store_value_in_private_metadata(items=items)
-                instance.save(update_fields=["private_metadata"])
+                _save_instance(instance, "private_metadata")
         return cls.success_response(instance)
 
 
@@ -557,5 +578,5 @@ class DeletePrivateMetadata(BaseMetadataMutation):
             metadata_keys = data.pop("keys")
             for key in metadata_keys:
                 instance.delete_value_from_private_metadata(key)
-            instance.save(update_fields=["private_metadata"])
+            _save_instance(instance, "private_metadata")
         return cls.success_response(instance)

@@ -4,13 +4,11 @@ from typing import Dict, Iterable, List, Optional
 
 import django_filters
 import graphene
-from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import Exists, F, FloatField, OuterRef, Q, Subquery, Sum
+from django.db.models import Exists, FloatField, OuterRef, Q, Subquery, Sum
 from django.db.models.expressions import ExpressionWrapper
 from django.db.models.fields import IntegerField
 from django.db.models.functions import Cast, Coalesce
-from graphene_django.filter import GlobalIDMultipleChoiceFilter
-from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from ...attribute import AttributeInputType
 from ...attribute.models import (
@@ -22,6 +20,7 @@ from ...attribute.models import (
     AttributeValue,
 )
 from ...channel.models import Channel
+from ...product import ProductTypeKind
 from ...product.models import (
     Category,
     Collection,
@@ -32,26 +31,28 @@ from ...product.models import (
     ProductVariant,
     ProductVariantChannelListing,
 )
+from ...product.search import search_products
+from ...warehouse.models import Allocation, Stock, Warehouse
 from ...warehouse.models import Allocation, Stock, Warehouse
 from ..channel.filters import get_channel_slug_from_filter_data
 from ..core.filters import (
     EnumFilter,
+    GlobalIDMultipleChoiceFilter,
     ListObjectTypeFilter,
     MetadataFilterBase,
     ObjectTypeFilter,
 )
 from ..core.types import ChannelFilterInputObjectType, FilterInputObjectType
+from ..core.types.common import DateTimeRangeInput, IntRangeInput, PriceRangeInput, WarehouseLocationRangeInput
 from ..utils import resolve_global_ids_to_primary_keys
-from ..utils.filters import filter_fields_containing_value, filter_range_field
-from ..core.types.common import IntRangeInput, PriceRangeInput, DateRangeInput, \
-    WarehouseLocationRangeInput
-
+from ..utils.filters import filter_by_id, filter_range_field
 from ..warehouse import types as warehouse_types
 from . import types as product_types
 from .enums import (
     CollectionPublished,
     ProductTypeConfigurable,
     ProductTypeEnum,
+    ProductTypeKindEnum,
     StockAvailability,
 )
 
@@ -418,15 +419,22 @@ def filter_product_types(qs, _, value):
     return qs.filter(product_type_id__in=product_type_pks)
 
 
-def filter_product_ids(qs, _, value):
-    if not value:
-        return qs
-    _, product_pks = resolve_global_ids_to_primary_keys(value, product_types.Product)
-    return qs.filter(id__in=product_pks)
-
-
 def filter_has_category(qs, _, value):
     return qs.filter(category__isnull=not value)
+
+
+def filter_has_preordered_variants(qs, _, value):
+    variants = (
+        ProductVariant.objects.filter(is_preorder=True)
+        .filter(
+            Q(preorder_end_date__isnull=True) | Q(preorder_end_date__gt=timezone.now())
+        )
+        .values("product_id")
+    )
+    if value:
+        return qs.filter(Exists(variants.filter(product_id=OuterRef("pk"))))
+    else:
+        return qs.filter(~Exists(variants.filter(product_id=OuterRef("pk"))))
 
 
 def filter_collections(qs, _, value):
@@ -482,34 +490,8 @@ def _filter_stock_availability(qs, _, value, channel_slug):
     return qs
 
 
-def product_search(qs, phrase):
-    """Return matching products for storefront views.
-
-        Name and description is matched using search vector.
-
-    Args:
-        qs (ProductsQueryset): searched data set
-        phrase (str): searched phrase
-
-    """
-    query = SearchQuery(phrase, config="english")
-    vector = F("search_vector")
-    ft_in_description_or_name = Q(search_vector=query)
-
-    variants = ProductVariant.objects.filter(sku=phrase).values("id")
-    ft_by_sku = Q(Exists(variants.filter(product_id=OuterRef("pk"))))
-
-    return (
-        qs.annotate(rank=SearchRank(vector, query))
-        .filter((ft_in_description_or_name | ft_by_sku))
-        .order_by("-rank", "id")
-    )
-
-
 def filter_search(qs, _, value):
-    if value:
-        qs = product_search(qs, value)
-    return qs
+    return search_products(qs, value)
 
 
 def _filter_collections_is_published(qs, _, value, channel_slug):
@@ -517,6 +499,12 @@ def _filter_collections_is_published(qs, _, value, channel_slug):
         channel_listings__is_published=value,
         channel_listings__channel__slug=channel_slug,
     )
+
+
+def filter_gift_card(qs, _, value):
+    product_types = ProductType.objects.filter(kind=ProductTypeKind.GIFT_CARD)
+    lookup = Exists(product_types.filter(id=OuterRef("product_type_id")))
+    return qs.filter(lookup) if value is True else qs.exclude(lookup)
 
 
 def filter_product_type_configurable(qs, _, value):
@@ -532,6 +520,12 @@ def filter_product_type(qs, _, value):
         qs = qs.filter(is_digital=True)
     elif value == ProductTypeEnum.SHIPPABLE:
         qs = qs.filter(is_shipping_required=True)
+    return qs
+
+
+def filter_product_type_kind(qs, _, value):
+    if value:
+        qs = qs.filter(kind=value)
     return qs
 
 
@@ -565,6 +559,17 @@ def filter_sku_list(qs, _, value):
     return qs.filter(sku__in=value)
 
 
+def filter_is_preorder(qs, _, value):
+    if value:
+        return qs.filter(is_preorder=True).filter(
+            Q(preorder_end_date__isnull=True) | Q(preorder_end_date__gte=timezone.now())
+        )
+    return qs.filter(
+        Q(is_preorder=False)
+        | (Q(is_preorder=True)) & Q(preorder_end_date__lt=timezone.now())
+    )
+
+
 def filter_quantity(qs, quantity_value, warehouse_ids=None):
     """Filter products queryset by product variants quantity.
 
@@ -590,6 +595,12 @@ def filter_quantity(qs, quantity_value, warehouse_ids=None):
         filter_range_field(variants, "total_quantity", quantity_value).values_list(
             "product_id", flat=True
         )
+    )
+    return qs.filter(pk__in=variants)
+
+
+def filter_updated_at_range(qs, _, value):
+    return filter_range_field(qs, "updated_at", value)
     )
     return qs.filter(pk__in=variants)
 
@@ -642,9 +653,17 @@ class ProductFilter(MetadataFilterBase):
     stock_availability = EnumFilter(
         input_class=StockAvailability, method="filter_stock_availability"
     )
+    updated_at = ObjectTypeFilter(
+        input_class=DateTimeRangeInput, method=filter_updated_at_range
+    )
     product_types = GlobalIDMultipleChoiceFilter(method=filter_product_types)
     stocks = ObjectTypeFilter(input_class=ProductStockFilterInput, method=filter_stocks)
     search = django_filters.CharFilter(method=filter_search)
+    gift_card = django_filters.BooleanFilter(method=filter_gift_card)
+    ids = GlobalIDMultipleChoiceFilter(method=filter_by_id("Product"))
+    has_preordered_variants = django_filters.BooleanFilter(
+        method=filter_has_preordered_variants
+    )
     ids = GlobalIDMultipleChoiceFilter(method=filter_product_ids)
     allegro_status = django_filters.CharFilter(method=filter_allegro_status)
     updated_at = ObjectTypeFilter(input_class=DateRangeInput,
@@ -698,6 +717,10 @@ class ProductFilter(MetadataFilterBase):
 class ProductVariantFilter(MetadataFilterBase):
     search = django_filters.CharFilter(method="product_variant_filter_search")
     sku = ListObjectTypeFilter(input_class=graphene.String, method=filter_sku_list)
+    is_preorder = django_filters.BooleanFilter(method=filter_is_preorder)
+    updated_at = ObjectTypeFilter(
+        input_class=DateTimeRangeInput, method=filter_updated_at_range
+    )
 
     class Meta:
         model = ProductVariant
@@ -767,6 +790,7 @@ class ProductTypeFilter(MetadataFilterBase):
     )
 
     product_type = EnumFilter(input_class=ProductTypeEnum, method=filter_product_type)
+    kind = EnumFilter(input_class=ProductTypeKindEnum, method=filter_product_type_kind)
     ids = GlobalIDMultipleChoiceFilter(field_name="id")
 
     class Meta:

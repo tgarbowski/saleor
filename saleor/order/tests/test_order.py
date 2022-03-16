@@ -1,6 +1,7 @@
 from decimal import Decimal
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
+import graphene
 import pytest
 from prices import Money, TaxedMoney
 
@@ -14,12 +15,14 @@ from ...discount.models import (
     VoucherType,
 )
 from ...discount.utils import validate_voucher_in_order
+from ...graphql.tests.utils import get_graphql_content
 from ...order.interface import OrderTaxedPricesData
 from ...payment import ChargeStatus
 from ...payment.models import Payment
 from ...plugins.manager import get_plugins_manager
 from ...product.models import Collection
-from ...warehouse.models import Stock
+from ...warehouse import WarehouseClickAndCollectOption
+from ...warehouse.models import Stock, Warehouse
 from ...warehouse.tests.utils import get_quantity_allocated_for_stock
 from .. import FulfillmentStatus, OrderEvents, OrderStatus
 from ..events import (
@@ -36,7 +39,6 @@ from ..notifications import (
     get_default_fulfillment_payload,
     send_fulfillment_confirmation_to_customer,
 )
-from ..templatetags.order_lines import display_translated_order_line_name
 from ..utils import (
     add_variant_to_order,
     change_order_line_quantity,
@@ -95,6 +97,7 @@ def test_add_variant_to_order_adds_line_for_new_variant(
     line = order.lines.last()
     assert order.lines.count() == lines_before + 1
     assert line.product_sku == variant.sku
+    assert line.product_variant_id == variant.get_global_id()
     assert line.quantity == 1
     assert line.unit_price == TaxedMoney(net=Money(10, "USD"), gross=Money(10, "USD"))
     assert line.translated_product_name == str(variant.product.translated)
@@ -116,7 +119,7 @@ def test_add_variant_to_order_adds_line_for_new_variant_on_sale(
     site_settings,
 ):
     order = order_with_lines
-    variant = product.variants.get()
+    variant = product.variants.first()
     discount_info.variants_ids.add(variant.id)
     sale.variants.add(variant)
     lines_before = order.lines.count()
@@ -184,6 +187,7 @@ def test_add_variant_to_draft_order_adds_line_for_new_variant_with_tax(
     line = order.lines.last()
     assert order.lines.count() == lines_before + 1
     assert line.product_sku == variant.sku
+    assert line.product_variant_id == variant.get_global_id()
     assert line.quantity == 1
     assert line.unit_price == unit_price
     assert line.total_price == total_price
@@ -216,6 +220,7 @@ def test_add_variant_to_draft_order_adds_line_for_variant_with_price_0(
     line = order.lines.last()
     assert order.lines.count() == lines_before + 1
     assert line.product_sku == variant.sku
+    assert line.product_variant_id == variant.get_global_id()
     assert line.quantity == 1
     assert line.unit_price == TaxedMoney(net=Money(0, "USD"), gross=Money(0, "USD"))
     assert line.translated_product_name == str(variant.product.translated)
@@ -265,6 +270,7 @@ def test_add_variant_to_order_edits_line_for_existing_variant(
     existing_line.refresh_from_db()
     assert order_with_lines.lines.count() == lines_before
     assert existing_line.product_sku == variant.sku
+    assert existing_line.product_variant_id == variant.get_global_id()
     assert existing_line.quantity == line_quantity_before + 1
 
 
@@ -419,6 +425,17 @@ def test_update_order_status_partially_returned(fulfilled_order):
 
     fulfilled_order.refresh_from_db()
     assert fulfilled_order.status == OrderStatus.PARTIALLY_RETURNED
+
+
+def test_update_order_status_waiting_for_approval(fulfilled_order):
+    fulfilled_order.fulfillments.create(status=FulfillmentStatus.WAITING_FOR_APPROVAL)
+    fulfilled_order.status = OrderStatus.FULFILLED
+    fulfilled_order.save()
+
+    update_order_status(fulfilled_order)
+
+    fulfilled_order.refresh_from_db()
+    assert fulfilled_order.status == OrderStatus.PARTIALLY_FULFILLED
 
 
 def test_validate_fulfillment_tracking_number_as_url(fulfilled_order):
@@ -693,7 +710,13 @@ def test_order_weight_change_line_quantity(staff_user, lines_info):
     new_quantity = line_info.quantity + 2
     order = line_info.line.order
     change_order_line_quantity(
-        staff_user, app, line_info, new_quantity, line_info.quantity, order.channel.slug
+        staff_user,
+        app,
+        line_info,
+        new_quantity,
+        line_info.quantity,
+        order.channel.slug,
+        get_plugins_manager(),
     )
     assert order.weight == _calculate_order_weight_from_lines(order)
 
@@ -701,7 +724,7 @@ def test_order_weight_change_line_quantity(staff_user, lines_info):
 def test_order_weight_delete_line(lines_info):
     order = lines_info[0].line.order
     line_info = lines_info[0]
-    delete_order_line(line_info)
+    delete_order_line(line_info, get_plugins_manager())
     assert order.weight == _calculate_order_weight_from_lines(order)
 
 
@@ -763,35 +786,6 @@ def test_validate_voucher_in_order_without_voucher(
 
     validate_voucher_in_order(order_with_lines)
     mock_validate_voucher.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "product_name, variant_name, translated_product_name, translated_variant_name,"
-    "expected_display_name",
-    [
-        ("product", "variant", "", "", "product (variant)"),
-        ("product", "", "", "", "product"),
-        ("product", "", "productPL", "", "productPL"),
-        ("product", "variant", "productPL", "", "productPL (variant)"),
-        ("product", "variant", "productPL", "variantPl", "productPL (variantPl)"),
-        ("product", "variant", "", "variantPl", "product (variantPl)"),
-    ],
-)
-def test_display_translated_order_line_name(
-    product_name,
-    variant_name,
-    translated_product_name,
-    translated_variant_name,
-    expected_display_name,
-):
-    order_line = MagicMock(
-        product_name=product_name,
-        variant_name=variant_name,
-        translated_product_name=translated_product_name,
-        translated_variant_name=translated_variant_name,
-    )
-    display_name = display_translated_order_line_name(order_line)
-    assert display_name == expected_display_name
 
 
 @pytest.mark.parametrize(
@@ -1000,10 +994,22 @@ def test_ordered_item_change_quantity(staff_user, transactional_db, lines_info):
     order = lines_info[0].line.order
     assert not order.events.count()
     change_order_line_quantity(
-        staff_user, app, lines_info[1], lines_info[1].quantity, 0, order.channel.slug
+        staff_user,
+        app,
+        lines_info[1],
+        lines_info[1].quantity,
+        0,
+        order.channel.slug,
+        get_plugins_manager(),
     )
     change_order_line_quantity(
-        staff_user, app, lines_info[0], lines_info[0].quantity, 0, order.channel.slug
+        staff_user,
+        app,
+        lines_info[0],
+        lines_info[0].quantity,
+        0,
+        order.channel.slug,
+        get_plugins_manager(),
     )
     assert order.get_total_quantity() == 0
 
@@ -1017,7 +1023,13 @@ def test_change_order_line_quantity_changes_total_prices(
     line_info = lines_info[0]
     new_quantity = line_info.quantity + 1
     change_order_line_quantity(
-        staff_user, app, line_info, line_info.quantity, new_quantity, order.channel.slug
+        staff_user,
+        app,
+        line_info,
+        line_info.quantity,
+        new_quantity,
+        order.channel.slug,
+        get_plugins_manager(),
     )
     assert line_info.line.total_price == line_info.line.unit_price * new_quantity
 
@@ -1242,3 +1254,68 @@ def test_email_sent_event_without_user_and_app_pk(
         "email": order.get_customer_email(),
         "email_type": expected_event_type,
     }
+
+
+GET_ORDER_AVAILABLE_COLLECTION_POINTS = """
+    query getAvailableCollectionPointsForOrder(
+        $id: ID!
+    ){
+      order(id:$id){
+        availableCollectionPoints{
+          name
+        }
+      }
+    }
+"""
+
+
+def test_available_collection_points_for_preorders_variants_in_order(
+    api_client, staff_api_client, order_with_preorder_lines, permission_manage_orders
+):
+    expected_collection_points = list(
+        Warehouse.objects.for_country("US")
+        .exclude(
+            click_and_collect_option=WarehouseClickAndCollectOption.DISABLED,
+        )
+        .values("name")
+    )
+    response = staff_api_client.post_graphql(
+        GET_ORDER_AVAILABLE_COLLECTION_POINTS,
+        variables={
+            "id": graphene.Node.to_global_id("Order", order_with_preorder_lines.id)
+        },
+        permissions=[permission_manage_orders],
+    )
+    response_content = get_graphql_content(response)
+    assert (
+        expected_collection_points
+        == response_content["data"]["order"]["availableCollectionPoints"]
+    )
+
+
+def test_available_collection_points_for_preorders_and_regular_variants_in_order(
+    api_client,
+    staff_api_client,
+    order_with_preorder_lines,
+    permission_manage_orders,
+):
+    expected_collection_points = list(
+        Warehouse.objects.for_country("US")
+        .exclude(
+            click_and_collect_option=WarehouseClickAndCollectOption.DISABLED,
+        )
+        .values("name")
+    )
+
+    response = staff_api_client.post_graphql(
+        GET_ORDER_AVAILABLE_COLLECTION_POINTS,
+        variables={
+            "id": graphene.Node.to_global_id("Order", order_with_preorder_lines.id)
+        },
+        permissions=[permission_manage_orders],
+    )
+    response_content = get_graphql_content(response)
+    assert (
+        expected_collection_points
+        == response_content["data"]["order"]["availableCollectionPoints"]
+    )

@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 from django.forms import model_to_dict
 
 from ..account.models import StaffNotificationRecipient
-from ..core.notifications import get_site_context
+from ..core.notification.utils import get_site_context
 from ..core.notify_events import NotifyEventType
 from ..core.prices import quantize_price, quantize_price_fields
 from ..core.utils.url import prepare_url
@@ -82,6 +82,9 @@ def get_product_variant_payload(variant: ProductVariant):
     return {
         "id": variant.id,
         "weight": str(variant.weight or ""),
+        "is_preorder": variant.is_preorder_active(),
+        "preorder_global_threshold": variant.preorder_global_threshold,
+        "preorder_end_date": variant.preorder_end_date,
         **get_default_images_payload(images),
     }
 
@@ -108,6 +111,7 @@ def get_order_line_payload(line: "OrderLine"):
         "variant": variant_dependent_fields.get("variant"),  # type: ignore
         "translated_variant_name": line.translated_variant_name or line.variant_name,
         "product_sku": line.product_sku,
+        "product_variant_id": line.product_variant_id,
         "quantity": line.quantity,
         "quantity_fulfilled": line.quantity_fulfilled,
         "currency": currency,
@@ -212,6 +216,15 @@ ORDER_PRICE_FIELDS = [
 ]
 
 
+def get_custom_order_payload(order: Order):
+    payload = {
+        "order": get_default_order_payload(order),
+        "recipient_email": order.get_customer_email(),
+        **get_site_context(),
+    }
+    return payload
+
+
 def get_default_order_payload(order: "Order", redirect_url: str = ""):
     order_details_url = ""
     if redirect_url:
@@ -244,6 +257,7 @@ def get_default_order_payload(order: "Order", redirect_url: str = ""):
             "billing_address": get_address_payload(order.billing_address),
             "shipping_address": get_address_payload(order.shipping_address),
             "shipping_method_name": order.shipping_method_name,
+            "collection_point_name": order.collection_point_name,
             **get_discounts_payload(order),
         }
     )
@@ -286,15 +300,17 @@ def prepare_order_details_url(order: Order, redirect_url: str) -> str:
     return prepare_url(params, redirect_url)
 
 
-def send_order_confirmation(order, redirect_url, manager):
+def send_order_confirmation(order_info, redirect_url, manager):
     """Send notification with order confirmation."""
     payload = {
-        "order": get_default_order_payload(order, redirect_url),
-        "recipient_email": order.get_customer_email(),
+        "order": get_default_order_payload(order_info.order, redirect_url),
+        "recipient_email": order_info.customer_email,
         **get_site_context(),
     }
     manager.notify(
-        NotifyEventType.ORDER_CONFIRMATION, payload, channel_slug=order.channel.slug
+        NotifyEventType.ORDER_CONFIRMATION,
+        payload,
+        channel_slug=order_info.channel.slug,
     )
 
     # Prepare staff notification for this order
@@ -345,13 +361,13 @@ def send_fulfillment_update(order, fulfillment, manager):
     )
 
 
-def send_payment_confirmation(order, manager):
+def send_payment_confirmation(order_info, manager):
     """Send notification with the payment confirmation."""
-    payment = order.get_last_payment()
+    payment = order_info.payment
     payment_currency = payment.currency
     payload = {
-        "order": get_default_order_payload(order),
-        "recipient_email": order.get_customer_email(),
+        "order": get_default_order_payload(order_info.order),
+        "recipient_email": order_info.customer_email,
         "payment": {
             "created": payment.created,
             "modified": payment.modified,
@@ -367,7 +383,7 @@ def send_payment_confirmation(order, manager):
     manager.notify(
         NotifyEventType.ORDER_PAYMENT_CONFIRMATION,
         payload,
-        channel_slug=order.channel.slug,
+        channel_slug=order_info.channel.slug,
     )
 
 

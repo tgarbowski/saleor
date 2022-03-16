@@ -90,9 +90,10 @@ def checkout_with_items_and_shipping_info(checkout_with_items_and_shipping):
     channel = checkout.channel
     shipping_address = checkout.shipping_address
     shipping_method = checkout.shipping_method
-    shipping_channel_listing = ShippingMethodChannelListing.objects.filter(
-        shipping_method=shipping_method, channel=channel
-    ).first()
+    shipping_channel_listing = ShippingMethodChannelListing.objects.get(
+        channel=channel,
+        shipping_method=shipping_method,
+    )
     checkout_info = CheckoutInfo(
         checkout=checkout,
         user=checkout.user,
@@ -100,8 +101,10 @@ def checkout_with_items_and_shipping_info(checkout_with_items_and_shipping):
         billing_address=checkout.billing_address,
         shipping_address=shipping_address,
         delivery_method_info=get_delivery_method_info(
-            convert_to_shipping_method_data(shipping_method, shipping_channel_listing)
+            convert_to_shipping_method_data(shipping_method, shipping_channel_listing),
+            shipping_address,
         ),
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
     return checkout_info

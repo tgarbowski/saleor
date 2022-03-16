@@ -1,33 +1,38 @@
 import graphene
 from graphene import relay
 
+from ...core.exceptions import PermissionDenied
 from ...core.permissions import OrderPermissions
+from ...core.tracing import traced_resolver
 from ...payment import models
 from ..checkout.dataloaders import CheckoutByTokenLoader
-from ..core.connection import CountableDjangoObjectType
-from ..core.types import Money
+from ..core.connection import CountableConnection
+from ..core.descriptions import ADDED_IN_31
+from ..core.fields import JSONString
+from ..core.types import ModelObjectType, Money
 from ..decorators import permission_required
-from .enums import OrderAction, PaymentChargeStatusEnum
+from ..meta.permissions import public_payment_permissions
+from ..meta.resolvers import resolve_metadata
+from ..meta.types import MetadataItem, ObjectWithMetadata
+from ..utils import get_user_or_app_from_context
+from .enums import OrderAction, PaymentChargeStatusEnum, TransactionKindEnum
 
 
-class Transaction(CountableDjangoObjectType):
+class Transaction(ModelObjectType):
+    id = graphene.GlobalID(required=True)
+    created = graphene.DateTime(required=True)
+    payment = graphene.Field(lambda: Payment, required=True)
+    token = graphene.String(required=True)
+    kind = TransactionKindEnum(required=True)
+    is_success = graphene.Boolean(required=True)
+    error = graphene.String()
+    gateway_response = JSONString(required=True)
     amount = graphene.Field(Money, description="Total amount of the transaction.")
 
     class Meta:
         description = "An object representing a single payment."
         interfaces = [relay.Node]
         model = models.Transaction
-        filter_fields = ["id"]
-        only_fields = [
-            "id",
-            "created",
-            "payment",
-            "token",
-            "kind",
-            "is_success",
-            "error",
-            "gateway_response",
-        ]
 
     @staticmethod
     def resolve_amount(root: models.Transaction, _info):
@@ -64,9 +69,27 @@ class PaymentSource(graphene.ObjectType):
     credit_card_info = graphene.Field(
         CreditCard, description="Stored credit card details if available."
     )
+    metadata = graphene.List(
+        MetadataItem,
+        required=True,
+        description=(
+            f"{ADDED_IN_31} List of public metadata items. "
+            "Can be accessed without permissions."
+        ),
+    )
 
 
-class Payment(CountableDjangoObjectType):
+class Payment(ModelObjectType):
+    id = graphene.GlobalID(required=True)
+    gateway = graphene.String(required=True)
+    is_active = graphene.Boolean(required=True)
+    created = graphene.DateTime(required=True)
+    modified = graphene.DateTime(required=True)
+    token = graphene.String(required=True)
+    checkout = graphene.Field("saleor.graphql.checkout.types.Checkout")
+    order = graphene.Field("saleor.graphql.order.types.Order")
+    payment_method_type = graphene.String(required=True)
+    customer_ip_address = graphene.String()
     charge_status = PaymentChargeStatusEnum(
         description="Internal payment status.", required=True
     )
@@ -96,21 +119,8 @@ class Payment(CountableDjangoObjectType):
 
     class Meta:
         description = "Represents a payment of a given type."
-        interfaces = [relay.Node]
+        interfaces = [relay.Node, ObjectWithMetadata]
         model = models.Payment
-        filter_fields = ["id"]
-        only_fields = [
-            "id",
-            "gateway",
-            "is_active",
-            "created",
-            "modified",
-            "token",
-            "checkout",
-            "order",
-            "customer_ip_address",
-            "payment_method_type",
-        ]
 
     @staticmethod
     @permission_required(OrderPermissions.MANAGE_ORDERS)
@@ -130,6 +140,7 @@ class Payment(CountableDjangoObjectType):
         return actions
 
     @staticmethod
+    @traced_resolver
     def resolve_total(root: models.Payment, _info):
         return root.get_total()
 
@@ -170,6 +181,24 @@ class Payment(CountableDjangoObjectType):
         return CreditCard(**data)
 
     @staticmethod
+    def resolve_metadata(root: models.Payment, info):
+        permissions = public_payment_permissions(info, root.pk)
+        requester = get_user_or_app_from_context(info.context)
+        if not requester.has_perms(permissions):
+            raise PermissionDenied(permissions=permissions)
+        return resolve_metadata(root.metadata)
+
+    def resolve_checkout(root: models.Payment, info):
+        if not root.checkout_id:
+            return None
+        return CheckoutByTokenLoader(info.context).load(root.checkout_id)
+
+
+class PaymentCountableConnection(CountableConnection):
+    class Meta:
+        node = Payment
+
+    @staticmethod
     def resolve_checkout(root: models.Payment, info):
         if not root.checkout_id:
             return None
@@ -191,6 +220,4 @@ class PaymentInitialized(graphene.ObjectType):
 
     gateway = graphene.String(description="ID of a payment gateway.", required=True)
     name = graphene.String(description="Payment gateway name.", required=True)
-    data = graphene.JSONString(
-        description="Initialized data by gateway.", required=False
-    )
+    data = JSONString(description="Initialized data by gateway.", required=False)

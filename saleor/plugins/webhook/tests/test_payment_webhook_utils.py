@@ -1,8 +1,11 @@
 import pytest
 
+from ....core import EventDeliveryStatus
+from ....core.models import EventDelivery
 from ....payment import TransactionKind
 from ..utils import (
-    APP_GATEWAY_ID_PREFIX,
+    APP_ID_PREFIX,
+    clear_successful_delivery,
     from_payment_app_id,
     parse_list_payment_gateways_response,
     parse_payment_action_response,
@@ -13,7 +16,7 @@ from ..utils import (
 def test_to_payment_app_id(app):
     gateway_id = "example-gateway"
     payment_app_id = to_payment_app_id(app, gateway_id)
-    assert payment_app_id == f"{APP_GATEWAY_ID_PREFIX}:{app.pk}:{gateway_id}"
+    assert payment_app_id == f"{APP_ID_PREFIX}:{app.pk}:{gateway_id}"
 
 
 def test_from_payment_app_id():
@@ -31,9 +34,9 @@ def test_from_payment_app_id():
         "1",
         "name",
         "1:1:name",
-        f"{APP_GATEWAY_ID_PREFIX}:1",
-        f"{APP_GATEWAY_ID_PREFIX}:1:",
-        f"{APP_GATEWAY_ID_PREFIX}:1a:name",
+        f"{APP_ID_PREFIX}:1",
+        f"{APP_ID_PREFIX}:1:",
+        f"{APP_ID_PREFIX}:1a:name",
     ],
 )
 def test_from_payment_app_id_invalid(app_id):
@@ -64,6 +67,19 @@ def test_parse_list_payment_gateways_response_no_id(app):
             "currencies": ["USD", "EUR"],
         },
     ]
+    gateways = parse_list_payment_gateways_response(response_data, app)
+    assert gateways == []
+
+
+def test_parse_list_payment_gateways_response_dict_response(app):
+    # We expect that the response_data is a list of dicts, otherwise it won't be
+    # parsed.
+    response_data = {
+        "id": "credit-card",
+        "name": "Credit Card",
+        "currencies": ["USD", "EUR"],
+        "config": [{"field": "example-key", "value": "example-value"}],
+    }
     gateways = parse_list_payment_gateways_response(response_data, app)
     assert gateways == []
 
@@ -160,3 +176,24 @@ def test_parse_payment_action_response_parse_amount(
         dummy_webhook_app_payment_data, payment_action_response, TransactionKind.AUTH
     )
     assert gateway_response.amount == dummy_webhook_app_payment_data.amount
+
+
+def test_clear_successful_delivery(event_delivery):
+    # given
+    assert EventDelivery.objects.filter(pk=event_delivery.pk).exists()
+    event_delivery.status = EventDeliveryStatus.SUCCESS
+    event_delivery.save()
+    # when
+    clear_successful_delivery(event_delivery)
+    # then
+    assert not EventDelivery.objects.filter(pk=event_delivery.pk).exists()
+
+
+def test_clear_successful_delivery_on_failed_delivery(event_delivery):
+    # given
+    event_delivery.status = EventDeliveryStatus.FAILED
+    event_delivery.save()
+    # when
+    clear_successful_delivery(event_delivery)
+    # then
+    assert EventDelivery.objects.filter(pk=event_delivery.pk).exists()

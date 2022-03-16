@@ -83,7 +83,7 @@ class AdyenGatewayPlugin(BasePlugin):
         },
         "merchant-account": {
             "type": ConfigurationTypeField.STRING,
-            "help_text": "Yout merchant account name.",
+            "help_text": "Your merchant account name.",
             "label": "Merchant Account",
         },
         "supported-currencies": {
@@ -598,8 +598,13 @@ class AdyenGatewayPlugin(BasePlugin):
             return self._process_additional_action(payment_information, kind)
 
         result_code = transaction.gateway_response.get("resultCode", "").strip().lower()
+        payment_method = (
+            transaction.gateway_response.get("paymentMethod", "").strip().lower()
+        )
         if result_code and result_code in PENDING_STATUSES:
             kind = TransactionKind.PENDING
+        elif result_code == AUTH_STATUS and payment_method == "ideal":
+            kind = TransactionKind.CAPTURE
 
         # We already have the ACTION_TO_CONFIRM transaction, it means that
         # payment was processed asynchronous and no additional action is required

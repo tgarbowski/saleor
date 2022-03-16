@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import traceback
+from inspect import isclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import opentracing
@@ -14,8 +15,6 @@ from django.db.backends.postgresql.base import DatabaseWrapper
 from django.http import HttpRequest, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import render
 from django.views.generic import View
-from graphene_django.settings import graphene_settings
-from graphene_django.views import instantiate_middleware
 from graphql import GraphQLDocument, get_default_backend
 from graphql.error import GraphQLError, GraphQLSyntaxError
 from graphql.error import format_error as format_graphql_error
@@ -25,8 +24,10 @@ from jwt.exceptions import PyJWTError
 from .. import __version__ as saleor_version
 from ..core.exceptions import PermissionDenied, ReadOnlyException
 from ..core.utils import is_valid_ipv4, is_valid_ipv6
-from .api import API_PATH
+from .api import API_PATH, schema
 from .context import get_context_value
+from .core.validators.query_cost import validate_query_cost
+from .query_cost_map import COST_MAP
 from .utils import query_fingerprint
 
 INT_ERROR_MSG = "Int cannot represent non 32-bit signed integer value"
@@ -71,15 +72,11 @@ class GraphQLView(View):
         self, schema=None, executor=None, middleware=None, root_value=None, backend=None
     ):
         super().__init__()
-        if schema is None:
-            schema = graphene_settings.SCHEMA
         if backend is None:
             backend = get_default_backend()
-        if middleware is None:
-            middleware = graphene_settings.MIDDLEWARE
         self.schema = self.schema or schema
         if middleware is not None:
-            self.middleware = list(instantiate_middleware(middleware))
+            self.middleware = list()
         self.executor = executor
         self.root_value = root_value
         self.backend = backend
@@ -116,7 +113,10 @@ class GraphQLView(View):
         return render(
             request,
             "graphql/playground.html",
-            {"api_url": request.build_absolute_uri(str(API_PATH))},
+            {
+                "api_url": request.build_absolute_uri(str(API_PATH)),
+                "plugins_url": request.build_absolute_uri("/plugins/"),
+            },
         )
 
     def _handle_query(self, request: HttpRequest) -> JsonResponse:
@@ -196,6 +196,8 @@ class GraphQLView(View):
                 status_code = 400
             else:
                 response["data"] = execution_result.data
+            if execution_result.extensions:
+                response["extensions"] = execution_result.extensions
             result: Optional[Dict[str, List[Any]]] = response
         else:
             result = None
@@ -255,6 +257,7 @@ class GraphQLView(View):
             )
 
             query, variables, operation_name = self.get_graphql_params(request, data)
+            query_cost = 0
 
             document, error = self.parse_query(query)
             if error:
@@ -270,6 +273,18 @@ class GraphQLView(View):
                     )
                 except GraphQLError as e:
                     return ExecutionResult(errors=[e], invalid=True)
+
+                query_cost, cost_errors = validate_query_cost(
+                    schema,
+                    document,
+                    variables,
+                    COST_MAP,
+                    settings.GRAPHQL_QUERY_MAX_COMPLEXITY,
+                )
+                span.set_tag("graphql.query_cost", query_cost)
+                if settings.GRAPHQL_QUERY_MAX_COMPLEXITY and cost_errors:
+                    result = ExecutionResult(errors=cost_errors, invalid=True)
+                    return set_query_cost_on_result(result, query_cost)
 
             extra_options: Dict[str, Optional[Any]] = {}
 
@@ -298,9 +313,11 @@ class GraphQLView(View):
                         )
                         if should_use_cache_for_scheme:
                             cache.set(key, response)
+
                     if app := getattr(request, "app", None):
                         span.set_tag("app.name", app.name)
-                    return response
+
+                    return set_query_cost_on_result(response, query_cost)
             except Exception as e:
                 span.set_tag(opentracing.tags.ERROR, True)
                 if app := getattr(request, "app", None):
@@ -351,6 +368,9 @@ class GraphQLView(View):
         else:
             result = {"message": str(error)}
 
+        if "extensions" not in result:
+            result["extensions"] = {}
+
         exc = error
         while isinstance(exc, GraphQLError) and hasattr(exc, "original_error"):
             exc = exc.original_error
@@ -361,7 +381,7 @@ class GraphQLView(View):
         else:
             unhandled_errors_logger.error("A query failed unexpectedly", exc_info=exc)
 
-        result["extensions"] = {"exception": {"code": type(exc).__name__}}
+        result["extensions"]["exception"] = {"code": type(exc).__name__}
         if settings.DEBUG:
             lines = []
 
@@ -419,6 +439,27 @@ def obj_set(obj, path, value, do_not_replace):
     return obj_set(obj[current_path], path[1:], value, do_not_replace)
 
 
+def instantiate_middleware(middlewares):
+    for middleware in middlewares:
+        if isclass(middleware):
+            yield middleware()
+            continue
+        yield middleware
+
+
 def generate_cache_key(raw_query: str) -> str:
     hashed_query = hashlib.sha256(str(raw_query).encode("utf-8")).hexdigest()
     return f"{saleor_version}-{hashed_query}"
+
+
+def set_query_cost_on_result(execution_result: ExecutionResult, query_cost):
+    if settings.GRAPHQL_QUERY_MAX_COMPLEXITY:
+        execution_result.extensions.update(
+            {
+                "cost": {
+                    "requestedQueryCost": query_cost,
+                    "maximumAvailable": settings.GRAPHQL_QUERY_MAX_COMPLEXITY,
+                }
+            }
+        )
+    return execution_result

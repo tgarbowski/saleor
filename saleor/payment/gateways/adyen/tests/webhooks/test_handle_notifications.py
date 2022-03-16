@@ -198,6 +198,47 @@ def test_handle_authorization_for_checkout(
     assert external_events.count() == 1
 
 
+def test_handle_authorization_for_checkout_partial_payment(
+    notification,
+    adyen_plugin,
+    payment_adyen_for_checkout,
+    address,
+    shipping_method,
+):
+    checkout = payment_adyen_for_checkout.checkout
+    checkout.shipping_address = address
+    checkout.shipping_method = shipping_method
+    checkout.billing_address = address
+    checkout.save()
+
+    payment = payment_adyen_for_checkout
+    manager = get_plugins_manager()
+    lines, _ = fetch_checkout_lines(checkout)
+    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    total = calculations.calculate_checkout_total_with_gift_cards(
+        manager, checkout_info, lines, address
+    )
+    payment.is_active = True
+    payment.order = None
+    payment.total = total.gross.amount
+    payment.currency = total.gross.currency
+    payment.to_confirm = True
+    payment.save()
+
+    payment_id = graphene.Node.to_global_id("Payment", payment.pk)
+    notification = notification(
+        merchant_reference=payment_id,
+        value=price_to_minor_unit(payment.total - 5, payment.currency),
+    )
+    config = adyen_plugin().config
+    handle_authorization(notification, config)
+
+    payment.refresh_from_db()
+    assert payment.transactions.count() == 0
+    assert payment.checkout
+    assert not payment.order
+
+
 @patch("saleor.payment.gateway.void")
 def test_handle_authorization_for_checkout_one_of_variants_deleted(
     void_mock,
@@ -247,47 +288,6 @@ def test_handle_authorization_for_checkout_one_of_variants_deleted(
     ).get()
     assert transaction.is_success is True
     assert transaction.kind == TransactionKind.AUTH
-
-
-def test_handle_authorization_for_checkout_partial_payment(
-    notification,
-    adyen_plugin,
-    payment_adyen_for_checkout,
-    address,
-    shipping_method,
-):
-    checkout = payment_adyen_for_checkout.checkout
-    checkout.shipping_address = address
-    checkout.shipping_method = shipping_method
-    checkout.billing_address = address
-    checkout.save()
-
-    payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
-    lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
-    total = calculations.calculate_checkout_total_with_gift_cards(
-        manager, checkout_info, lines, address
-    )
-    payment.is_active = True
-    payment.order = None
-    payment.total = total.gross.amount
-    payment.currency = total.gross.currency
-    payment.to_confirm = True
-    payment.save()
-
-    payment_id = graphene.Node.to_global_id("Payment", payment.pk)
-    notification = notification(
-        merchant_reference=payment_id,
-        value=price_to_minor_unit(payment.total - 5, payment.currency),
-    )
-    config = adyen_plugin().config
-    handle_authorization(notification, config)
-
-    payment.refresh_from_db()
-    assert payment.transactions.count() == 0
-    assert payment.checkout
-    assert not payment.order
 
 
 def test_handle_authorization_with_adyen_auto_capture(

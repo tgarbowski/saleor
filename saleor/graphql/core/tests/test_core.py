@@ -10,6 +10,7 @@ from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from graphene import InputField
+from micawber import ProviderException, ProviderRegistry
 from PIL import Image
 
 from ....core.utils.validators import get_oembed_data
@@ -93,10 +94,10 @@ def test_reporting_period_to_date():
     assert start_date.microsecond == 0
 
 
-def test_require_pagination(api_client):
+def test_require_pagination(api_client, channel_USD):
     query = """
-    query {
-        products {
+    query GetProducts($channel: String) {
+        products(channel: $channel) {
             edges {
                 node {
                     name
@@ -105,7 +106,7 @@ def test_require_pagination(api_client):
         }
     }
     """
-    response = api_client.post_graphql(query)
+    response = api_client.post_graphql(query, {"channel": channel_USD.slug})
     content = get_graphql_content_from_response(response)
     assert "errors" in content
     assert content["errors"][0]["message"] == (
@@ -402,7 +403,9 @@ def test_get_oembed_data(url, expected_media_type):
         "http://onet.pl/",
     ],
 )
-def test_get_oembed_data_unsupported_media_provider(url):
+@patch.object(ProviderRegistry, "request")
+def test_get_oembed_data_unsupported_media_provider(mocked_provider, url):
+    mocked_provider.side_effect = ProviderException()
     with pytest.raises(
         ValidationError, match="Unsupported media provider or incorrect URL."
     ):

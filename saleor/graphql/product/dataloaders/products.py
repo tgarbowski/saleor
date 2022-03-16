@@ -144,7 +144,8 @@ class MediaByProductIdLoader(DataLoader):
 
     def batch_load(self, keys):
         media = ProductMedia.objects.using(self.database_connection_name).filter(
-            product_id__in=keys
+            product_id__in=keys,
+            to_remove=False,
         )
         media_map = defaultdict(list)
         for media_obj in media.iterator():
@@ -157,7 +158,9 @@ class ImagesByProductIdLoader(DataLoader):
 
     def batch_load(self, keys):
         images = ProductMedia.objects.using(self.database_connection_name).filter(
-            product_id__in=keys, type=ProductMediaTypes.IMAGE
+            product_id__in=keys,
+            type=ProductMediaTypes.IMAGE,
+            to_remove=False,
         )
         images_map = defaultdict(list)
         for image in images.iterator():
@@ -246,9 +249,12 @@ class VariantChannelListingByVariantIdLoader(DataLoader):
     context_key = "productvariantchannelisting_by_productvariant"
 
     def batch_load(self, keys):
-        variant_channel_listings = ProductVariantChannelListing.objects.using(
-            self.database_connection_name
-        ).filter(variant_id__in=keys)
+        variant_channel_listings = (
+            ProductVariantChannelListing.objects.using(self.database_connection_name)
+            .filter(variant_id__in=keys)
+            .annotate_preorder_quantity_allocated()
+        )
+
         variant_id_variant_channel_listings_map = defaultdict(list)
         for variant_channel_listing in variant_channel_listings.iterator():
             variant_id_variant_channel_listings_map[
@@ -297,9 +303,11 @@ class VariantChannelListingByVariantIdAndChannelLoader(
             "variant_id__in": variant_ids,
             "price_amount__isnull": False,
         }
-        variant_channel_listings = ProductVariantChannelListing.objects.using(
-            self.database_connection_name
-        ).filter(**filter)
+        variant_channel_listings = (
+            ProductVariantChannelListing.objects.using(self.database_connection_name)
+            .filter(**filter)
+            .annotate_preorder_quantity_allocated()
+        )
 
         variant_channel_listings_map: Dict[int, ProductVariantChannelListing] = {}
         for variant_channel_listing in variant_channel_listings.iterator():
@@ -347,10 +355,10 @@ class VariantsChannelListingByProductIdAndChannelSlugLoader(
             ProductIdAndChannelSlug, Optional[Iterable[ProductVariantChannelListing]]
         ] = defaultdict()
         for channel_slug, product_ids in variant_channel_listing_by_channel.items():
-            varaint_channel_listings = self.batch_load_channel(
+            variant_channel_listings = self.batch_load_channel(
                 channel_slug, product_ids
             )
-            for product_id, variants_channel_listing in varaint_channel_listings:
+            for product_id, variants_channel_listing in variant_channel_listings:
                 variant_channel_listing_by_product_and_channel[
                     (product_id, channel_slug)
                 ] = variants_channel_listing
@@ -390,9 +398,11 @@ class ProductMediaByIdLoader(DataLoader):
     context_key = "product_media_by_id"
 
     def batch_load(self, keys):
-        product_media = ProductMedia.objects.using(
-            self.database_connection_name
-        ).in_bulk(keys)
+        product_media = (
+            ProductMedia.objects.using(self.database_connection_name)
+            .filter(to_remove=False)
+            .in_bulk(keys)
+        )
         return [product_media.get(product_media_id) for product_media_id in keys]
 
 
@@ -402,7 +412,7 @@ class ProductImageByIdLoader(DataLoader):
     def batch_load(self, keys):
         images = (
             ProductMedia.objects.using(self.database_connection_name)
-            .filter(type=ProductMediaTypes.IMAGE)
+            .filter(type=ProductMediaTypes.IMAGE, to_remove=False)
             .in_bulk(keys)
         )
         return [images.get(product_image_id) for product_image_id in keys]
@@ -413,7 +423,9 @@ class ProductImageByProductIdLoader(DataLoader):
 
     def batch_load(self, keys):
         medias = ProductMedia.objects.using(self.database_connection_name).filter(
-            type=ProductMediaTypes.IMAGE, product_id__in=keys
+            type=ProductMediaTypes.IMAGE,
+            product_id__in=keys,
+            to_remove=False,
         )
         product_id_medias_map = defaultdict(list)
         for media in medias.iterator():
@@ -427,7 +439,7 @@ class MediaByProductVariantIdLoader(DataLoader):
     def batch_load(self, keys):
         variant_media = (
             VariantMedia.objects.using(self.database_connection_name)
-            .filter(variant_id__in=keys)
+            .filter(variant_id__in=keys, media__to_remove=False)
             .values_list("variant_id", "media_id")
         )
 
@@ -455,7 +467,11 @@ class ImagesByProductVariantIdLoader(DataLoader):
     def batch_load(self, keys):
         variant_media = (
             VariantMedia.objects.using(self.database_connection_name)
-            .filter(variant_id__in=keys, media__type=ProductMediaTypes.IMAGE)
+            .filter(
+                variant_id__in=keys,
+                media__type=ProductMediaTypes.IMAGE,
+                media__to_remove=False,
+            )
             .values_list("variant_id", "media_id")
         )
 

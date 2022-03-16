@@ -20,6 +20,7 @@ from ....product.tasks import update_product_discounted_price_task
 from ...channel import ChannelContext
 from ...channel.mutations import BaseChannelListingMutation
 from ...channel.types import Channel
+from ...core.descriptions import ADDED_IN_31, PREVIEW_FEATURE
 from ...core.mutations import BaseMutation
 from ...core.scalars import PositiveDecimal
 from ...core.types.common import (
@@ -305,6 +306,12 @@ class ProductVariantChannelListingAddInput(graphene.InputObjectType):
         required=True, description="Price of the particular variant in channel."
     )
     cost_price = PositiveDecimal(description="Cost price of the variant in channel.")
+    preorder_threshold = graphene.Int(
+        description=(
+            f"{ADDED_IN_31} The threshold for preorder variant in channel. "
+            f"{PREVIEW_FEATURE}"
+        )
+    )
 
 
 class ProductVariantChannelListingUpdate(BaseMutation):
@@ -321,7 +328,7 @@ class ProductVariantChannelListingUpdate(BaseMutation):
             required=True,
             description=(
                 "List of fields required to create or upgrade product variant "
-                "channel listings.",
+                "channel listings."
             ),
         )
 
@@ -424,6 +431,10 @@ class ProductVariantChannelListingUpdate(BaseMutation):
             if "cost_price" in channel_listing_data.keys():
                 defaults["cost_price_amount"] = channel_listing_data.get(
                     "cost_price", None
+                )
+            if "preorder_threshold" in channel_listing_data.keys():
+                defaults["preorder_quantity_threshold"] = channel_listing_data.get(
+                    "preorder_threshold", None
                 )
             ProductVariantChannelListing.objects.update_or_create(
                 variant=variant,

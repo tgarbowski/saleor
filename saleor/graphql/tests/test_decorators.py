@@ -7,7 +7,7 @@ from ...core.permissions import (
     OrderPermissions,
     get_permissions_from_names,
 )
-from ...core.permissions import permissions_required as core_permission_required
+from ...core.permissions import permission_required as core_permission_required
 from ..utils import get_user_or_app_from_context
 
 

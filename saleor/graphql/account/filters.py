@@ -1,10 +1,15 @@
 import django_filters
-from django.db.models import Count, Exists, OuterRef, Q
-from graphene_django.filter import GlobalIDMultipleChoiceFilter
+from django.db.models import Count
 
-from ...account.models import Address, User
-from ..core.filters import EnumFilter, MetadataFilterBase, ObjectTypeFilter
-from ..core.types.common import DateRangeInput, IntRangeInput
+from ...account.models import User
+from ...account.search import search_users
+from ..core.filters import (
+    EnumFilter,
+    GlobalIDMultipleChoiceFilter,
+    MetadataFilterBase,
+    ObjectTypeFilter,
+)
+from ..core.types.common import DateRangeInput, DateTimeRangeInput, IntRangeInput
 from ..utils.filters import filter_by_id, filter_range_field
 from . import types as account_types
 from .enums import StaffMemberStatus
@@ -12,6 +17,10 @@ from .enums import StaffMemberStatus
 
 def filter_date_joined(qs, _, value):
     return filter_range_field(qs, "date_joined__date", value)
+
+
+def filter_updated_at(qs, _, value):
+    return filter_range_field(qs, "updated_at", value)
 
 
 def filter_number_of_orders(qs, _, value):
@@ -32,25 +41,7 @@ def filter_staff_status(qs, _, value):
 
 
 def filter_user_search(qs, _, value):
-    if value:
-        UserAddress = User.addresses.through
-        addresses = Address.objects.filter(
-            Q(first_name__ilike=value)
-            | Q(last_name__ilike=value)
-            | Q(city__ilike=value)
-            | Q(country__ilike=value)
-            | Q(phone=value)
-        ).values("id")
-        user_addresses = UserAddress.objects.filter(
-            Exists(addresses.filter(pk=OuterRef("address_id")))
-        ).values("user_id")
-        qs = qs.filter(
-            Q(email__ilike=value)
-            | Q(first_name__ilike=value)
-            | Q(last_name__ilike=value)
-            | Q(Exists(user_addresses.filter(user_id=OuterRef("pk"))))
-        )
-    return qs
+    return search_users(qs, value)
 
 
 def filter_search(qs, _, value):
@@ -62,6 +53,9 @@ def filter_search(qs, _, value):
 class CustomerFilter(MetadataFilterBase):
     date_joined = ObjectTypeFilter(
         input_class=DateRangeInput, method=filter_date_joined
+    )
+    updated_at = ObjectTypeFilter(
+        input_class=DateTimeRangeInput, method=filter_updated_at
     )
     number_of_orders = ObjectTypeFilter(
         input_class=IntRangeInput, method=filter_number_of_orders

@@ -3,6 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from ...core.exceptions import InsufficientStock
+from ...order import OrderEvents
 from ...plugins.manager import get_plugins_manager
 from ...tests.utils import flush_post_commit_hooks
 from ...warehouse.models import Allocation, Stock
@@ -16,6 +17,7 @@ def test_create_fulfillments(
     staff_user,
     order_with_lines,
     warehouse,
+    site_settings,
 ):
     order = order_with_lines
     order_line1, order_line2 = order.lines.all()
@@ -27,7 +29,13 @@ def test_create_fulfillments(
     }
     manager = get_plugins_manager()
     [fulfillment] = create_fulfillments(
-        staff_user, None, order, fulfillment_lines_for_warehouses, manager, True
+        staff_user,
+        None,
+        order,
+        fulfillment_lines_for_warehouses,
+        manager,
+        site_settings,
+        True,
     )
     flush_post_commit_hooks()
 
@@ -54,9 +62,153 @@ def test_create_fulfillments(
         == 0
     )
 
+    events = order.events.all()
+    assert len(events) == 1
+    event = events[0]
+    assert event.type == OrderEvents.FULFILLMENT_FULFILLED_ITEMS
+    assert event.user == staff_user
+    assert set(event.parameters["fulfilled_items"]) == set(
+        [fulfillment_lines[0].pk, fulfillment_lines[1].pk]
+    )
+
     mock_email_fulfillment.assert_called_once_with(
         order, order.fulfillments.get(), staff_user, None, manager
     )
+
+
+@patch("saleor.order.actions.send_fulfillment_confirmation_to_customer", autospec=True)
+def test_create_fulfillments_require_approval(
+    mock_email_fulfillment,
+    staff_user,
+    order_with_lines,
+    warehouse,
+    site_settings,
+):
+    order = order_with_lines
+    order_status = order.status
+    assert order_status != OrderStatus.FULFILLED
+
+    order_line1, order_line2 = order.lines.all()
+    fulfillment_lines_for_warehouses = {
+        str(warehouse.pk): [
+            {"order_line": order_line1, "quantity": 3},
+            {"order_line": order_line2, "quantity": 2},
+        ]
+    }
+    manager = get_plugins_manager()
+    [fulfillment] = create_fulfillments(
+        staff_user,
+        None,
+        order,
+        fulfillment_lines_for_warehouses,
+        manager,
+        site_settings,
+        True,
+        False,
+    )
+    flush_post_commit_hooks()
+
+    order.refresh_from_db()
+    fulfillment_lines = FulfillmentLine.objects.filter(
+        fulfillment__order=order
+    ).order_by("pk")
+    assert fulfillment_lines[0].stock == order_line1.variant.stocks.get()
+    assert fulfillment_lines[0].quantity == 3
+    assert fulfillment_lines[1].stock == order_line2.variant.stocks.get()
+    assert fulfillment_lines[1].quantity == 2
+
+    assert order.status == order_status
+    assert order.fulfillments.get() == fulfillment
+
+    order_line1, order_line2 = order.lines.all()
+    assert order_line1.quantity_fulfilled == 3
+    assert order_line2.quantity_fulfilled == 2
+
+    assert (
+        Allocation.objects.filter(
+            order_line__order=order, quantity_allocated__gt=0
+        ).count()
+        == 2
+    )
+
+    events = order.events.all()
+    assert len(events) == 1
+    event = events[0]
+    assert event.type == OrderEvents.FULFILLMENT_AWAITS_APPROVAL
+    assert event.user == staff_user
+    assert set(event.parameters["awaiting_fulfillments"]) == set(
+        [fulfillment_lines[0].pk, fulfillment_lines[1].pk]
+    )
+
+    mock_email_fulfillment.assert_not_called()
+
+
+@patch("saleor.order.actions.send_fulfillment_confirmation_to_customer", autospec=True)
+def test_create_fulfillments_require_approval_as_app(
+    mock_email_fulfillment,
+    app,
+    order_with_lines,
+    warehouse,
+    site_settings,
+):
+    order = order_with_lines
+    order_status = order.status
+    assert order_status != OrderStatus.FULFILLED
+
+    order_line1, order_line2 = order.lines.all()
+    fulfillment_lines_for_warehouses = {
+        str(warehouse.pk): [
+            {"order_line": order_line1, "quantity": 3},
+            {"order_line": order_line2, "quantity": 2},
+        ]
+    }
+    manager = get_plugins_manager()
+    [fulfillment] = create_fulfillments(
+        None,
+        app,
+        order,
+        fulfillment_lines_for_warehouses,
+        manager,
+        site_settings,
+        True,
+        False,
+    )
+    flush_post_commit_hooks()
+
+    order.refresh_from_db()
+    fulfillment_lines = FulfillmentLine.objects.filter(
+        fulfillment__order=order
+    ).order_by("pk")
+    assert fulfillment_lines[0].stock == order_line1.variant.stocks.get()
+    assert fulfillment_lines[0].quantity == 3
+    assert fulfillment_lines[1].stock == order_line2.variant.stocks.get()
+    assert fulfillment_lines[1].quantity == 2
+
+    assert order.status == order_status
+    assert order.fulfillments.get() == fulfillment
+
+    order_line1, order_line2 = order.lines.all()
+    assert order_line1.quantity_fulfilled == 3
+    assert order_line2.quantity_fulfilled == 2
+
+    assert (
+        Allocation.objects.filter(
+            order_line__order=order, quantity_allocated__gt=0
+        ).count()
+        == 2
+    )
+
+    events = order.events.all()
+    assert len(events) == 1
+    event = events[0]
+    assert event.type == OrderEvents.FULFILLMENT_AWAITS_APPROVAL
+    assert event.user is None
+    assert event.app == app
+    assert set(event.parameters["awaiting_fulfillments"]) == set(
+        [fulfillment_lines[0].pk, fulfillment_lines[1].pk]
+    )
+
+    mock_email_fulfillment.assert_not_called()
 
 
 @patch("saleor.order.actions.send_fulfillment_confirmation_to_customer", autospec=True)
@@ -65,6 +217,7 @@ def test_create_fulfillments_without_notification(
     staff_user,
     order_with_lines,
     warehouse,
+    site_settings,
 ):
     order = order_with_lines
     order_line1, order_line2 = order.lines.all()
@@ -81,6 +234,7 @@ def test_create_fulfillments_without_notification(
         order,
         fulfillment_lines_for_warehouses,
         get_plugins_manager(),
+        site_settings,
         False,
     )
     flush_post_commit_hooks()
@@ -115,6 +269,7 @@ def test_create_fulfillments_many_warehouses(
     staff_user,
     order_with_lines,
     warehouses_with_shipping_zone,
+    site_settings,
 ):
     order = order_with_lines
     warehouse1, warehouse2 = warehouses_with_shipping_zone
@@ -144,6 +299,7 @@ def test_create_fulfillments_many_warehouses(
         order,
         fulfillment_lines_for_warehouses,
         get_plugins_manager(),
+        site_settings,
         False,
     )
     flush_post_commit_hooks()
@@ -181,6 +337,7 @@ def test_create_fulfillments_with_one_line_empty_quantity(
     staff_user,
     order_with_lines,
     warehouse,
+    site_settings,
 ):
     order = order_with_lines
     order_line1, order_line2 = order.lines.all()
@@ -193,7 +350,13 @@ def test_create_fulfillments_with_one_line_empty_quantity(
 
     manager = get_plugins_manager()
     [fulfillment] = create_fulfillments(
-        staff_user, None, order, fulfillment_lines_for_warehouses, manager, True
+        staff_user,
+        None,
+        order,
+        fulfillment_lines_for_warehouses,
+        manager,
+        site_settings,
+        True,
     )
     flush_post_commit_hooks()
 
@@ -229,6 +392,7 @@ def test_create_fulfillments_with_variant_without_inventory_tracking(
     staff_user,
     order_with_line_without_inventory_tracking,
     warehouse,
+    site_settings,
 ):
     order = order_with_line_without_inventory_tracking
     order_line = order.lines.get()
@@ -240,7 +404,13 @@ def test_create_fulfillments_with_variant_without_inventory_tracking(
 
     manager = get_plugins_manager()
     [fulfillment] = create_fulfillments(
-        staff_user, None, order, fulfillment_lines_for_warehouses, manager, True
+        staff_user,
+        None,
+        order,
+        fulfillment_lines_for_warehouses,
+        manager,
+        site_settings,
+        True,
     )
     flush_post_commit_hooks()
 
@@ -271,6 +441,7 @@ def test_create_fulfillments_without_allocations(
     staff_user,
     order_with_lines,
     warehouse,
+    site_settings,
 ):
 
     order = order_with_lines
@@ -285,7 +456,13 @@ def test_create_fulfillments_without_allocations(
 
     manager = get_plugins_manager()
     [fulfillment] = create_fulfillments(
-        staff_user, None, order, fulfillment_lines_for_warehouses, manager, True
+        staff_user,
+        None,
+        order,
+        fulfillment_lines_for_warehouses,
+        manager,
+        site_settings,
+        True,
     )
     flush_post_commit_hooks()
 
@@ -323,6 +500,7 @@ def test_create_fulfillments_warehouse_without_stock(
     staff_user,
     order_with_lines,
     warehouse_no_shipping_zone,
+    site_settings,
 ):
     order = order_with_lines
     order_line1, order_line2 = order.lines.all()
@@ -340,6 +518,7 @@ def test_create_fulfillments_warehouse_without_stock(
             order,
             fulfillment_lines_for_warehouses,
             get_plugins_manager(),
+            site_settings,
             True,
         )
 
@@ -379,6 +558,7 @@ def test_create_fulfillments_with_variant_without_inventory_tracking_and_without
     staff_user,
     order_with_line_without_inventory_tracking,
     warehouse_no_shipping_zone,
+    site_settings,
 ):
     order = order_with_line_without_inventory_tracking
     order_line = order.lines.get()
@@ -393,6 +573,7 @@ def test_create_fulfillments_with_variant_without_inventory_tracking_and_without
             order,
             fulfillment_lines_for_warehouses,
             get_plugins_manager(),
+            site_settings,
             True,
         )
 
@@ -420,12 +601,76 @@ def test_create_fulfillments_with_variant_without_inventory_tracking_and_without
     mock_email_fulfillment.assert_not_called()
 
 
+@patch("saleor.plugins.manager.PluginsManager.product_variant_out_of_stock")
+def test_create_fullfilment_with_out_of_stock_webhook(
+    product_variant_out_of_stock_webhook,
+    staff_user,
+    order_with_lines,
+    warehouse,
+    site_settings,
+):
+
+    order = order_with_lines
+    order_line1, order_line2 = order.lines.all()
+    fulfillment_lines_for_warehouses = {
+        str(warehouse.pk): [
+            {"order_line": order_line1, "quantity": 3},
+            {"order_line": order_line2, "quantity": 2},
+        ]
+    }
+    manager = get_plugins_manager()
+    create_fulfillments(
+        user=staff_user,
+        app=None,
+        order=order,
+        fulfillment_lines_for_warehouses=fulfillment_lines_for_warehouses,
+        manager=manager,
+        site_settings=site_settings,
+    )
+    flush_post_commit_hooks()
+
+    product_variant_out_of_stock_webhook.assert_called_once()
+
+
+@patch("saleor.plugins.manager.PluginsManager.product_variant_out_of_stock")
+def test_create_fullfilment_with_out_of_stock_webhook_not_triggered(
+    product_variant_out_of_stock_webhook,
+    staff_user,
+    order_with_lines,
+    warehouse,
+    site_settings,
+):
+
+    order = order_with_lines
+    order_line1, order_line2 = order.lines.all()
+    fulfillment_lines_for_warehouses = {
+        str(warehouse.pk): [
+            {"order_line": order_line1, "quantity": 1},
+            {"order_line": order_line2, "quantity": 1},
+        ]
+    }
+    manager = get_plugins_manager()
+    create_fulfillments(
+        user=staff_user,
+        app=None,
+        order=order,
+        fulfillment_lines_for_warehouses=fulfillment_lines_for_warehouses,
+        manager=manager,
+        site_settings=site_settings,
+        approved=False,
+    )
+    flush_post_commit_hooks()
+
+    product_variant_out_of_stock_webhook.assert_not_called()
+
+
 @patch("saleor.order.actions.send_fulfillment_confirmation_to_customer", autospec=True)
 def test_create_fulfillments_quantity_allocated_lower_than_line_quantity(
     mock_email_fulfillment,
     staff_user,
     order_with_lines,
     warehouse,
+    site_settings,
 ):
     """Ensure that when for some lines quantity allocated is lower than line quantity
     and an error is raised during the deallocation uantity allocated value for
@@ -464,7 +709,13 @@ def test_create_fulfillments_quantity_allocated_lower_than_line_quantity(
 
     # when
     [fulfillment] = create_fulfillments(
-        staff_user, None, order, fulfillment_lines_for_warehouses, manager, True
+        staff_user,
+        None,
+        order,
+        fulfillment_lines_for_warehouses,
+        manager,
+        site_settings,
+        True,
     )
     flush_post_commit_hooks()
 

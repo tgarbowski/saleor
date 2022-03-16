@@ -14,7 +14,6 @@ from django.db.models import (
 )
 from django.db.models.expressions import Window
 from django.db.models.functions import Coalesce, DenseRank
-from graphql.error import GraphQLError
 
 from ...product.models import (
     Category,
@@ -22,6 +21,7 @@ from ...product.models import (
     Product,
     ProductChannelListing,
 )
+from ..core.descriptions import DEPRECATED_IN_3X_INPUT
 from ..core.types import ChannelSortInputObjectType, SortInputObjectType
 
 
@@ -70,10 +70,10 @@ class CategorySortingInput(ChannelSortInputObjectType):
 
 
 class CollectionSortField(graphene.Enum):
-    NAME = ["name"]
-    AVAILABILITY = ["is_published", "name"]
-    PRODUCT_COUNT = ["product_count", "name"]
-    PUBLICATION_DATE = ["publication_date", "name"]
+    NAME = ["name", "slug"]
+    AVAILABILITY = ["is_published", "slug"]
+    PRODUCT_COUNT = ["product_count", "slug"]
+    PUBLICATION_DATE = ["publication_date", "slug"]
 
     @property
     def description(self):
@@ -123,13 +123,16 @@ class CollectionSortingInput(ChannelSortInputObjectType):
 
 class ProductOrderField(graphene.Enum):
     NAME = ["name", "slug"]
-    RANK = ["rank", "id"]
+    RANK = ["name", "slug"]
     PRICE = ["min_variants_price_amount", "name", "slug"]
     MINIMAL_PRICE = ["discounted_price_amount", "name", "slug"]
+    LAST_MODIFIED = ["updated_at", "name", "slug"]
     DATE = ["created_at", "name", "slug"]
     TYPE = ["product_type__name", "name", "slug"]
     PUBLISHED = ["is_published", "name", "slug"]
     PUBLICATION_DATE = ["publication_date", "name", "slug"]
+    PUBLISHED_AT = ["publication_date", "name", "slug"]
+    LAST_MODIFIED_AT = ["updated_at", "name", "slug"]
     COLLECTION = ["sort_order"]
     RATING = ["rating", "name", "slug"]
 
@@ -141,18 +144,23 @@ class ProductOrderField(graphene.Enum):
                 "collection. Note: "
                 "This option is available only for the `Collection.products` query."
             ),
-            ProductOrderField.RANK.name: (
-                "rank. Note: This option is available only with the `search` filter."
-            ),
+            ProductOrderField.RANK.name: (f"rank. {DEPRECATED_IN_3X_INPUT}"),
             ProductOrderField.NAME.name: "name.",
             ProductOrderField.PRICE.name: "price.",
             ProductOrderField.TYPE.name: "type.",
             ProductOrderField.MINIMAL_PRICE.name: (
                 "a minimal price of a product's variant."
             ),
-            ProductOrderField.DATE.name: "update date.",
+            ProductOrderField.DATE.name: f"update date. {DEPRECATED_IN_3X_INPUT}",
             ProductOrderField.PUBLISHED.name: "publication status.",
-            ProductOrderField.PUBLICATION_DATE.name: "publication date.",
+            ProductOrderField.PUBLICATION_DATE.name: (
+                f"publication date. {DEPRECATED_IN_3X_INPUT}"
+            ),
+            ProductOrderField.LAST_MODIFIED.name: (
+                f"update date. {DEPRECATED_IN_3X_INPUT}"
+            ),
+            ProductOrderField.PUBLISHED_AT.name: "publication date.",
+            ProductOrderField.LAST_MODIFIED_AT.name: "update date.",
             ProductOrderField.RATING.name: "rating.",
         }
         if self.name in descriptions:
@@ -191,6 +199,10 @@ class ProductOrderField(graphene.Enum):
 
     @staticmethod
     def qs_with_publication_date(queryset: QuerySet, channel_slug: str) -> QuerySet:
+        return ProductOrderField.qs_with_published_at(queryset, channel_slug)
+
+    @staticmethod
+    def qs_with_published_at(queryset: QuerySet, channel_slug: str) -> QuerySet:
         subquery = Subquery(
             ProductChannelListing.objects.filter(
                 product_id=OuterRef("pk"), channel__slug=str(channel_slug)
@@ -212,12 +224,6 @@ class ProductOrderField(graphene.Enum):
             )
         )
 
-    @staticmethod
-    def qs_with_rank(queryset: QuerySet, **_kwargs) -> QuerySet:
-        if "rank" in queryset.query.annotations.keys():
-            return queryset
-        raise GraphQLError("Sorting by Rank is available only with searching.")
-
 
 class ProductOrder(ChannelSortInputObjectType):
     attribute_id = graphene.Argument(
@@ -233,6 +239,25 @@ class ProductOrder(ChannelSortInputObjectType):
 
     class Meta:
         sort_enum = ProductOrderField
+
+
+class ProductVariantSortField(graphene.Enum):
+    LAST_MODIFIED_AT = ["updated_at", "name", "pk"]
+
+    @property
+    def description(self):
+        # pylint: disable=no-member
+        if self.name in ProductVariantSortField.__enum__._member_names_:
+            sort_name = self.name.lower().replace("_", " ")
+            return f"Sort products variants by {sort_name}."
+
+        raise ValueError("Unsupported enum value: %s" % self.value)
+
+
+class ProductVariantSortingInput(SortInputObjectType):
+    class Meta:
+        sort_enum = ProductVariantSortField
+        type_name = "productVariants"
 
 
 class ProductTypeSortField(graphene.Enum):

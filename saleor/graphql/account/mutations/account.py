@@ -5,22 +5,25 @@ from django.contrib.auth import password_validation
 from django.core.exceptions import ValidationError
 
 from ....account import events as account_events
-from ....account import models, notifications, utils
+from ....account import models, notifications, search, utils
 from ....account.error_codes import AccountErrorCode
+from ....account.utils import remove_the_oldest_user_address_if_address_limit_is_reached
 from ....checkout import AddressType
 from ....core.jwt import create_token, jwt_decode
 from ....core.tokens import account_delete_token_generator
 from ....core.tracing import traced_atomic_transaction
 from ....core.utils.url import validate_storefront_url
+from ....giftcard.utils import assign_user_gift_cards
+from ....order.utils import match_orders_with_new_user
 from ....settings import JWT_TTL_REQUEST_EMAIL_CHANGE
-from ...account.enums import AddressTypeEnum
-from ...account.types import Address, AddressInput, User
 from ...channel.utils import clean_channel
 from ...core.enums import LanguageCodeEnum
 from ...core.mutations import BaseMutation, ModelDeleteMutation, ModelMutation
 from ...core.types.common import AccountError
 from ...meta.mutations import MetadataInput
+from ..enums import AddressTypeEnum
 from ..i18n import I18nMixin
+from ..types import Address, AddressInput, User
 from .base import (
     INVALID_TOKEN,
     BaseAddressDelete,
@@ -29,9 +32,19 @@ from .base import (
 )
 
 
-class AccountRegisterInput(graphene.InputObjectType):
+class AccountBaseInput(graphene.InputObjectType):
+    first_name = graphene.String(description="Given name.")
+    last_name = graphene.String(description="Family name.")
+    language_code = graphene.Argument(
+        LanguageCodeEnum, required=False, description="User language code."
+    )
+
+
+class AccountRegisterInput(AccountBaseInput):
     email = graphene.String(description="The email address of the user.", required=True)
     password = graphene.String(description="Password.", required=True)
+    first_name = graphene.String(description="Given name.")
+    last_name = graphene.String(description="Family name.")
     redirect_url = graphene.String(
         description=(
             "Base of frontend URL that will be needed to create confirmation URL."
@@ -68,6 +81,7 @@ class AccountRegister(ModelMutation):
         description = "Register a new user."
         exclude = ["password"]
         model = models.User
+        object_type = User
         error_type_class = AccountError
         error_type_field = "account_errors"
 
@@ -122,6 +136,9 @@ class AccountRegister(ModelMutation):
     def save(cls, info, user, cleaned_input):
         password = cleaned_input["password"]
         user.set_password(password)
+        user.search_document = search.prepare_user_search_document_value(
+            user, attach_addresses_data=False
+        )
         if settings.ENABLE_ACCOUNT_CONFIRMATION_BY_EMAIL:
             user.is_active = False
             user.save()
@@ -133,21 +150,17 @@ class AccountRegister(ModelMutation):
             )
         else:
             user.save()
+
         account_events.customer_account_created_event(user=user)
         info.context.plugins.customer_created(customer=user)
 
 
-class AccountInput(graphene.InputObjectType):
-    first_name = graphene.String(description="Given name.")
-    last_name = graphene.String(description="Family name.")
+class AccountInput(AccountBaseInput):
     default_billing_address = AddressInput(
         description="Billing address of the customer."
     )
     default_shipping_address = AddressInput(
         description="Shipping address of the customer."
-    )
-    language_code = graphene.Argument(
-        LanguageCodeEnum, required=False, description="User language code."
     )
 
 
@@ -162,6 +175,7 @@ class AccountUpdate(BaseCustomerCreate):
         description = "Updates the account of the logged-in user."
         exclude = ["password"]
         model = models.User
+        object_type = User
         error_type_class = AccountError
         error_type_field = "account_errors"
 
@@ -235,6 +249,7 @@ class AccountDelete(ModelDeleteMutation):
     class Meta:
         description = "Remove user account."
         model = models.User
+        object_type = User
         error_type_class = AccountError
         error_type_field = "account_errors"
 
@@ -292,6 +307,7 @@ class AccountAddressCreate(ModelMutation, I18nMixin):
     class Meta:
         description = "Create a new address for the customer."
         model = models.Address
+        object_type = Address
         error_type_class = AccountError
         error_type_field = "account_errors"
 
@@ -300,6 +316,7 @@ class AccountAddressCreate(ModelMutation, I18nMixin):
         return context.user.is_authenticated
 
     @classmethod
+    @traced_atomic_transaction()
     def perform_mutation(cls, root, info, **data):
         address_type = data.get("type", None)
         user = info.context.user
@@ -320,14 +337,18 @@ class AccountAddressCreate(ModelMutation, I18nMixin):
     def save(cls, info, instance, cleaned_input):
         super().save(info, instance, cleaned_input)
         user = info.context.user
+        remove_the_oldest_user_address_if_address_limit_is_reached(user)
         instance.user_addresses.add(user)
         info.context.plugins.customer_updated(user)
+        user.search_document = search.prepare_user_search_document_value(user)
+        user.save(update_fields=["search_document", "updated_at"])
 
 
 class AccountAddressUpdate(BaseAddressUpdate):
     class Meta:
         description = "Updates an address of the logged-in user."
         model = models.Address
+        object_type = Address
         error_type_class = AccountError
         error_type_field = "account_errors"
 
@@ -336,6 +357,7 @@ class AccountAddressDelete(BaseAddressDelete):
     class Meta:
         description = "Delete an address of the logged-in user."
         model = models.Address
+        object_type = Address
         error_type_class = AccountError
         error_type_field = "account_errors"
 
@@ -523,11 +545,15 @@ class ConfirmEmailChange(BaseMutation):
             )
 
         user.email = new_email
-        user.save(update_fields=["email"])
+        user.search_document = search.prepare_user_search_document_value(user)
+        user.save(update_fields=["email", "search_document", "updated_at"])
 
         channel_slug = clean_channel(
             data.get("channel"), error_class=AccountErrorCode
         ).slug
+
+        assign_user_gift_cards(user)
+        match_orders_with_new_user(user)
 
         notifications.send_user_change_email_notification(
             old_email, user, info.context.plugins, channel_slug=channel_slug

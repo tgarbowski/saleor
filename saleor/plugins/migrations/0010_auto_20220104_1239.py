@@ -25,6 +25,7 @@ EMAIL_NAMES = [
     "order_payment_confirmation",
     "order_canceled",
     "order_refund_confirmation",
+    "send_gift_card",
     # admin emails
     "staff_order_confirmation_template",
     "set_staff_password_template",

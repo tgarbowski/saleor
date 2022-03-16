@@ -1,17 +1,24 @@
 import django_filters
-from django.db.models import Exists, OuterRef, Q
-from graphene_django.filter import GlobalIDMultipleChoiceFilter
+from django.db.models import Exists, IntegerField, OuterRef, Q
+from django.db.models.functions import Cast
+from django.utils import timezone
 
-from ...account.models import User
-from ...discount.models import OrderDiscount
+from ...giftcard import GiftCardEvents
+from ...giftcard.models import GiftCardEvent
 from ...order.models import Order, OrderLine
-from ...payment.models import Payment
-from ..core.filters import ListObjectTypeFilter, MetadataFilterBase, ObjectTypeFilter
-from ..core.types.common import DateRangeInput
+from ...order.search import search_orders
+from ...product.models import ProductVariant
+from ..core.filters import (
+    GlobalIDMultipleChoiceFilter,
+    ListObjectTypeFilter,
+    MetadataFilterBase,
+    ObjectTypeFilter,
+)
+from ..core.types.common import DateRangeInput, DateTimeRangeInput
 from ..core.utils import from_global_id_or_error
 from ..payment.enums import PaymentChargeStatusEnum
 from ..utils import resolve_global_ids_to_primary_keys
-from ..utils.filters import filter_range_field
+from ..utils.filters import filter_by_id, filter_range_field
 from .enums import OrderStatusFilter
 
 
@@ -25,15 +32,6 @@ def get_payment_id_from_query(value):
     try:
         return from_global_id_or_error(value, only_type="Payment")[1]
     except Exception:
-        return None
-
-
-def get_order_id_from_query(value):
-    if value.startswith("#"):
-        value = value[1:]
-    try:
-        return int(value)
-    except ValueError:
         return None
 
 
@@ -60,7 +58,7 @@ def filter_status(qs, _, value):
 
 def filter_customer(qs, _, value):
     qs = qs.filter(
-        Q(user_email__trigram_similar=value)
+        Q(user_email__ilike=value)
         | Q(user__email__trigram_similar=value)
         | Q(user__first_name__trigram_similar=value)
         | Q(user__last_name__trigram_similar=value)
@@ -72,34 +70,12 @@ def filter_created_range(qs, _, value):
     return filter_range_field(qs, "created__date", value)
 
 
+def filter_updated_at_range(qs, _, value):
+    return filter_range_field(qs, "updated_at", value)
+
+
 def filter_order_search(qs, _, value):
-    if payment_id := get_payment_id_from_query(value):
-        return filter_order_by_payment(qs, payment_id)
-
-    users = User.objects.filter(
-        Q(email__trigram_similar=value)
-        | Q(first_name__trigram_similar=value)
-        | Q(last_name__trigram_similar=value)
-    ).values("pk")
-
-    filter_option = Q(user_email__trigram_similar=value) | Q(
-        Exists(users.filter(pk=OuterRef("user_id")))
-    )
-
-    if order_id := get_order_id_from_query(value):
-        filter_option |= Q(pk=order_id)
-
-    payments = Payment.objects.filter(psp_reference=value).values("id")
-    filter_option |= Q(Exists(payments.filter(order_id=OuterRef("id"))))
-
-    discounts = OrderDiscount.objects.filter(
-        Q(name__trigram_similar=value) | Q(translated_name__trigram_similar=value)
-    ).values("id")
-    filter_option |= Q(Exists(discounts.filter(order_id=OuterRef("id"))))
-
-    lines = OrderLine.objects.filter(product_sku=value).values("id")
-    filter_option |= Q(Exists(lines.filter(order_id=OuterRef("id"))))
-    return qs.filter(filter_option)
+    return search_orders(qs, value)
 
 
 def filter_channels(qs, _, values):
@@ -109,11 +85,46 @@ def filter_channels(qs, _, values):
     return qs
 
 
-def filter_order_ids(qs, _, values):
-    if values:
-        _, order_ids = resolve_global_ids_to_primary_keys(values, "Order")
-        qs = qs.filter(id__in=order_ids)
+def filter_is_click_and_collect(qs, _, values):
+    if values is not None:
+        lookup = Q(collection_point__isnull=False) | Q(
+            collection_point_name__isnull=False
+        )
+        qs = qs.filter(lookup) if values is True else qs.exclude(lookup)
     return qs
+
+
+def filter_is_preorder(qs, _, values):
+    if values is not None:
+        variants = ProductVariant.objects.filter(
+            Q(is_preorder=True)
+            & (
+                Q(preorder_end_date__isnull=True)
+                | Q(preorder_end_date__gte=timezone.now())
+            )
+        ).values("id")
+        lines = OrderLine.objects.filter(
+            Exists(variants.filter(id=OuterRef("variant_id")))
+        )
+        lookup = Exists(lines.filter(order_id=OuterRef("id")))
+        qs = qs.filter(lookup) if values is True else qs.exclude(lookup)
+    return qs
+
+
+def filter_gift_card_used(qs, _, value):
+    return filter_by_gift_card(qs, value, GiftCardEvents.USED_IN_ORDER)
+
+
+def filter_gift_card_bought(qs, _, value):
+    return filter_by_gift_card(qs, value, GiftCardEvents.BOUGHT)
+
+
+def filter_by_gift_card(qs, value, gift_card_type):
+    gift_card_events = GiftCardEvent.objects.filter(type=gift_card_type).values(
+        order_id=Cast("parameters__order_id", IntegerField())
+    )
+    lookup = Exists(gift_card_events.filter(order_id=OuterRef("id")))
+    return qs.filter(lookup) if value is True else qs.exclude(lookup)
 
 
 class DraftOrderFilter(MetadataFilterBase):
@@ -134,9 +145,18 @@ class OrderFilter(DraftOrderFilter):
     status = ListObjectTypeFilter(input_class=OrderStatusFilter, method=filter_status)
     customer = django_filters.CharFilter(method=filter_customer)
     created = ObjectTypeFilter(input_class=DateRangeInput, method=filter_created_range)
+    updated_at = ObjectTypeFilter(
+        input_class=DateTimeRangeInput, method=filter_updated_at_range
+    )
     search = django_filters.CharFilter(method=filter_order_search)
     channels = GlobalIDMultipleChoiceFilter(method=filter_channels)
-    ids = GlobalIDMultipleChoiceFilter(method=filter_order_ids)
+    is_click_and_collect = django_filters.BooleanFilter(
+        method=filter_is_click_and_collect
+    )
+    is_preorder = django_filters.BooleanFilter(method=filter_is_preorder)
+    ids = GlobalIDMultipleChoiceFilter(method=filter_by_id("Order"))
+    gift_card_used = django_filters.BooleanFilter(method=filter_gift_card_used)
+    gift_card_bought = django_filters.BooleanFilter(method=filter_gift_card_bought)
 
     class Meta:
         model = Order

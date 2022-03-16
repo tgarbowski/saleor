@@ -4,6 +4,7 @@ import pytest
 import requests
 
 from ....tests.utils import assert_no_permission, get_graphql_content
+from ...enums import AppExtensionMountEnum, AppExtensionTargetEnum
 
 APP_FETCH_MANIFEST_MUTATION = """
 mutation AppFetchManifest($manifest_url: String!){
@@ -22,6 +23,16 @@ mutation AppFetchManifest($manifest_url: String!){
       supportUrl
       permissions{
         code
+      }
+      extensions{
+        label
+        url
+        mount
+        target
+        permissions{
+          code
+          name
+        }
       }
     }
     errors{
@@ -100,7 +111,7 @@ def test_app_fetch_manifest_incorrect_permission_in_manifest(
     assert len(errors) == 1
     assert errors[0] == {
         "field": "permissions",
-        "message": "Given permissions don't exist",
+        "message": "Given permissions don't exist.",
         "code": "INVALID_PERMISSION",
     }
     assert not manifest
@@ -209,3 +220,386 @@ def test_app_fetch_manifest_handle_exception(
         "field": "manifestUrl",
         "message": "Can't fetch manifest data. Please try later.",
     }
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "id",
+        "version",
+        "name",
+    ],
+)
+def test_app_fetch_manifest_missing_fields(
+    missing_field, app_manifest, monkeypatch, staff_api_client, permission_manage_apps
+):
+    # given
+    del app_manifest[missing_field]
+    mocked_get_response = Mock()
+    mocked_get_response.json.return_value = app_manifest
+
+    monkeypatch.setattr(requests, "get", Mock(return_value=mocked_get_response))
+    query = APP_FETCH_MANIFEST_MUTATION
+    manifest_url = "http://localhost:3000/configuration/manifest"
+    variables = {
+        "manifest_url": manifest_url,
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables=variables, permissions=[permission_manage_apps]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    errors = content["data"]["appFetchManifest"]["errors"]
+
+    assert len(errors) == 1
+    assert errors[0] == {
+        "code": "REQUIRED",
+        "field": missing_field,
+        "message": "Field required.",
+    }
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "label",
+        "url",
+        "mount",
+    ],
+)
+def test_app_fetch_manifest_missing_extension_fields(
+    missing_field, app_manifest, monkeypatch, staff_api_client, permission_manage_apps
+):
+    # given
+    app_manifest["extensions"] = [
+        {
+            "permissions": ["MANAGE_PRODUCTS"],
+            "label": "Create product with App",
+            "url": "http://127.0.0.1:9090/app-extension",
+            "mount": AppExtensionMountEnum.PRODUCT_OVERVIEW_CREATE.name,
+        }
+    ]
+    del app_manifest["extensions"][0][missing_field]
+    mocked_get_response = Mock()
+    mocked_get_response.json.return_value = app_manifest
+
+    monkeypatch.setattr(requests, "get", Mock(return_value=mocked_get_response))
+    query = APP_FETCH_MANIFEST_MUTATION
+    manifest_url = "http://localhost:3000/configuration/manifest"
+    variables = {
+        "manifest_url": manifest_url,
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables=variables, permissions=[permission_manage_apps]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    errors = content["data"]["appFetchManifest"]["errors"]
+
+    assert len(errors) == 1
+    assert errors[0] == {
+        "code": "REQUIRED",
+        "field": "extensions",
+        "message": f"Missing required fields for app extension: {missing_field}.",
+    }
+
+
+@pytest.mark.parametrize(
+    "incorrect_field",
+    ["target", "mount"],
+)
+def test_app_fetch_manifest_extensions_incorrect_enum_values(
+    incorrect_field, app_manifest, monkeypatch, staff_api_client, permission_manage_apps
+):
+    # given
+    app_manifest["extensions"] = [
+        {
+            "permissions": ["MANAGE_PRODUCTS"],
+            "label": "Create product with App",
+            "url": "http://127.0.0.1:9090/app-extension",
+            "mount": AppExtensionMountEnum.PRODUCT_OVERVIEW_CREATE.name,
+        }
+    ]
+    app_manifest["extensions"][0][incorrect_field] = "INCORRECT_VALUE"
+
+    mocked_get_response = Mock()
+    mocked_get_response.json.return_value = app_manifest
+
+    monkeypatch.setattr(requests, "get", Mock(return_value=mocked_get_response))
+    query = APP_FETCH_MANIFEST_MUTATION
+    manifest_url = "http://localhost:3000/configuration/manifest"
+    variables = {
+        "manifest_url": manifest_url,
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables=variables, permissions=[permission_manage_apps]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    errors = content["data"]["appFetchManifest"]["errors"]
+
+    assert len(errors) == 1
+    expected_errors = [
+        {
+            "code": "INVALID",
+            "field": "extensions",
+            "message": f"Incorrect value for field: {incorrect_field}",
+        },
+    ]
+
+    assert errors == expected_errors
+
+
+@pytest.mark.parametrize(
+    "url, target, app_url",
+    [
+        ("/app", AppExtensionTargetEnum.APP_PAGE.name, ""),
+        ("/app", AppExtensionTargetEnum.APP_PAGE.name, "https://www.example.com/app"),
+        ("/app", AppExtensionTargetEnum.POPUP.name, "https://www.example.com/app"),
+    ],
+)
+def test_app_fetch_manifest_extensions_correct_url(
+    url,
+    target,
+    app_url,
+    app_manifest,
+    monkeypatch,
+    staff_api_client,
+    permission_manage_apps,
+):
+    # given
+    app_manifest["appUrl"] = app_url
+    app_manifest["extensions"] = [
+        {
+            "permissions": ["MANAGE_PRODUCTS"],
+            "label": "Create product with App",
+            "url": url,
+            "mount": AppExtensionMountEnum.PRODUCT_OVERVIEW_CREATE.name,
+            "target": target,
+        }
+    ]
+
+    mocked_get_response = Mock()
+    mocked_get_response.json.return_value = app_manifest
+
+    monkeypatch.setattr(requests, "get", Mock(return_value=mocked_get_response))
+    query = APP_FETCH_MANIFEST_MUTATION
+    manifest_url = "http://localhost:3000/configuration/manifest"
+    variables = {
+        "manifest_url": manifest_url,
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables=variables, permissions=[permission_manage_apps]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    errors = content["data"]["appFetchManifest"]["errors"]
+    assert len(errors) == 0
+
+
+@pytest.mark.parametrize(
+    "url, target",
+    [
+        ("http:/127.0.0.1:8080/app", AppExtensionTargetEnum.POPUP.name),
+        ("127.0.0.1:8080/app", AppExtensionTargetEnum.POPUP.name),
+        ("", AppExtensionTargetEnum.POPUP.name),
+        ("/app", AppExtensionTargetEnum.POPUP.name),
+        ("www.example.com/app", AppExtensionTargetEnum.POPUP.name),
+        ("https://www.example.com/app", AppExtensionTargetEnum.APP_PAGE.name),
+        ("http://www.example.com/app", AppExtensionTargetEnum.APP_PAGE.name),
+    ],
+)
+def test_app_fetch_manifest_extensions_incorrect_url(
+    url, target, app_manifest, monkeypatch, staff_api_client, permission_manage_apps
+):
+    # given
+    app_manifest["extensions"] = [
+        {
+            "permissions": ["MANAGE_PRODUCTS"],
+            "label": "Create product with App",
+            "url": url,
+            "mount": AppExtensionMountEnum.PRODUCT_OVERVIEW_CREATE.name,
+            "target": target,
+        }
+    ]
+
+    mocked_get_response = Mock()
+    mocked_get_response.json.return_value = app_manifest
+
+    monkeypatch.setattr(requests, "get", Mock(return_value=mocked_get_response))
+    query = APP_FETCH_MANIFEST_MUTATION
+    manifest_url = "http://localhost:3000/configuration/manifest"
+    variables = {
+        "manifest_url": manifest_url,
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables=variables, permissions=[permission_manage_apps]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    errors = content["data"]["appFetchManifest"]["errors"]
+
+    assert len(errors) == 1
+    assert errors[0] == {
+        "code": "INVALID_URL_FORMAT",
+        "field": "extensions",
+        "message": "Incorrect value for field: url.",
+    }
+
+
+@pytest.mark.parametrize(
+    "app_permissions, extension_permissions",
+    [
+        ([], ["MANAGE_PRODUCTS"]),
+        (["MANAGE_PRODUCTS"], ["MANAGE_PRODUCTS", "MANAGE_APPS"]),
+    ],
+)
+def test_app_fetch_manifest_extensions_permission_out_of_scope(
+    app_permissions,
+    extension_permissions,
+    app_manifest,
+    monkeypatch,
+    staff_api_client,
+    permission_manage_apps,
+):
+    # given
+    app_manifest["permissions"] = app_permissions
+    app_manifest["extensions"] = [
+        {
+            "permissions": extension_permissions,
+            "label": "Create product with App",
+            "url": "http://127.0.0.1:8080/app",
+            "mount": AppExtensionMountEnum.PRODUCT_OVERVIEW_CREATE.name,
+        }
+    ]
+
+    mocked_get_response = Mock()
+    mocked_get_response.json.return_value = app_manifest
+
+    monkeypatch.setattr(requests, "get", Mock(return_value=mocked_get_response))
+    query = APP_FETCH_MANIFEST_MUTATION
+    manifest_url = "http://localhost:3000/configuration/manifest"
+    variables = {
+        "manifest_url": manifest_url,
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables=variables, permissions=[permission_manage_apps]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    errors = content["data"]["appFetchManifest"]["errors"]
+
+    assert len(errors) == 1
+    assert errors[0] == {
+        "code": "OUT_OF_SCOPE_PERMISSION",
+        "field": "extensions",
+        "message": "Extension permission must be listed in App's permissions.",
+    }
+
+
+def test_app_fetch_manifest_extensions_invalid_permission(
+    app_manifest, monkeypatch, staff_api_client, permission_manage_apps
+):
+    # given
+    app_manifest["permissions"] = ["MANAGE_ORDERS"]
+    app_manifest["extensions"] = [
+        {
+            "permissions": ["incorrect_permission"],
+            "label": "Create product with App",
+            "url": "http://127.0.0.1:8080/app",
+            "mount": AppExtensionMountEnum.PRODUCT_OVERVIEW_CREATE.name,
+        }
+    ]
+
+    mocked_get_response = Mock()
+    mocked_get_response.json.return_value = app_manifest
+
+    monkeypatch.setattr(requests, "get", Mock(return_value=mocked_get_response))
+    query = APP_FETCH_MANIFEST_MUTATION
+    manifest_url = "http://localhost:3000/configuration/manifest"
+    variables = {
+        "manifest_url": manifest_url,
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables=variables, permissions=[permission_manage_apps]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    errors = content["data"]["appFetchManifest"]["errors"]
+
+    assert len(errors) == 1
+    assert errors[0] == {
+        "code": "INVALID_PERMISSION",
+        "field": "extensions",
+        "message": "Given permissions don't exist.",
+    }
+
+
+def test_app_fetch_manifest_with_extensions(
+    staff_api_client, staff_user, app_manifest, permission_manage_apps, monkeypatch
+):
+    # given
+    manifest_url = "http://localhost:3000/manifest"
+
+    app_manifest["extensions"] = [
+        {
+            "permissions": ["MANAGE_PRODUCTS"],
+            "label": "Create product with App",
+            "url": "http://127.0.0.1:8080/app",
+            "mount": AppExtensionMountEnum.PRODUCT_OVERVIEW_CREATE.name,
+        }
+    ]
+
+    mocked_get_response = Mock()
+    mocked_get_response.json.return_value = app_manifest
+
+    monkeypatch.setattr(requests, "get", Mock(return_value=mocked_get_response))
+
+    query = APP_FETCH_MANIFEST_MUTATION
+    variables = {
+        "manifest_url": manifest_url,
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables=variables, permissions=[permission_manage_apps]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    errors = content["data"]["appFetchManifest"]["errors"]
+    manifest = content["data"]["appFetchManifest"]["manifest"]
+    extensions = manifest["extensions"]
+
+    assert not errors
+    assert len(extensions) == 1
+
+    extension = extensions[0]
+    assert extension["permissions"] == [
+        {"code": "MANAGE_PRODUCTS", "name": "Manage products."}
+    ]
+    assert extension["label"] == "Create product with App"
+    assert extension["url"] == "http://127.0.0.1:8080/app"
+    assert extension["mount"] == AppExtensionMountEnum.PRODUCT_OVERVIEW_CREATE.name
+    assert extension["target"] == AppExtensionTargetEnum.POPUP.name

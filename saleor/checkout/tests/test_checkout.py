@@ -1,6 +1,7 @@
 import datetime
 from unittest.mock import Mock, patch
 
+import graphene
 import pytest
 import pytz
 from django.utils import timezone
@@ -8,16 +9,15 @@ from django_countries.fields import Country
 from freezegun import freeze_time
 from prices import Money, TaxedMoney
 
-from ...account.models import Address, User
-from ...account.utils import store_user_address
+from ...account.models import Address
 from ...core.taxes import zero_money
 from ...discount import DiscountValueType, VoucherType
 from ...discount.models import NotApplicable, Voucher, VoucherChannelListing
 from ...payment.models import Payment
 from ...plugins.manager import get_plugins_manager
+from ...shipping.interface import ShippingMethodData
 from ...shipping.models import ShippingZone
-from ...shipping.utils import convert_to_shipping_method_data
-from .. import AddressType, calculations
+from .. import calculations
 from ..fetch import (
     CheckoutInfo,
     CheckoutLineInfo,
@@ -28,54 +28,122 @@ from ..fetch import (
 )
 from ..models import Checkout
 from ..utils import (
+    PRIVATE_META_APP_SHIPPING_ID,
     add_voucher_to_checkout,
     calculate_checkout_quantity,
     cancel_active_payments,
     change_billing_address_in_checkout,
     change_shipping_address_in_checkout,
-    clear_shipping_method,
+    clear_delivery_method,
+    delete_external_shipping_id,
+    get_external_shipping_id,
     get_voucher_discount_for_checkout,
     get_voucher_for_checkout_info,
     is_fully_paid,
-    is_valid_shipping_method,
     recalculate_checkout_discount,
     remove_voucher_from_checkout,
+    set_external_shipping_id,
 )
 
 
-def test_is_valid_shipping_method(checkout_with_item, address, shipping_zone):
+def test_is_valid_delivery_method(checkout_with_item, address, shipping_zone):
     checkout = checkout_with_item
     checkout.shipping_address = address
     checkout.save()
     manager = get_plugins_manager()
     lines, _ = fetch_checkout_lines(checkout)
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    delivery_method_info = checkout_info.delivery_method_info
     # no shipping method assigned
-    assert not is_valid_shipping_method(checkout_info)
+    assert not delivery_method_info.is_valid_delivery_method()
     shipping_method = shipping_zone.shipping_methods.first()
     checkout.shipping_method = shipping_method
     checkout.save()
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    delivery_method_info = checkout_info.delivery_method_info
 
-    assert is_valid_shipping_method(checkout_info)
+    assert delivery_method_info.is_valid_delivery_method()
 
     zone = ShippingZone.objects.create(name="DE", countries=["DE"])
     shipping_method.shipping_zone = zone
     shipping_method.save()
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    delivery_method_info = checkout_info.delivery_method_info
 
-    assert not is_valid_shipping_method(checkout_info)
+    assert not delivery_method_info.is_method_in_valid_methods(checkout_info)
 
 
-def test_clear_shipping_method(checkout, shipping_method):
+@patch("saleor.plugins.webhook.tasks.send_webhook_request_sync")
+def test_is_valid_delivery_method_external_method(
+    mock_send_request, checkout_with_item, address, settings, shipping_app
+):
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
+    response_method_id = "abcd"
+    mock_json_response = [
+        {
+            "id": response_method_id,
+            "name": "Provider - Economy",
+            "amount": "10",
+            "currency": "USD",
+            "maximum_delivery_days": "7",
+        }
+    ]
+    method_id = graphene.Node.to_global_id(
+        "app", f"{shipping_app.id}:{response_method_id}"
+    )
+
+    mock_send_request.return_value = mock_json_response
+    checkout = checkout_with_item
+    checkout.shipping_address = address
+    checkout.private_metadata = {PRIVATE_META_APP_SHIPPING_ID: method_id}
+    checkout.save()
+
+    manager = get_plugins_manager()
+    lines, _ = fetch_checkout_lines(checkout)
+    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    delivery_method_info = checkout_info.delivery_method_info
+
+    assert delivery_method_info.is_method_in_valid_methods(checkout_info)
+
+
+@patch("saleor.plugins.webhook.tasks.send_webhook_request_sync")
+def test_is_valid_delivery_method_external_method_no_longer_available(
+    mock_send_request, checkout_with_item, address, settings, shipping_app
+):
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
+    mock_json_response = [
+        {
+            "id": "New-ID",
+            "name": "Provider - Economy",
+            "amount": "10",
+            "currency": "USD",
+            "maximum_delivery_days": "7",
+        }
+    ]
+    method_id = graphene.Node.to_global_id("app", f"{shipping_app.id}:1")
+
+    mock_send_request.return_value = mock_json_response
+    checkout = checkout_with_item
+    checkout.shipping_address = address
+    checkout.private_metadata = {PRIVATE_META_APP_SHIPPING_ID: method_id}
+    checkout.save()
+
+    manager = get_plugins_manager()
+    lines, _ = fetch_checkout_lines(checkout)
+    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    delivery_method_info = checkout_info.delivery_method_info
+
+    assert delivery_method_info.is_method_in_valid_methods(checkout_info) is False
+
+
+def test_clear_delivery_method(checkout, shipping_method):
     checkout.shipping_method = shipping_method
     checkout.save()
     manager = get_plugins_manager()
     checkout_info = fetch_checkout_info(checkout, [], [], manager)
-    clear_shipping_method(checkout_info)
+    clear_delivery_method(checkout_info)
     checkout.refresh_from_db()
     assert not checkout.shipping_method
-    assert not checkout_info.delivery_method_info.delivery_method
     assert isinstance(checkout_info.delivery_method_info, DeliveryMethodBase)
 
 
@@ -144,11 +212,12 @@ def test_get_discount_for_checkout_value_voucher(
     )
     checkout_info = CheckoutInfo(
         checkout=checkout,
-        delivery_method_info=get_delivery_method_info(None),
         shipping_address=None,
         billing_address=None,
         channel=channel_USD,
         user=None,
+        valid_pick_up_points=[],
+        delivery_method_info=get_delivery_method_info(None, None),
         all_shipping_methods=[],
     )
     lines = [
@@ -237,11 +306,12 @@ def test_get_discount_for_checkout_entire_order_voucher_not_applicable(
     )
     checkout_info = CheckoutInfo(
         checkout=checkout,
-        delivery_method_info=get_delivery_method_info(None),
+        delivery_method_info=None,
         shipping_address=None,
         billing_address=None,
         channel=channel_USD,
         user=None,
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
     manager = get_plugins_manager()
@@ -349,11 +419,12 @@ def test_get_discount_for_checkout_specific_products_voucher_not_applicable(
     checkout = Mock(quantity=total_quantity, spec=Checkout, channel=channel_USD)
     checkout_info = CheckoutInfo(
         checkout=checkout,
-        delivery_method_info=get_delivery_method_info(None),
+        delivery_method_info=get_delivery_method_info(None, None),
         shipping_address=None,
         billing_address=None,
         channel=channel_USD,
         user=None,
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
     with pytest.raises(NotApplicable):
@@ -382,6 +453,7 @@ def test_get_discount_for_checkout_shipping_voucher(
     monkeypatch,
     channel_USD,
     shipping_method,
+    shipping_method_data,
 ):
     manager = get_plugins_manager()
     subtotal = TaxedMoney(Money(100, "USD"), Money(100, "USD"))
@@ -417,20 +489,20 @@ def test_get_discount_for_checkout_shipping_voucher(
         channel=channel_USD,
         discount=Money(discount_value, channel_USD.currency_code),
     )
+    shipping_address = Mock(spec=Address, country=Mock(code="PL"))
     checkout_info = CheckoutInfo(
         checkout=checkout,
+        shipping_address=shipping_address,
         delivery_method_info=get_delivery_method_info(
-            shipping_method
-            and convert_to_shipping_method_data(
-                shipping_method, shipping_method.channel_listings.get()
-            )
+            shipping_method_data, shipping_address
         ),
-        shipping_address=Mock(spec=Address, country=Mock(code="PL")),
         billing_address=None,
         channel=channel_USD,
         user=None,
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
+
     discount = get_voucher_discount_for_checkout(
         manager, voucher, checkout_info, [], None, None
     )
@@ -438,7 +510,7 @@ def test_get_discount_for_checkout_shipping_voucher(
 
 
 def test_get_discount_for_checkout_shipping_voucher_all_countries(
-    monkeypatch, channel_USD, shipping_method
+    monkeypatch, channel_USD, shipping_method, shipping_method_data
 ):
     subtotal = TaxedMoney(Money(100, "USD"), Money(100, "USD"))
     monkeypatch.setattr(
@@ -481,16 +553,12 @@ def test_get_discount_for_checkout_shipping_voucher_all_countries(
     manager = get_plugins_manager()
     checkout_info = CheckoutInfo(
         checkout=checkout,
-        delivery_method_info=get_delivery_method_info(
-            shipping_method
-            and convert_to_shipping_method_data(
-                shipping_method, shipping_method.channel_listings.get()
-            )
-        ),
+        delivery_method_info=get_delivery_method_info(shipping_method_data),
         shipping_address=Mock(spec=Address, country=Mock(code="PL")),
         billing_address=None,
         channel=channel_USD,
         user=None,
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
     discount = get_voucher_discount_for_checkout(
@@ -530,11 +598,12 @@ def test_get_discount_for_checkout_shipping_voucher_limited_countries(
 
     checkout_info = CheckoutInfo(
         checkout=checkout,
-        delivery_method_info=get_delivery_method_info(None),
+        delivery_method_info=get_delivery_method_info(None, None),
         shipping_address=Mock(spec=Address, country=Mock(code="PL")),
         billing_address=None,
         channel=channel_USD,
         user=None,
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
     manager = get_plugins_manager()
@@ -543,16 +612,13 @@ def test_get_discount_for_checkout_shipping_voucher_limited_countries(
 
 
 @pytest.mark.parametrize(
-    "is_shipping_required, shipping_method, discount_value, discount_type,"
+    "is_shipping_required, shipping_method_data, discount_value, discount_type,"
     "countries, min_spent_amount, min_checkout_items_quantity, subtotal,"
     "total_quantity, error_msg",
     [
         (
             True,
-            Mock(
-                get_total=Mock(return_value=Money(10, "USD")),
-                shipping_zone=Mock(countries=["PL"]),
-            ),
+            ShippingMethodData("1", "test", Money(10, "USD")),
             10,
             DiscountValueType.FIXED,
             ["US"],
@@ -572,7 +638,7 @@ def test_get_discount_for_checkout_shipping_voucher_limited_countries(
             None,
             TaxedMoney(Money(10, "USD"), Money(10, "USD")),
             10,
-            "Please select a shipping method first.",
+            "Please select a delivery method first.",
         ),
         (
             False,
@@ -588,7 +654,7 @@ def test_get_discount_for_checkout_shipping_voucher_limited_countries(
         ),
         (
             True,
-            Mock(price=Money(10, "USD")),
+            ShippingMethodData("1", "test", Money(10, "USD")),
             10,
             DiscountValueType.FIXED,
             [],
@@ -600,7 +666,7 @@ def test_get_discount_for_checkout_shipping_voucher_limited_countries(
         ),
         (
             True,
-            Mock(price=Money(10, "USD")),
+            ShippingMethodData("1", "test", Money(10, "USD")),
             10,
             DiscountValueType.FIXED,
             [],
@@ -612,7 +678,7 @@ def test_get_discount_for_checkout_shipping_voucher_limited_countries(
         ),
         (
             True,
-            Mock(price=Money(10, "USD")),
+            ShippingMethodData("1", "test", Money(10, "USD")),
             10,
             DiscountValueType.FIXED,
             [],
@@ -627,6 +693,7 @@ def test_get_discount_for_checkout_shipping_voucher_limited_countries(
 def test_get_discount_for_checkout_shipping_voucher_not_applicable(
     is_shipping_required,
     shipping_method,
+    shipping_method_data,
     discount_value,
     discount_type,
     countries,
@@ -674,16 +741,12 @@ def test_get_discount_for_checkout_shipping_voucher_not_applicable(
     )
     checkout_info = CheckoutInfo(
         checkout=checkout,
-        delivery_method_info=get_delivery_method_info(
-            shipping_method
-            and convert_to_shipping_method_data(
-                shipping_method, shipping_method.channel_listings.get()
-            )
-        ),
+        delivery_method_info=get_delivery_method_info(shipping_method_data),
         shipping_address=Mock(spec=Address, country=Mock(code="PL")),
         billing_address=None,
         channel=channel_USD,
         user=None,
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
     with pytest.raises(NotApplicable) as e:
@@ -754,16 +817,13 @@ def test_recalculate_checkout_discount_with_sale(
 
     recalculate_checkout_discount(manager, checkout_info, lines, [discount_info])
     assert checkout.discount == Money("1.50", "USD")
-    assert (
-        calculations.checkout_total(
-            manager=manager,
-            checkout_info=checkout_info,
-            lines=lines,
-            address=checkout.shipping_address,
-            discounts=[discount_info],
-        ).gross
-        == Money("13.50", "USD")
-    )
+    assert calculations.checkout_total(
+        manager=manager,
+        checkout_info=checkout_info,
+        lines=lines,
+        address=checkout.shipping_address,
+        discounts=[discount_info],
+    ).gross == Money("13.50", "USD")
 
 
 def test_recalculate_checkout_discount_voucher_not_applicable(
@@ -809,15 +869,12 @@ def test_recalculate_checkout_discount_free_shipping_subtotal_less_than_shipping
     lines, _ = fetch_checkout_lines(checkout)
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
     channel_listing = shipping_method.channel_listings.get(channel_id=channel_USD.id)
-    channel_listing.price = (
-        calculations.checkout_subtotal(
-            manager=manager,
-            checkout_info=checkout_info,
-            lines=lines,
-            address=checkout.shipping_address,
-        ).gross
-        + Money("10.00", "USD")
-    )
+    channel_listing.price = calculations.checkout_subtotal(
+        manager=manager,
+        checkout_info=checkout_info,
+        lines=lines,
+        address=checkout.shipping_address,
+    ).gross + Money("10.00", "USD")
     channel_listing.save()
 
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
@@ -851,15 +908,12 @@ def test_recalculate_checkout_discount_free_shipping_subtotal_bigger_than_shippi
     lines, _ = fetch_checkout_lines(checkout)
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
     channel_listing = shipping_method.channel_listings.get(channel=channel_USD)
-    channel_listing.price = (
-        calculations.checkout_subtotal(
-            manager=manager,
-            checkout_info=checkout_info,
-            lines=lines,
-            address=checkout.shipping_address,
-        ).gross
-        - Money("1.00", "USD")
-    )
+    channel_listing.price = calculations.checkout_subtotal(
+        manager=manager,
+        checkout_info=checkout_info,
+        lines=lines,
+        address=checkout.shipping_address,
+    ).gross - Money("1.00", "USD")
     channel_listing.save()
 
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
@@ -900,7 +954,14 @@ def test_change_address_in_checkout(checkout, address):
     manager = get_plugins_manager()
     lines, _ = fetch_checkout_lines(checkout)
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
-    change_shipping_address_in_checkout(checkout_info, address, lines, [], manager)
+    change_shipping_address_in_checkout(
+        checkout_info,
+        address,
+        lines,
+        [],
+        manager,
+        checkout.channel.shipping_method_listings.all(),
+    )
     change_billing_address_in_checkout(checkout, address)
 
     checkout.refresh_from_db()
@@ -917,7 +978,14 @@ def test_change_address_in_checkout_to_none(checkout, address):
     manager = get_plugins_manager()
     lines, _ = fetch_checkout_lines(checkout)
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
-    change_shipping_address_in_checkout(checkout_info, None, lines, [], manager)
+    change_shipping_address_in_checkout(
+        checkout_info,
+        None,
+        lines,
+        [],
+        manager,
+        checkout.channel.shipping_method_listings.all(),
+    )
     change_billing_address_in_checkout(checkout, None)
 
     checkout.refresh_from_db()
@@ -936,7 +1004,14 @@ def test_change_address_in_checkout_to_same(checkout, address):
     manager = get_plugins_manager()
     lines, _ = fetch_checkout_lines(checkout)
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
-    change_shipping_address_in_checkout(checkout_info, address, lines, [], manager)
+    change_shipping_address_in_checkout(
+        checkout_info,
+        address,
+        lines,
+        [],
+        manager,
+        checkout.channel.shipping_method_listings.all(),
+    )
     change_billing_address_in_checkout(checkout, address)
 
     checkout.refresh_from_db()
@@ -956,7 +1031,12 @@ def test_change_address_in_checkout_to_other(checkout, address):
     lines, _ = fetch_checkout_lines(checkout)
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
     change_shipping_address_in_checkout(
-        checkout_info, other_address, lines, [], manager
+        checkout_info,
+        other_address,
+        lines,
+        [],
+        manager,
+        checkout.channel.shipping_method_listings.all(),
     )
     change_billing_address_in_checkout(checkout, other_address)
 
@@ -981,7 +1061,12 @@ def test_change_address_in_checkout_from_user_address_to_other(
     lines, _ = fetch_checkout_lines(checkout)
     checkout_info = fetch_checkout_info(checkout, lines, [], manager)
     change_shipping_address_in_checkout(
-        checkout_info, other_address, lines, [], manager
+        checkout_info,
+        other_address,
+        lines,
+        [],
+        manager,
+        checkout.channel.shipping_method_listings.all(),
     )
     change_billing_address_in_checkout(checkout, other_address)
 
@@ -1058,55 +1143,6 @@ def test_add_voucher_to_checkout_fail(
         )
 
     assert checkout_with_item.voucher_code is None
-
-
-def test_store_user_address_uses_existing_one(address):
-    """Ensure storing an address that is already associated to the given user doesn't
-    create a new address, but uses the existing one instead.
-    """
-    user = User.objects.create_user("test@example.com", "password")
-    user.addresses.add(address)
-
-    expected_user_addresses_count = 1
-
-    manager = get_plugins_manager()
-    store_user_address(user, address, AddressType.BILLING, manager)
-
-    assert user.addresses.count() == expected_user_addresses_count
-    assert user.default_billing_address_id == address.pk
-
-
-def test_store_user_address_uses_existing_one_despite_duplicated(address):
-    """Ensure storing an address handles the possibility of an user
-    having the same address associated to them multiple time is handled properly.
-
-    It should use the first identical address associated to the user.
-    """
-    same_address = Address.objects.create(**address.as_data())
-    user = User.objects.create_user("test@example.com", "password")
-    user.addresses.set([address, same_address])
-
-    expected_user_addresses_count = 2
-
-    manager = get_plugins_manager()
-    store_user_address(user, address, AddressType.BILLING, manager)
-
-    assert user.addresses.count() == expected_user_addresses_count
-    assert user.default_billing_address_id == address.pk
-
-
-def test_store_user_address_create_new_address_if_not_associated(address):
-    """Ensure storing an address that is not associated to the given user
-    triggers the creation of a new address, but uses the existing one instead.
-    """
-    user = User.objects.create_user("test@example.com", "password")
-    expected_user_addresses_count = 1
-
-    manager = get_plugins_manager()
-    store_user_address(user, address, AddressType.BILLING, manager)
-
-    assert user.addresses.count() == expected_user_addresses_count
-    assert user.default_billing_address_id != address.pk
 
 
 def test_get_last_active_payment(checkout_with_payments):
@@ -1218,3 +1254,33 @@ def test_cancel_active_payments(checkout_with_payments):
 
     # then
     assert checkout.payments.filter(is_active=True).count() == 0
+
+
+def test_chckout_without_delivery_method_creates_empty_delivery_method(
+    checkout_with_item,
+):
+    checkout = checkout_with_item
+    manager = get_plugins_manager()
+    lines, _ = fetch_checkout_lines(checkout)
+    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    delivery_method_info = checkout_info.delivery_method_info
+
+    assert isinstance(delivery_method_info, DeliveryMethodBase)
+    assert not delivery_method_info.is_valid_delivery_method()
+    assert not delivery_method_info.is_local_collection_point
+    assert not delivery_method_info.is_method_in_valid_methods(checkout_info)
+
+
+def test_manage_external_shipping_id(checkout):
+    app_shipping_id = "abcd"
+    initial_private_metadata = {"test": 123}
+    checkout.private_metadata = initial_private_metadata
+
+    set_external_shipping_id(checkout, app_shipping_id)
+    assert PRIVATE_META_APP_SHIPPING_ID in checkout.private_metadata
+
+    shipping_id = get_external_shipping_id(checkout)
+    assert shipping_id == app_shipping_id
+
+    delete_external_shipping_id(checkout)
+    assert checkout.private_metadata == initial_private_metadata

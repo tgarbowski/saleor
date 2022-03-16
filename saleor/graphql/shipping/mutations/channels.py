@@ -16,6 +16,7 @@ from ...channel.mutations import BaseChannelListingMutation
 from ...core.scalars import PositiveDecimal
 from ...core.types.common import ShippingError
 from ...core.validators import validate_decimal_max_value, validate_price_precision
+from ...shipping.utils import get_shipping_model_by_object_id
 from ..types import ShippingMethodType
 
 if TYPE_CHECKING:
@@ -235,9 +236,8 @@ class ShippingMethodChannelListingUpdate(BaseChannelListingMutation):
 
     @classmethod
     def perform_mutation(cls, _root, info, id, input):
-        shipping_method = cls.get_node_or_error(
-            info, id, only_type=ShippingMethodType, field="id"
-        )
+        shipping_method = get_shipping_model_by_object_id(id)
+
         errors = defaultdict(list)
         clean_channels = cls.clean_channels(
             info, input, errors, ShippingErrorCode.DUPLICATED_INPUT_ITEM.value

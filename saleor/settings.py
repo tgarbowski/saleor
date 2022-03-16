@@ -180,6 +180,10 @@ if not SECRET_KEY and DEBUG:
     warnings.warn("SECRET_KEY not configured, using a random temporary key.")
     SECRET_KEY = get_random_secret_key()
 
+JWT_MANAGER_PATH = os.environ.get(
+    "JWT_MANAGER_PATH", "saleor.core.jwt_manager.JWTManager"
+)
+
 AWS_SECRET_ID = os.environ.get("AWS_SECRET_ID", None)
 
 if AWS_SECRET_ID:
@@ -235,7 +239,6 @@ INSTALLED_APPS = [
     "saleor.payment",
     "saleor.warehouse",
     "saleor.webhook",
-    "saleor.wishlist",
     "saleor.app",
     "saleor.salingo",
     "saleor.wms",
@@ -245,7 +248,6 @@ INSTALLED_APPS = [
     "django_prices",
     "django_prices_openexchangerates",
     "django_prices_vatlayer",
-    "graphene_django",
     "mptt",
     "django_countries",
     "django_filters",
@@ -410,7 +412,7 @@ PAYMENT_HOST = get_host
 
 PAYMENT_MODEL = "order.Payment"
 
-MAX_CHECKOUT_LINE_QUANTITY = int(os.environ.get("MAX_CHECKOUT_LINE_QUANTITY", 50))
+MAX_USER_ADDRESSES = int(os.environ.get("MAX_USER_ADDRESSES", 100))
 
 TEST_RUNNER = "saleor.tests.runner.PytestTestRunner"
 
@@ -501,6 +503,22 @@ AUTHENTICATION_BACKENDS = [
     "saleor.core.auth_backend.PluginBackend",
 ]
 
+# Expired checkouts settings - defines after what time checkouts will be deleted
+ANONYMOUS_CHECKOUTS_TIMEDELTA = timedelta(
+    seconds=parse(os.environ.get("ANONYMOUS_CHECKOUTS_TIMEDELTA", "30 days"))
+)
+USER_CHECKOUTS_TIMEDELTA = timedelta(
+    seconds=parse(os.environ.get("USER_CHECKOUTS_TIMEDELTA", "90 days"))
+)
+EMPTY_CHECKOUTS_TIMEDELTA = timedelta(
+    seconds=parse(os.environ.get("EMPTY_CHECKOUTS_TIMEDELTA", "6 hours"))
+)
+
+# Exports settings - defines after what time exported files will be deleted
+EXPORT_FILES_TIMEDELTA = timedelta(
+    seconds=parse(os.environ.get("EXPORT_FILES_TIMEDELTA", "30 days"))
+)
+
 # CELERY SETTINGS
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BROKER_URL = (
@@ -568,6 +586,11 @@ GRAPHENE = {
     "RELAY_CONNECTION_MAX_LIMIT": 100,
 }
 
+# Set GRAPHQL_QUERY_MAX_COMPLEXITY=0 in env to disable (not recommended)
+GRAPHQL_QUERY_MAX_COMPLEXITY = int(
+    os.environ.get("GRAPHQL_QUERY_MAX_COMPLEXITY", 50000)
+)
+
 # Max number entities that can be requested in single query by Apollo Federation
 # Federation protocol implements no securities on its own part - malicious actor
 # may build a query that requests for potentially few thousands of entities.
@@ -584,10 +607,10 @@ BUILTIN_PLUGINS = [
     "saleor.payment.gateways.stripe.plugin.StripeGatewayPlugin",
     "saleor.payment.gateways.braintree.plugin.BraintreeGatewayPlugin",
     "saleor.payment.gateways.razorpay.plugin.RazorpayGatewayPlugin",
-    #"saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
+    "saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
     "saleor.payment.gateways.authorize_net.plugin.AuthorizeNetGatewayPlugin",
+    "saleor.payment.gateways.np_atobarai.plugin.NPAtobaraiGatewayPlugin",
     "saleor.payment.gateways.payu.plugin.PayuGatewayPlugin",
-    #"saleor.payment.gateways.np_atobarai.plugin.NPAtobaraiGatewayPlugin",
     "saleor.plugins.invoicing.plugin.InvoicingPlugin",
     "saleor.plugins.user_email.plugin.UserEmailPlugin",
     "saleor.plugins.admin_email.plugin.AdminEmailPlugin",
@@ -629,11 +652,6 @@ if (
 # for getting response from the server.
 WEBHOOK_TIMEOUT = 10
 WEBHOOK_SYNC_TIMEOUT = 20
-
-# This is deprecated env which will be removed in Saleor 3.1
-WEBHOOK_EXCLUDED_SHIPPING_REQUEST_TIMEOUT = int(
-    os.environ.get("WEBHOOK_EXCLUDED_SHIPPING_REQUEST_TIMEOUT", 2)
-)
 
 # Initialize a simple and basic Jaeger Tracing integration
 # for open-tracing if enabled.

@@ -2,10 +2,12 @@ import datetime
 from typing import TYPE_CHECKING, Iterable, Optional, Union
 from uuid import uuid4
 
+import graphene
 from django.conf import settings
 from django.contrib.postgres.aggregates import StringAgg
 from django.contrib.postgres.indexes import BTreeIndex, GinIndex
 from django.contrib.postgres.search import SearchVectorField
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import JSONField  # type: ignore
 from django.db.models import (
@@ -27,6 +29,7 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.encoding import smart_text
 from django_measurement.models import MeasurementField
 from django_prices.models import MoneyField
@@ -54,7 +57,7 @@ from ..core.weight import zero_weight
 from ..discount import DiscountInfo
 from ..discount.utils import calculate_discounted_price
 from ..seo.models import SeoModel, SeoModelTranslation
-from . import ProductMediaTypes
+from . import ProductMediaTypes, ProductTypeKind
 
 if TYPE_CHECKING:
     # flake8: noqa
@@ -144,6 +147,7 @@ class CategoryTranslation(SeoModelTranslation):
 class ProductType(ModelWithMetadata):
     name = models.CharField(max_length=250)
     slug = models.SlugField(max_length=255, unique=True, allow_unicode=True)
+    kind = models.CharField(max_length=32, choices=ProductTypeKind.CHOICES)
     has_variants = models.BooleanField(default=True)
     is_shipping_required = models.BooleanField(default=True)
     is_digital = models.BooleanField(default=False)
@@ -389,7 +393,7 @@ class Product(SeoModel, ModelWithMetadata):
     slug = models.SlugField(max_length=255, unique=True, allow_unicode=True)
     description = SanitizedJSONField(blank=True, null=True, sanitizer=clean_editor_js)
     description_plaintext = TextField(blank=True)
-    search_vector = SearchVectorField(null=True, blank=True)
+    search_document = models.TextField(blank=True, default="")
 
     category = models.ForeignKey(
         Category,
@@ -398,7 +402,6 @@ class Product(SeoModel, ModelWithMetadata):
         null=True,
         blank=True,
     )
-    created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     charge_taxes = models.BooleanField(default=True)
@@ -426,7 +429,14 @@ class Product(SeoModel, ModelWithMetadata):
         permissions = (
             (ProductPermissions.MANAGE_PRODUCTS.codename, "Manage products."),
         )
-        indexes = [GinIndex(fields=["search_vector"])]
+        indexes = [
+            GinIndex(
+                name="product_search_gin",
+                # `opclasses` and `fields` should be the same length
+                fields=["search_document"],
+                opclasses=["gin_trgm_ops"],
+            ),
+        ]
         indexes.extend(ModelWithMetadata.Meta.indexes)
 
     def __iter__(self):
@@ -445,10 +455,6 @@ class Product(SeoModel, ModelWithMetadata):
 
     def __str__(self) -> str:
         return self.name
-
-    @property
-    def plain_text_description(self) -> str:
-        return json_content_to_raw_text(self.description)
 
     def get_first_image(self):
         all_media = self.media.all()
@@ -563,13 +569,21 @@ class ProductChannelListing(PublishableModel):
 
 
 class ProductVariant(SortableModel, ModelWithMetadata):
-    sku = models.CharField(max_length=255, unique=True)
+    sku = models.CharField(max_length=255, unique=True, null=True, blank=True)
     name = models.CharField(max_length=255, blank=True)
     product = models.ForeignKey(
         Product, related_name="variants", on_delete=models.CASCADE
     )
     media = models.ManyToManyField("ProductMedia", through="VariantMedia")
     track_inventory = models.BooleanField(default=True)
+    is_preorder = models.BooleanField(default=False)
+    preorder_end_date = models.DateTimeField(null=True, blank=True)
+    preorder_global_threshold = models.IntegerField(blank=True, null=True)
+    quantity_limit_per_customer = models.IntegerField(
+        blank=True, null=True, validators=[MinValueValidator(1)]
+    )
+    created = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
 
     weight = MeasurementField(
         measurement=Weight,
@@ -586,7 +600,10 @@ class ProductVariant(SortableModel, ModelWithMetadata):
         app_label = "product"
 
     def __str__(self) -> str:
-        return self.name or self.sku
+        return self.name or self.sku or f"ID:{self.pk}"
+
+    def get_global_id(self):
+        return graphene.Node.to_global_id("ProductVariant", self.id)
 
     def get_price(
         self,
@@ -612,6 +629,9 @@ class ProductVariant(SortableModel, ModelWithMetadata):
     def is_shipping_required(self) -> bool:
         return self.product.product_type.is_shipping_required
 
+    def is_gift_card(self) -> bool:
+        return self.product.product_type.kind == ProductTypeKind.GIFT_CARD
+
     def is_digital(self) -> bool:
         is_digital = self.product.product_type.is_digital
         return not self.is_shipping_required() and is_digital
@@ -630,6 +650,11 @@ class ProductVariant(SortableModel, ModelWithMetadata):
 
     def get_ordering_queryset(self):
         return self.product.variants.all()
+
+    def is_preorder_active(self):
+        return self.is_preorder and (
+            self.preorder_end_date is None or timezone.now() <= self.preorder_end_date
+        )
 
 
 class ProductVariantTranslation(Translation):
@@ -660,6 +685,15 @@ class ProductVariantTranslation(Translation):
 
     def get_translated_keys(self):
         return {"name": self.name}
+
+
+class ProductVariantChannelListingQuerySet(models.QuerySet):
+    def annotate_preorder_quantity_allocated(self):
+        return self.annotate(
+            preorder_quantity_allocated=Coalesce(
+                Sum("preorder_allocations__quantity"), 0
+            ),
+        )
 
 
 class ProductVariantChannelListing(models.Model):
@@ -693,6 +727,10 @@ class ProductVariantChannelListing(models.Model):
         null=True,
     )
     cost_price = MoneyField(amount_field="cost_price_amount", currency_field="currency")
+
+    preorder_quantity_threshold = models.IntegerField(blank=True, null=True)
+
+    objects = models.Manager.from_queryset(ProductVariantChannelListingQuerySet)()
 
     class Meta:
         unique_together = [["variant", "channel"]]
@@ -744,7 +782,9 @@ class DigitalContentUrl(models.Model):
 
 
 class ProductMedia(SortableModel):
-    product = models.ForeignKey(Product, null=True, related_name="media", on_delete=models.SET_NULL)
+    product = models.ForeignKey(
+        Product, related_name="media", on_delete=models.SET_NULL, null=True, blank=True
+    )
     image = VersatileImageField(
         upload_to="products", ppoi_field="ppoi", blank=True, null=True
     )
@@ -757,6 +797,7 @@ class ProductMedia(SortableModel):
     )
     external_url = models.CharField(max_length=256, blank=True, null=True)
     oembed_data = JSONField(blank=True, default=dict)
+    to_remove = models.BooleanField(default=False)
 
     class Meta:
         ordering = ("sort_order", "pk")
@@ -813,7 +854,7 @@ class CollectionsQueryset(models.QuerySet):
 
 
 class Collection(SeoModel, ModelWithMetadata):
-    name = models.CharField(max_length=250, unique=True)
+    name = models.CharField(max_length=250)
     slug = models.SlugField(max_length=255, unique=True, allow_unicode=True)
     products = models.ManyToManyField(
         Product,

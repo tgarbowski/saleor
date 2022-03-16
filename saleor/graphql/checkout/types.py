@@ -2,19 +2,23 @@ import graphene
 from promise import Promise
 
 from ...checkout import calculations, models
-from ...core.exceptions import PermissionDenied
+from ...checkout.utils import get_valid_collection_points_for_checkout
 from ...core.permissions import AccountPermissions
 from ...core.taxes import zero_taxed_money
 from ...core.tracing import traced_resolver
-from ...shipping.utils import convert_to_shipping_method_data
+from ...shipping.interface import ShippingMethodData
+from ...warehouse import models as warehouse_models
+from ...warehouse.reservations import is_reservation_enabled
 from ..account.dataloaders import AddressByIdLoader
-from ..account.utils import requestor_has_access
+from ..account.utils import check_requestor_access
 from ..channel import ChannelContext
 from ..channel.dataloaders import ChannelByCheckoutLineIDLoader, ChannelByIdLoader
-from ..core.connection import CountableDjangoObjectType
+from ..channel.types import Channel
+from ..core.connection import CountableConnection
+from ..core.descriptions import ADDED_IN_31, DEPRECATED_IN_3X_FIELD, PREVIEW_FEATURE
 from ..core.enums import LanguageCodeEnum
 from ..core.scalars import UUID
-from ..core.types.money import TaxedMoney
+from ..core.types import ModelObjectType, Money, TaxedMoney
 from ..core.utils import str_to_enum
 from ..discount.dataloaders import DiscountsByDateTimeLoader
 from ..giftcard.types import GiftCard
@@ -24,12 +28,10 @@ from ..product.dataloaders import (
     ProductTypeByVariantIdLoader,
     ProductVariantByIdLoader,
 )
-from ..shipping.dataloaders import (
-    ShippingMethodByIdLoader,
-    ShippingMethodChannelListingByChannelSlugLoader,
-)
 from ..shipping.types import ShippingMethod
 from ..utils import get_user_or_app_from_context
+from ..warehouse.dataloaders import StocksReservationsByCheckoutTokenLoader
+from ..warehouse.types import Warehouse
 from .dataloaders import (
     CheckoutByTokenLoader,
     CheckoutInfoByCheckoutTokenLoader,
@@ -67,7 +69,12 @@ class PaymentGateway(graphene.ObjectType):
         )
 
 
-class CheckoutLine(CountableDjangoObjectType):
+class CheckoutLine(ModelObjectType):
+    id = graphene.GlobalID(required=True)
+    variant = graphene.Field(
+        "saleor.graphql.product.types.ProductVariant", required=True
+    )
+    quantity = graphene.Int(required=True)
     total_price = graphene.Field(
         TaxedMoney,
         description="The sum of the checkout line price, taxes and discounts.",
@@ -77,11 +84,9 @@ class CheckoutLine(CountableDjangoObjectType):
     )
 
     class Meta:
-        only_fields = ["id", "quantity", "variant"]
         description = "Represents an item in the checkout."
         interfaces = [graphene.relay.Node]
         model = models.CheckoutLine
-        filter_fields = ["id"]
 
     @staticmethod
     def resolve_variant(root: models.CheckoutLine, info):
@@ -154,24 +159,68 @@ class CheckoutLine(CountableDjangoObjectType):
         )
 
 
-class Checkout(CountableDjangoObjectType):
+class CheckoutLineCountableConnection(CountableConnection):
+    class Meta:
+        node = CheckoutLine
+
+
+class DeliveryMethod(graphene.Union):
+    class Meta:
+        description = (
+            f"{ADDED_IN_31} Represents a delivery method chosen for the checkout. "
+            '`Warehouse` type is used when checkout is marked as "click and collect" '
+            f"and `ShippingMethod` otherwise. {PREVIEW_FEATURE}"
+        )
+        types = (Warehouse, ShippingMethod)
+
+    @classmethod
+    def resolve_type(cls, instance, info):
+        if isinstance(instance, ShippingMethodData):
+            return ShippingMethod
+        if isinstance(instance, warehouse_models.Warehouse):
+            return Warehouse
+
+        return super(DeliveryMethod, cls).resolve_type(instance, info)
+
+
+class Checkout(ModelObjectType):
+    id = graphene.ID(required=True)
+    created = graphene.DateTime(required=True)
+    last_change = graphene.DateTime(required=True)
+    user = graphene.Field("saleor.graphql.account.types.User")
+    channel = graphene.Field(Channel, required=True)
+    billing_address = graphene.Field("saleor.graphql.account.types.Address")
+    shipping_address = graphene.Field("saleor.graphql.account.types.Address")
+    note = graphene.String(required=True)
+    discount = graphene.Field(Money)
+    discount_name = graphene.String()
+    translated_discount_name = graphene.String()
+    voucher_code = graphene.String()
     available_shipping_methods = graphene.List(
         ShippingMethod,
         required=True,
         description="Shipping methods that can be used with this checkout.",
-        deprecation_reason="Use `shippingMethods`, this field will be removed in 4.0.",
+        deprecation_reason=(f"{DEPRECATED_IN_3X_FIELD} Use `shippingMethods` instead."),
     )
     shipping_methods = graphene.List(
         ShippingMethod,
         required=True,
         description="Shipping methods that can be used with this checkout.",
     )
+    available_collection_points = graphene.List(
+        graphene.NonNull(Warehouse),
+        required=True,
+        description=(
+            f"{ADDED_IN_31} Collection points that can be used for this order. "
+            f"{PREVIEW_FEATURE}"
+        ),
+    )
     available_payment_gateways = graphene.List(
         graphene.NonNull(PaymentGateway),
         description="List of available payment gateways.",
         required=True,
     )
-    email = graphene.String(description="Email of a customer.", required=True)
+    email = graphene.String(description="Email of a customer.", required=False)
     gift_cards = graphene.List(
         GiftCard, description="List of gift cards associated with this checkout."
     )
@@ -179,6 +228,12 @@ class Checkout(CountableDjangoObjectType):
         description="Returns True, if checkout requires shipping.", required=True
     )
     quantity = graphene.Int(required=True, description="The number of items purchased.")
+    stock_reservation_expires = graphene.DateTime(
+        description=(
+            f"{ADDED_IN_31} Date when oldest stock reservation for this checkout "
+            " expires or null if no stock is reserved."
+        ),
+    )
     lines = graphene.List(
         CheckoutLine,
         description=(
@@ -193,7 +248,17 @@ class Checkout(CountableDjangoObjectType):
     shipping_method = graphene.Field(
         ShippingMethod,
         description="The shipping method related with checkout.",
+        deprecation_reason=(f"{DEPRECATED_IN_3X_FIELD} Use `deliveryMethod` instead."),
     )
+
+    delivery_method = graphene.Field(
+        DeliveryMethod,
+        description=(
+            f"{ADDED_IN_31} The delivery method selected for this checkout. "
+            f"{PREVIEW_FEATURE}"
+        ),
+    )
+
     subtotal_price = graphene.Field(
         TaxedMoney,
         description="The price of the checkout before shipping, with taxes included.",
@@ -211,25 +276,13 @@ class Checkout(CountableDjangoObjectType):
     )
 
     class Meta:
-        only_fields = [
-            "billing_address",
-            "created",
-            "discount_name",
-            "gift_cards",
-            "is_shipping_required",
-            "last_change",
-            "channel",
-            "note",
-            "shipping_address",
-            "translated_discount_name",
-            "user",
-            "voucher_code",
-            "discount",
-        ]
         description = "Checkout object."
         model = models.Checkout
         interfaces = [graphene.relay.Node, ObjectWithMetadata]
-        filter_fields = ["token"]
+
+    @staticmethod
+    def resolve_id(root: models.Checkout, _):
+        return graphene.Node.to_global_id("Checkout", root.pk)
 
     @staticmethod
     def resolve_shipping_address(root: models.Checkout, info):
@@ -246,65 +299,46 @@ class Checkout(CountableDjangoObjectType):
     @staticmethod
     def resolve_user(root: models.Checkout, info):
         requestor = get_user_or_app_from_context(info.context)
-        if requestor_has_access(requestor, root.user, AccountPermissions.MANAGE_USERS):
-            return root.user
-        raise PermissionDenied()
+        check_requestor_access(requestor, root.user, AccountPermissions.MANAGE_USERS)
+        return root.user
 
     @staticmethod
     def resolve_email(root: models.Checkout, _info):
         return root.get_customer_email()
 
     @classmethod
-    @traced_resolver
-    def resolve_available_shipping_methods(cls, root: models.Checkout, info):
-        return cls.resolve_shipping_methods(root, info).then(
-            lambda methods: [m for m in methods if m.active]
+    def resolve_shipping_method(cls, root: models.Checkout, info):
+        def with_checkout_info(checkout_info):
+            delivery_method = checkout_info.delivery_method_info.delivery_method
+            if not delivery_method or not isinstance(
+                delivery_method, ShippingMethodData
+            ):
+                return
+            return delivery_method
+
+        return (
+            CheckoutInfoByCheckoutTokenLoader(info.context)
+            .load(root.token)
+            .then(with_checkout_info)
         )
 
     @classmethod
     @traced_resolver
     def resolve_shipping_methods(cls, root: models.Checkout, info):
-        channel = ChannelByIdLoader(info.context).load(root.channel_id)
-        lines = CheckoutLinesInfoByCheckoutTokenLoader(info.context).load(root.token)
-        checkout_info = CheckoutInfoByCheckoutTokenLoader(info.context).load(root.token)
-        discounts = DiscountsByDateTimeLoader(info.context).load(
-            info.context.request_time
+        return (
+            CheckoutInfoByCheckoutTokenLoader(info.context)
+            .load(root.token)
+            .then(lambda checkout_info: checkout_info.all_shipping_methods)
         )
 
-        def calculate_available_shipping_methods(data):
-            lines, checkout_info, discounts, channel = data
-            return checkout_info.all_shipping_methods
-
-        return Promise.all([lines, checkout_info, discounts, channel]).then(
-            calculate_available_shipping_methods
-        )
-
-    @classmethod
-    def resolve_shipping_method(cls, root: models.Checkout, info):
-        if not root.shipping_method_id:
-            return None
-
-        def with_shipping_method_and_channel(data):
-            shipping_method, channel = data
-
-            def process_listing(listings):
-                for listing in listings:
-                    if listing.shipping_method_id == shipping_method.id:
-                        return convert_to_shipping_method_data(shipping_method, listing)
-
-            return (
-                ShippingMethodChannelListingByChannelSlugLoader(info.context)
-                .load(channel.slug)
-                .then(process_listing)
+    @staticmethod
+    def resolve_delivery_method(root: models.Checkout, info):
+        return (
+            CheckoutInfoByCheckoutTokenLoader(info.context)
+            .load(root.token)
+            .then(
+                lambda checkout_info: checkout_info.delivery_method_info.delivery_method
             )
-
-        shipping_method = ShippingMethodByIdLoader(info.context).load(
-            root.shipping_method_id
-        )
-        channel = ChannelByIdLoader(info.context).load(root.channel_id)
-
-        return Promise.all([shipping_method, channel]).then(
-            with_shipping_method_and_channel
         )
 
     @staticmethod
@@ -409,6 +443,42 @@ class Checkout(CountableDjangoObjectType):
         return CheckoutLinesByCheckoutTokenLoader(info.context).load(root.token)
 
     @staticmethod
+    @traced_resolver
+    def resolve_available_shipping_methods(root: models.Checkout, info):
+        return (
+            CheckoutInfoByCheckoutTokenLoader(info.context)
+            .load(root.token)
+            .then(lambda checkout_info: checkout_info.valid_shipping_methods)
+        )
+
+    @staticmethod
+    @traced_resolver
+    def resolve_available_collection_points(root: models.Checkout, info):
+        def get_available_collection_points(data):
+            address, lines, channel = data
+
+            if address:
+                country_code = address.country.code
+            else:
+                country_code = channel.default_country.code
+
+            return get_valid_collection_points_for_checkout(
+                lines, country_code=country_code
+            )
+
+        lines = CheckoutLinesInfoByCheckoutTokenLoader(info.context).load(root.token)
+        channel = ChannelByIdLoader(info.context).load(root.channel_id)
+        address = (
+            AddressByIdLoader(info.context).load(root.shipping_address_id)
+            if root.shipping_address_id
+            else None
+        )
+
+        return Promise.all([address, lines, channel]).then(
+            get_available_collection_points
+        )
+
+    @staticmethod
     def resolve_available_payment_gateways(root: models.Checkout, info):
         return info.context.plugins.list_payment_gateways(
             currency=root.currency, checkout=root, channel_slug=root.channel.slug
@@ -441,3 +511,26 @@ class Checkout(CountableDjangoObjectType):
     @staticmethod
     def resolve_language_code(root, _info, **_kwargs):
         return LanguageCodeEnum[str_to_enum(root.language_code)]
+
+    @staticmethod
+    @traced_resolver
+    def resolve_stock_reservation_expires(root: models.Checkout, info):
+        if not is_reservation_enabled(info.context.site.settings):
+            return None
+
+        def get_oldest_stock_reservation_expiration_date(reservations):
+            if not reservations:
+                return None
+
+            return min(reservation.reserved_until for reservation in reservations)
+
+        return (
+            StocksReservationsByCheckoutTokenLoader(info.context)
+            .load(root.token)
+            .then(get_oldest_stock_reservation_expiration_date)
+        )
+
+
+class CheckoutCountableConnection(CountableConnection):
+    class Meta:
+        node = Checkout

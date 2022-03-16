@@ -30,6 +30,16 @@ QUERY_APP = """
             configurationUrl
             appUrl
             accessToken
+            extensions{
+                id
+                label
+                url
+                mount
+                target
+                permissions{
+                    code
+                }
+            }
         }
     }
     """
@@ -227,3 +237,36 @@ def test_app_query_with_permission(
     assert app_data["supportUrl"] == app.support_url
     assert app_data["configurationUrl"] == app.configuration_url
     assert app_data["appUrl"] == app.app_url
+
+
+def test_app_with_extensions_query(
+    staff_api_client,
+    permission_manage_apps,
+    permission_manage_orders,
+    app_with_extensions,
+):
+    app, app_extensions = app_with_extensions
+    id = graphene.Node.to_global_id("App", app.id)
+    variables = {"id": id}
+    response = staff_api_client.post_graphql(
+        QUERY_APP,
+        variables=variables,
+        permissions=[permission_manage_apps, permission_manage_orders],
+    )
+    content = get_graphql_content(response)
+    app_data = content["data"]["app"]
+    extensions_data = app_data["extensions"]
+    returned_ids = {e["id"] for e in extensions_data}
+    returned_labels = {e["label"] for e in extensions_data}
+    returned_mounts = {e["mount"].lower() for e in extensions_data}
+    returned_targets = {e["target"].lower() for e in extensions_data}
+    returned_permission_codes = [e["permissions"] for e in extensions_data]
+    for app_extension in app_extensions:
+        global_id = graphene.Node.to_global_id("AppExtension", app_extension.id)
+        assert global_id in returned_ids
+        assert app_extension.label in returned_labels
+        assert app_extension.mount in returned_mounts
+        assert app_extension.target in returned_targets
+        assigned_permissions = [p.codename for p in app_extension.permissions.all()]
+        assigned_permissions = [{"code": p.upper()} for p in assigned_permissions]
+        assert assigned_permissions in returned_permission_codes

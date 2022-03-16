@@ -24,6 +24,7 @@ from ..notify_events import (
     send_account_set_customer_password,
     send_fulfillment_confirmation,
     send_fulfillment_update,
+    send_gift_card,
     send_invoice,
     send_order_canceled,
     send_order_confirmation,
@@ -52,6 +53,7 @@ def test_event_map():
         NotifyEventType.ORDER_CANCELED: send_order_canceled,
         NotifyEventType.ORDER_REFUND_CONFIRMATION: send_order_refund,
         NotifyEventType.ORDER_CONFIRMED: send_order_confirmed,
+        NotifyEventType.SEND_GIFT_CARD: send_gift_card,
     }
 
 
@@ -71,6 +73,7 @@ def test_event_map():
         NotifyEventType.ORDER_PAYMENT_CONFIRMATION,
         NotifyEventType.ORDER_CANCELED,
         NotifyEventType.ORDER_REFUND_CONFIRMATION,
+        NotifyEventType.SEND_GIFT_CARD,
     ],
 )
 @patch("saleor.plugins.user_email.plugin.get_user_event_map")

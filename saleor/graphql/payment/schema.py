@@ -1,7 +1,8 @@
 import graphene
 
 from ...core.permissions import OrderPermissions
-from ..core.fields import FilterInputConnectionField
+from ..core.connection import create_connection_slice, filter_connection_queryset
+from ..core.fields import FilterConnectionField
 from ..core.utils import from_global_id_or_error
 from ..decorators import permission_required
 from .filters import PaymentFilterInput
@@ -12,8 +13,8 @@ from .mutations import (
     PaymentRefund,
     PaymentVoid,
 )
-from .resolvers import resolve_payment_by_id, resolve_payments, resolve_generate_payment_url
-from .types import Payment, PaymentUrl
+from .resolvers import resolve_payment_by_id, resolve_payments
+from .types import Payment, PaymentCountableConnection
 
 
 class PaymentQueries(graphene.ObjectType):
@@ -24,16 +25,11 @@ class PaymentQueries(graphene.ObjectType):
             graphene.ID, description="ID of the payment.", required=True
         ),
     )
-    payments = FilterInputConnectionField(
-        Payment,
+    payments = FilterConnectionField(
+        PaymentCountableConnection,
         filter=PaymentFilterInput(description="Filtering options for payments."),
         description="List of payments.",
     )
-
-    generate_payment_url = graphene.Field(PaymentUrl, description="Generates an url to redirect to payment gateway and complete payment",
-                                          payment_id=graphene.Argument(graphene.ID,
-                                              description="Payment ID.", required=True)
-                                          )
 
     @permission_required(OrderPermissions.MANAGE_ORDERS)
     def resolve_payment(self, info, **data):
@@ -41,12 +37,10 @@ class PaymentQueries(graphene.ObjectType):
         return resolve_payment_by_id(id)
 
     @permission_required(OrderPermissions.MANAGE_ORDERS)
-    def resolve_payments(self, info, **_kwargs):
-        return resolve_payments(info)
-
-    @staticmethod
-    def resolve_generate_payment_url(self, info, **_kwargs):
-        return resolve_generate_payment_url(info, **_kwargs)
+    def resolve_payments(self, info, **kwargs):
+        qs = resolve_payments(info)
+        qs = filter_connection_queryset(qs, kwargs)
+        return create_connection_slice(qs, info, kwargs, PaymentCountableConnection)
 
 
 class PaymentMutations(graphene.ObjectType):

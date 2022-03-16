@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union, cast
 from urllib.parse import urljoin
 
 import opentracing
@@ -177,8 +177,7 @@ def _validate_checkout(
         shipping_address,
         shipping_required,
         address,
-        checkout_info.delivery_method_info
-        and checkout_info.delivery_method_info.delivery_method,
+        checkout_info.delivery_method_info.delivery_method,
     )
 
 
@@ -259,6 +258,7 @@ def get_checkout_lines_data(
         product = line_info.product
         name = product.name
         product_type = line_info.product_type
+        item_code = line_info.variant.sku or line_info.variant.get_global_id()
         tax_code = retrieve_tax_code_from_meta(product, default=None)
         tax_code = tax_code or retrieve_tax_code_from_meta(product_type)
         prices_data = base_calculations.base_checkout_line_total(
@@ -285,7 +285,7 @@ def get_checkout_lines_data(
             # cross-border into CIF countries, Tax Included is not supported with mixed
             # positive and negative line amounts."
             "tax_code": tax_code if undiscounted_amount else DEFAULT_TAX_CODE,
-            "item_code": line_info.variant.sku,
+            "item_code": item_code,
             "name": name,
             "tax_included": tax_included,
         }
@@ -306,8 +306,9 @@ def get_checkout_lines_data(
                 ref2=line_info.variant.sku,
             )
 
-    if checkout_info.delivery_method_info.delivery_method:
-        price = checkout_info.delivery_method_info.delivery_method.price
+    delivery_method = checkout_info.delivery_method_info.delivery_method
+    if delivery_method:
+        price = getattr(delivery_method, "price", None)
         append_shipping_to_data(
             data,
             price.amount if price else None,
@@ -360,7 +361,7 @@ def get_order_lines_data(
             # cross-border into CIF countries, Tax Included is not supported with mixed
             # positive and negative line amounts."
             "tax_code": tax_code if undiscounted_amount else DEFAULT_TAX_CODE,
-            "item_code": line.variant.sku,
+            "item_code": line.variant.sku or line.variant.get_global_id(),
             "name": line.variant.product.name,
             "tax_included": tax_included,
         }
@@ -413,7 +414,6 @@ def generate_request_data(
     config: AvataxConfiguration,
     currency: str,
 ):
-
     data = {
         "companyCode": config.company_name,
         "type": transaction_type,
@@ -460,12 +460,13 @@ def generate_request_data_from_checkout(
     lines = get_checkout_lines_data(checkout_info, lines_info, config, discounts)
 
     currency = checkout_info.checkout.currency
+    customer_email = cast(str, checkout_info.get_customer_email())
     data = generate_request_data(
         transaction_type=transaction_type,
         lines=lines,
         transaction_token=transaction_token or str(checkout_info.checkout.token),
         address=address.as_data() if address else {},
-        customer_email=checkout_info.get_customer_email(),
+        customer_email=customer_email,
         config=config,
         currency=currency,
     )

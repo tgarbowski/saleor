@@ -1,17 +1,15 @@
 from collections import defaultdict
 
 from django.db.models import F
-from django.utils.functional import SimpleLazyObject
 from promise import Promise
 
 from ...checkout.fetch import (
     CheckoutInfo,
     CheckoutLineInfo,
     get_delivery_method_info,
-    get_shipping_method_list_for_checkout_info,
+    update_delivery_method_lists_for_checkout_info,
 )
 from ...checkout.models import Checkout, CheckoutLine
-from ...shipping.utils import convert_to_shipping_method_data
 from ..account.dataloaders import AddressByIdLoader, UserByUserIdLoader
 from ..core.dataloaders import DataLoader
 from ..discount.dataloaders import VoucherByCodeLoader
@@ -26,6 +24,7 @@ from ..shipping.dataloaders import (
     ShippingMethodByIdLoader,
     ShippingMethodChannelListingByChannelSlugLoader,
 )
+from ..warehouse.dataloaders import WarehouseByIdLoader
 
 
 class CheckoutByTokenLoader(DataLoader):
@@ -190,6 +189,14 @@ class CheckoutInfoByCheckoutTokenLoader(DataLoader):
                         self.context
                     ).load_many(channel_slugs)
                 )
+                collection_point_ids = [
+                    checkout.collection_point_id
+                    for checkout in checkouts
+                    if checkout.collection_point_id
+                ]
+                collection_points = WarehouseByIdLoader(self.context).load_many(
+                    collection_point_ids
+                )
                 voucher_codes = {
                     checkout.voucher_code
                     for checkout in checkouts
@@ -203,6 +210,7 @@ class CheckoutInfoByCheckoutTokenLoader(DataLoader):
                         users,
                         shipping_methods,
                         listings_for_channels,
+                        collection_points,
                         vouchers,
                     ) = results
                     address_map = {address.id: address for address in addresses}
@@ -211,11 +219,9 @@ class CheckoutInfoByCheckoutTokenLoader(DataLoader):
                         shipping_method.id: shipping_method
                         for shipping_method in shipping_methods
                     }
-                    shipping_method_channel_listing_map = {
-                        (listing.shipping_method_id, listing.channel_id): listing
-                        for channel_listings in listings_for_channels
-                        for listing in channel_listings
-                        if listing
+                    collection_points_map = {
+                        collection_point.id: collection_point
+                        for collection_point in collection_points
                     }
                     voucher_map = {voucher.code: voucher for voucher in vouchers}
 
@@ -226,19 +232,12 @@ class CheckoutInfoByCheckoutTokenLoader(DataLoader):
                         shipping_method = shipping_method_map.get(
                             checkout.shipping_method_id
                         )
-                        listing = shipping_method_channel_listing_map.get(
-                            (checkout.shipping_method_id, channel.id)
+                        collection_point = collection_points_map.get(
+                            checkout.collection_point_id
                         )
-                        delivery_method = None
-                        if shipping_method:
-                            delivery_method = convert_to_shipping_method_data(
-                                shipping_method,
-                                listing,
-                            )
-
                         shipping_address = address_map.get(checkout.shipping_address_id)
                         delivery_method_info = get_delivery_method_info(
-                            delivery_method, shipping_address
+                            None, shipping_address
                         )
                         voucher = voucher_map.get(checkout.voucher_code)
                         checkout_info = CheckoutInfo(
@@ -252,33 +251,28 @@ class CheckoutInfoByCheckoutTokenLoader(DataLoader):
                                 checkout.shipping_address_id
                             ),
                             delivery_method_info=delivery_method_info,
+                            valid_pick_up_points=[],
                             all_shipping_methods=[],
                             voucher=voucher,
                         )
 
-                        def fetch_valid_shipping_methods():
-                            if not shipping_address:
-                                return []
-
-                            manager = self.context.plugins
-                            discounts = self.context.discounts
-                            shipping_method_listings = [
-                                listing
-                                for channel_listings in listings_for_channels
-                                for listing in channel_listings
-                                if listing.channel_id == channel.id
-                            ]
-                            return get_shipping_method_list_for_checkout_info(
-                                checkout_info,
-                                shipping_address,
-                                checkout_lines,
-                                discounts,
-                                manager,
-                                shipping_method_listings,
-                            )
-
-                        checkout_info.all_shipping_methods = SimpleLazyObject(
-                            fetch_valid_shipping_methods
+                        manager = self.context.plugins
+                        discounts = self.context.discounts
+                        shipping_method_listings = [
+                            listing
+                            for channel_listings in listings_for_channels
+                            for listing in channel_listings
+                            if listing.channel_id == channel.id
+                        ]
+                        update_delivery_method_lists_for_checkout_info(
+                            checkout_info,
+                            shipping_method,
+                            collection_point,
+                            shipping_address,
+                            checkout_lines,
+                            discounts,
+                            manager,
+                            shipping_method_listings,
                         )
                         checkout_info_map[key] = checkout_info
 
@@ -290,6 +284,7 @@ class CheckoutInfoByCheckoutTokenLoader(DataLoader):
                         users,
                         shipping_methods,
                         shipping_method_channel_listings,
+                        collection_points,
                         vouchers,
                     ]
                 ).then(with_checkout_info)
