@@ -1,4 +1,5 @@
 adyen==4.0.0
+aiohttp==3.8.1
 amqp==5.1.0; python_version >= "3.7"
 aniso8601==7.0.0
 asgiref==3.5.0; python_version >= "3.7"
@@ -147,5 +148,6 @@ weasyprint==54.2; python_version >= "3.6"
 webencodings==0.5.1; python_version >= "3.7" and python_full_version < "3.0.0" or python_full_version >= "3.5.0" and python_version >= "3.7"
 websockets==10.2; python_version >= "3.7"
 wrapt==1.13.3; python_version >= "3.6" and python_full_version < "3.0.0" or python_full_version >= "3.5.0" and python_version >= "3.6"
+zeep==4.1.0
 zipp==3.7.0; python_version < "3.10" and python_version >= "3.7"
 zopfli==0.2.1; python_version >= "3.7"

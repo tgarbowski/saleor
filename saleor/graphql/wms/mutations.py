@@ -3,7 +3,8 @@ import graphene
 from django.core.exceptions import ValidationError
 
 from saleor.graphql.core.mutations import ModelDeleteMutation, ModelMutation
-from .types import WmsDelivererInput, WmsDocumentInput, WmsDocPositionInput
+from .types import (WmsDeliverer, WmsDelivererInput, WmsDocPosition, WmsDocPositionInput,
+                    WmsDocument, WmsDocumentInput)
 from saleor.wms import models
 from saleor.core.permissions import WMSPermissions
 from saleor.graphql.core.types.common import WmsDocumentError
@@ -20,6 +21,7 @@ class WmsDocumentCreate(ModelMutation):
     class Meta:
         description = "Creates a new WMS document."
         model = models.WmsDocument
+        object_type = WmsDocument
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
@@ -96,6 +98,7 @@ class WmsDocumentUpdate(WmsDocumentCreate):
     class Meta:
         description = "Updates an existing Wms document."
         model = models.WmsDocument
+        object_type = WmsDocument
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
@@ -127,6 +130,7 @@ class WmsDocumentDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a wms document."
         model = models.WmsDocument
+        object_type = WmsDocument
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
@@ -141,6 +145,7 @@ class WmsDocPositionCreate(ModelMutation):
     class Meta:
         description = "Creates a new wms doc position."
         model = models.WmsDocPosition
+        object_type = WmsDocPosition
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
@@ -196,6 +201,7 @@ class WmsDocPositionUpdate(WmsDocPositionCreate):
     class Meta:
         description = "Updates an existing wms doc position."
         model = models.WmsDocPosition
+        object_type = WmsDocPosition
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
@@ -210,6 +216,7 @@ class WmsDocPositionDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a wms document position."
         model = models.WmsDocPosition
+        object_type = WmsDocPosition
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
@@ -224,6 +231,7 @@ class WmsDelivererCreate(ModelMutation):
     class Meta:
         description = "Creates a new WMS deliverer."
         model = models.WmsDeliverer
+        object_type = WmsDeliverer
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
@@ -239,6 +247,7 @@ class WmsDelivererUpdate(ModelMutation):
     class Meta:
         description = "Updates a new WMS deliverer."
         model = models.WmsDeliverer
+        object_type = WmsDeliverer
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"
@@ -253,6 +262,7 @@ class WmsDelivererDelete(ModelDeleteMutation):
     class Meta:
         description = "Updates a new WMS deliverer."
         model = models.WmsDeliverer
+        object_type = WmsDeliverer
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"

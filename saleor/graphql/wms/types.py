@@ -1,9 +1,10 @@
 import graphene
 from graphene_federation import key
-from saleor.graphql.core.connection import CountableDjangoObjectType
+from saleor.graphql.core.connection import CountableConnection
 from saleor.wms import models
 from saleor.graphql.account.enums import CountryCodeEnum
 from saleor.graphql.channel import ChannelContext
+from ..core.types import ModelObjectType
 
 
 class WmsDocumentInput(graphene.InputObjectType):
@@ -18,7 +19,7 @@ class WmsDocumentInput(graphene.InputObjectType):
 
 
 @key(fields="id")
-class WmsDocument(CountableDjangoObjectType):
+class WmsDocument(ModelObjectType):
 
     class Meta:
         description = ("Represents a wms document")
@@ -29,8 +30,13 @@ class WmsDocument(CountableDjangoObjectType):
                        "location"]
 
 
+class WMSDocumentCountableConnection(CountableConnection):
+    class Meta:
+        node = WmsDocument
+
+
 @key(fields="id")
-class WmsDocPosition(CountableDjangoObjectType):
+class WmsDocPosition(ModelObjectType):
 
     class Meta:
         description = ("Represents a wms document")
@@ -50,6 +56,11 @@ class WmsDocPositionInput(graphene.InputObjectType):
     product_variant = graphene.ID(description="Product Variant")
 
 
+class WMSDocPositionCountableConnection(CountableConnection):
+    class Meta:
+        node = WmsDocPosition
+
+
 class WmsDelivererInput(graphene.InputObjectType):
     company_name = graphene.String(description="Company name")
     street = graphene.String(description="Street")
@@ -64,11 +75,15 @@ class WmsDelivererInput(graphene.InputObjectType):
 
 
 @key(fields="id")
-class WmsDeliverer(CountableDjangoObjectType):
-
+class WmsDeliverer(ModelObjectType):
     class Meta:
         description = ("Represents a wms deliverer")
         model = models.WmsDeliverer
         interfaces = [graphene.relay.Node]
         only_fields = ["company_name", "street", "city", "postal_code", "email", "vat_id",
                        "phone", "country", "first_name", "last_name"]
+
+
+class WMSDelivererCountableConnection(CountableConnection):
+    class Meta:
+        node = WmsDeliverer

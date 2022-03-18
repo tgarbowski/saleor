@@ -9,6 +9,7 @@ from django.db.models.expressions import ExpressionWrapper
 from django.db.models.fields import IntegerField
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 from ...attribute import AttributeInputType
 from ...attribute.models import (
@@ -33,7 +34,6 @@ from ...product.models import (
 )
 from ...product.search import search_products
 from ...warehouse.models import Allocation, Stock, Warehouse
-from ...warehouse.models import Allocation, Stock, Warehouse
 from ..channel.filters import get_channel_slug_from_filter_data
 from ..core.filters import (
     EnumFilter,
@@ -43,7 +43,7 @@ from ..core.filters import (
     ObjectTypeFilter,
 )
 from ..core.types import ChannelFilterInputObjectType, FilterInputObjectType
-from ..core.types.common import DateTimeRangeInput, IntRangeInput, PriceRangeInput, WarehouseLocationRangeInput
+from ..core.types.common import DateRangeInput, DateTimeRangeInput, IntRangeInput, PriceRangeInput, WarehouseLocationRangeInput
 from ..utils import resolve_global_ids_to_primary_keys
 from ..utils.filters import filter_by_id, filter_range_field
 from ..warehouse import types as warehouse_types
@@ -601,8 +601,6 @@ def filter_quantity(qs, quantity_value, warehouse_ids=None):
 
 def filter_updated_at_range(qs, _, value):
     return filter_range_field(qs, "updated_at", value)
-    )
-    return qs.filter(pk__in=variants)
 
 
 def filter_allegro_status(qs, _, value):
@@ -612,14 +610,6 @@ def filter_allegro_status(qs, _, value):
         }
         qs = Product.objects.filter(private_metadata__contains=json_dict)
     return qs
-
-
-def filter_updated_at_range(qs, _, value):
-    return filter_range_field(qs, "updated_at__date", value)
-
-
-def filter_created_at_range(qs, _, value):
-    return filter_range_field(qs, "created_at__date", value)
 
 
 def filter_created_at_range(qs, _, value):
@@ -664,10 +654,7 @@ class ProductFilter(MetadataFilterBase):
     has_preordered_variants = django_filters.BooleanFilter(
         method=filter_has_preordered_variants
     )
-    ids = GlobalIDMultipleChoiceFilter(method=filter_product_ids)
     allegro_status = django_filters.CharFilter(method=filter_allegro_status)
-    updated_at = ObjectTypeFilter(input_class=DateRangeInput,
-                                  method=filter_updated_at_range)
     created_at = ObjectTypeFilter(input_class=DateRangeInput,
                                   method=filter_created_at_range)
     warehouse_location = ObjectTypeFilter(input_class=WarehouseLocationRangeInput, method=filter_warehouse_location)

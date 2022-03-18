@@ -40,7 +40,6 @@ from ..enums import (
     WarehouseErrorCode,
     WebhookErrorCode,
     WeightUnitsEnum,
-    WishlistErrorCode,
     WmsDocumentErrorCode
 )
 from ..scalars import PositiveDecimal
@@ -188,7 +187,7 @@ class GiftCardSettingsError(Error):
 
 class MetadataError(Error):
     code = MetadataErrorCode(description="The error code.", required=True)
-    params = graphene.JSONString(description="list of errors", required=False)
+    # params = JSONString(description="list of errors", required=False)
 
 
 class OrderError(Error):

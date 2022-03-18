@@ -11,7 +11,7 @@ from saleor.graphql.utils.filters import filter_range_field
 from saleor.wms import models
 from saleor.account.models import User
 from saleor.warehouse.models import Warehouse
-from saleor.graphql.product.filters import filter_fields_containing_value
+from saleor.graphql.utils.filters import filter_fields_containing_value
 
 
 def filter_document_type(qs, _, value):
@@ -92,33 +92,24 @@ class DocumentInput(graphene.InputObjectType):
 class LocationInput(graphene.InputObjectType):
     location = graphene.String(description="Location for warehouse document", required=False)
 
+
 class WmsDocumentFilter(django_filters.FilterSet):
     document_type = ListObjectTypeFilter(input_class=WmsDocumentTypeFilter, method=filter_document_type)
-    created_by = GlobalIDMultipleChoiceFilter(method=filter_created_by)
-    recipients = GlobalIDMultipleChoiceFilter(method=filter_recipients)
-    deliverers = GlobalIDMultipleChoiceFilter(method=filter_deliverers)
+    created_by = django_filters.CharFilter(method=filter_created_by)
+    # recipients = GlobalIDMultipleChoiceFilter(method=filter_recipients)
+    # deliverers = GlobalIDMultipleChoiceFilter(method=filter_deliverers)
     status = ListObjectTypeFilter(input_class=WmsDocumentStatusFilter, method=filter_status)
     location = django_filters.CharFilter(method=filter_location)
     created_at = ObjectTypeFilter(input_class=DateRangeInput, method=filter_created_at_range)
     updated_at = ObjectTypeFilter(input_class=DateRangeInput, method=filter_updated_at_range)
-    warehouses = GlobalIDMultipleChoiceFilter(method=filter_warehouses)
+    # warehouse = GlobalIDMultipleChoiceFilter(method=filter_warehouses)
     search = django_filters.CharFilter(
         method=filter_fields_containing_value("number")
     )
 
     class Meta:
         model = models.WmsDocument
-        fields = [
-            "document_type",
-            "created_by",
-            "recipients",
-            "deliverers",
-            "status",
-            "location",
-            "created_at",
-            "updated_at",
-            "warehouses"
-        ]
+        fields = []
 
 
 class WmsDocumentFilterInput(FilterInputObjectType):

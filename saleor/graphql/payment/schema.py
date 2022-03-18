@@ -13,8 +13,8 @@ from .mutations import (
     PaymentRefund,
     PaymentVoid,
 )
-from .resolvers import resolve_payment_by_id, resolve_payments
-from .types import Payment, PaymentCountableConnection
+from .resolvers import resolve_payment_by_id, resolve_payments, resolve_generate_payment_url
+from .types import Payment, PaymentCountableConnection, PaymentUrl
 
 
 class PaymentQueries(graphene.ObjectType):
@@ -30,6 +30,15 @@ class PaymentQueries(graphene.ObjectType):
         filter=PaymentFilterInput(description="Filtering options for payments."),
         description="List of payments.",
     )
+    generate_payment_url = graphene.Field(
+        PaymentUrl,
+        description="Generates an url to redirect to payment gateway and complete payment",
+        payment_id=graphene.Argument(
+            graphene.ID,
+            description="Payment ID.",
+            required=True
+        )
+    )
 
     @permission_required(OrderPermissions.MANAGE_ORDERS)
     def resolve_payment(self, info, **data):
@@ -41,6 +50,10 @@ class PaymentQueries(graphene.ObjectType):
         qs = resolve_payments(info)
         qs = filter_connection_queryset(qs, kwargs)
         return create_connection_slice(qs, info, kwargs, PaymentCountableConnection)
+
+    @staticmethod
+    def resolve_generate_payment_url(self, info, **_kwargs):
+        return resolve_generate_payment_url(info, **_kwargs)
 
 
 class PaymentMutations(graphene.ObjectType):

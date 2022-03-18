@@ -6,7 +6,6 @@ from typing import List, Optional
 import graphene
 from django_countries.fields import Country
 from graphene import relay
-from graphql.error import GraphQLError
 from saleor.graphql.json_meta.types import ObjectWithJSONMetadata
 
 from ....attribute import models as attribute_models
@@ -129,7 +128,7 @@ from .channels import (
     ProductVariantChannelListing,
 )
 from .digital_contents import DigitalContent
-from saleor.graphql.json_meta.types import ObjectWithJSONMetadata
+
 
 destination_address_argument = graphene.Argument(
     account_types.AddressInput,

@@ -231,19 +231,15 @@ class ProductQueries(graphene.ObjectType):
         ),
         description="Look up a product variant by ID or SKU.",
     )
-    product_variants = FilterConnectionField(
+    product_variants_skus = FilterConnectionField(
         ProductVariantCountableConnection,
-
-    product_variants_skus = FilterInputConnectionField(
-        ProductVariant,
         sku=graphene.Argument(
             graphene.String, description="SKU matcher to get product_variants_count"
         ),
         description="Look for a mega pack SKU number"
     )
-
-    product_variants = ChannelContextFilterConnectionField(
-        ProductVariant,
+    product_variants = FilterConnectionField(
+        ProductVariantCountableConnection,
         ids=graphene.List(
             graphene.ID, description="Filter product variants by given IDs."
         ),

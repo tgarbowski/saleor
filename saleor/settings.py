@@ -544,6 +544,34 @@ if APP_ENVIRONMENT in ['production']:
             "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
             "schedule": timedelta(days=1),
         },
+        "deactivate-preorder-for-variants": {
+            "task": "saleor.product.tasks.deactivate_preorder_for_variants_task",
+            "schedule": timedelta(hours=1),
+        },
+        "delete-expired-reservations": {
+            "task": "saleor.warehouse.tasks.delete_expired_reservations_task",
+            "schedule": timedelta(days=1),
+        },
+        "delete-expired-checkouts": {
+            "task": "saleor.checkout.tasks.delete_expired_checkouts",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "delete-outdated-event-data": {
+            "task": "saleor.core.tasks.delete_event_payloads_task",
+            "schedule": timedelta(days=1),
+        },
+        "deactivate-expired-gift-cards": {
+            "task": "saleor.giftcard.tasks.deactivate_expired_cards_task",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "update-stocks-quantity-allocated": {
+            "task": "saleor.warehouse.tasks.update_stocks_quantity_allocated_task",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "delete-old-export-files": {
+            "task": "saleor.csv.tasks.delete_old_export_files",
+            "schedule": crontab(hour=1, minute=0),
+        },
     }
 
 if APP_ENVIRONMENT in ['development']:
@@ -551,8 +579,44 @@ if APP_ENVIRONMENT in ['development']:
         'refresh_token_task': {
             'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
             'schedule': 1800.0
-        }
+        },
+        "delete-empty-allocations": {
+            "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
+            "schedule": timedelta(days=1),
+        },
+        "deactivate-preorder-for-variants": {
+            "task": "saleor.product.tasks.deactivate_preorder_for_variants_task",
+            "schedule": timedelta(hours=1),
+        },
+        "delete-expired-reservations": {
+            "task": "saleor.warehouse.tasks.delete_expired_reservations_task",
+            "schedule": timedelta(days=1),
+        },
+        "delete-expired-checkouts": {
+            "task": "saleor.checkout.tasks.delete_expired_checkouts",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "delete-outdated-event-data": {
+            "task": "saleor.core.tasks.delete_event_payloads_task",
+            "schedule": timedelta(days=1),
+        },
+        "deactivate-expired-gift-cards": {
+            "task": "saleor.giftcard.tasks.deactivate_expired_cards_task",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "update-stocks-quantity-allocated": {
+            "task": "saleor.warehouse.tasks.update_stocks_quantity_allocated_task",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "delete-old-export-files": {
+            "task": "saleor.csv.tasks.delete_old_export_files",
+            "schedule": crontab(hour=1, minute=0),
+        },
     }
+
+EVENT_PAYLOAD_DELETE_PERIOD = timedelta(
+    seconds=parse(os.environ.get("EVENT_PAYLOAD_DELETE_PERIOD", "14 days"))
+)
 
 # Change this value if your application is running behind a proxy,
 # e.g. HTTP_CF_Connecting_IP for Cloudflare or X_FORWARDED_FOR
@@ -598,8 +662,8 @@ GRAPHQL_QUERY_MAX_COMPLEXITY = int(
 FEDERATED_QUERY_MAX_ENTITIES = int(os.environ.get("FEDERATED_QUERY_MAX_ENTITIES", 100))
 
 BUILTIN_PLUGINS = [
-    "saleor.plugins.avatax.plugin.AvataxPlugin",
-    "saleor.plugins.vatlayer.plugin.VatlayerPlugin",
+    # "saleor.plugins.avatax.plugin.AvataxPlugin",
+    # "saleor.plugins.vatlayer.plugin.VatlayerPlugin",
     "saleor.plugins.webhook.plugin.WebhookPlugin",
     "saleor.payment.gateways.dummy.plugin.DummyGatewayPlugin",
     "saleor.payment.gateways.dummy_credit_card.plugin.DummyCreditCardGatewayPlugin",
