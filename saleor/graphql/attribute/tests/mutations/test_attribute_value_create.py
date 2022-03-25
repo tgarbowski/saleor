@@ -3,6 +3,7 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
 
+from .....attribute.error_codes import AttributeErrorCode
 from .....attribute.models import AttributeValue
 from ....tests.utils import get_graphql_content
 from ...mutations import validate_value_is_unique

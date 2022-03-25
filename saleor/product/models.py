@@ -403,6 +403,7 @@ class Product(SeoModel, ModelWithMetadata):
         blank=True,
     )
     updated_at = models.DateTimeField(auto_now=True, null=True)
+    created = models.DateTimeField(auto_now_add=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     charge_taxes = models.BooleanField(default=True)
     weight = MeasurementField(

@@ -243,6 +243,9 @@ def check_stock_quantity_bulk(
         variant_reservations = defaultdict(int)
 
     insufficient_stocks: List[InsufficientStockData] = []
+    variants_quantities = {
+        line.variant.pk: line.line.quantity for line in existing_lines or []
+    }
     for variant, quantity in zip(variants, quantities):
 
         if not replace:

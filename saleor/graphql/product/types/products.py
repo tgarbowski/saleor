@@ -736,6 +736,7 @@ class Product(ChannelContextTypeWithMetadata, ModelObjectType):
     slug = graphene.String(required=True)
     category = graphene.Field(lambda: Category)
     created = graphene.DateTime(required=True)
+    created_at = graphene.DateTime()
     updated_at = graphene.DateTime(required=True)
     charge_taxes = graphene.Boolean(required=True)
     weight = graphene.Field(Weight)
