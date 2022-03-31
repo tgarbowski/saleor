@@ -963,6 +963,7 @@ class ProductBulkClearWarehouseLocation(BaseBulkMutation):
     class Meta:
         description = "Remove Warehouse Locations"
         model = models.ProductVariant
+        object_type = ProductVariant
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -1006,6 +1007,7 @@ class ProductBulkPublish(BaseBulkMutation):
     class Meta:
         description = "Publish products."
         model = models.Product
+        object_type = Product
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"

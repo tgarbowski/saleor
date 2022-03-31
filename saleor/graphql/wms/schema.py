@@ -16,6 +16,7 @@ from .types import (WmsDeliverer, WmsDocPosition, WmsDocument, WMSDocumentCounta
                     WMSDocPositionCountableConnection, WMSDelivererCountableConnection)
 from .filters import WmsDocPositionFilterInput, WmsDocumentFilterInput, WmsDelivererFilterInput
 from graphene.types.generic import GenericScalar
+from ..core.connection import create_connection_slice, filter_connection_queryset
 
 
 class WmsDocumentMutations(graphene.ObjectType):
@@ -62,7 +63,9 @@ class WmsDocumentQueries(graphene.ObjectType):
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_documents(self, info, **kwargs):
-        return resolve_wms_documents(info, **kwargs)
+        qs = resolve_wms_documents(info, **kwargs)
+        qs = filter_connection_queryset(qs, kwargs)
+        return create_connection_slice(qs, info, kwargs, WMSDocumentCountableConnection)
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_document(self, info, **kwargs):
@@ -96,7 +99,9 @@ class WmsDocPositionQueries(graphene.ObjectType):
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_doc_positions(self, info, **kwargs):
-        return resolve_wms_doc_positions(info, **kwargs)
+        qs = resolve_wms_doc_positions(info, **kwargs)
+        qs = filter_connection_queryset(qs, kwargs)
+        return create_connection_slice(qs, info, kwargs, WMSDocPositionCountableConnection)
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_doc_position(self, info, **kwargs):
@@ -117,7 +122,9 @@ class WmsDelivererQueries(graphene.ObjectType):
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_deliverers(self, info, **kwargs):
-        return resolve_wms_deliverers(info, **kwargs)
+        qs = resolve_wms_deliverers(info, **kwargs)
+        qs = filter_connection_queryset(qs, kwargs)
+        return create_connection_slice(qs, info, kwargs, WMSDelivererCountableConnection)
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_deliverer(self, info, **kwargs):

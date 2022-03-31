@@ -1,7 +1,7 @@
 import django_filters
 import graphene
-from graphene_django.filter import GlobalIDMultipleChoiceFilter
 
+from ..core.filters import GlobalIDMultipleChoiceFilter
 from .enums import WmsDocumentStatusFilter, WmsDocumentTypeFilter
 from saleor.graphql.core.filters import ListObjectTypeFilter, ObjectTypeFilter
 from saleor.graphql.core.types import FilterInputObjectType
@@ -19,10 +19,6 @@ def filter_document_type(qs, _, value):
     if value:
         query_objects |= qs.filter(document_type__in=value)
     return query_objects
-
-
-def filter_created_by(qs, _, value):
-    return qs.filter(created_by=value.get("created_by"))
 
 
 def filter_status(qs, _, value):
@@ -96,20 +92,20 @@ class LocationInput(graphene.InputObjectType):
 class WmsDocumentFilter(django_filters.FilterSet):
     document_type = ListObjectTypeFilter(input_class=WmsDocumentTypeFilter, method=filter_document_type)
     created_by = django_filters.CharFilter(method=filter_created_by)
-    # recipients = GlobalIDMultipleChoiceFilter(method=filter_recipients)
-    # deliverers = GlobalIDMultipleChoiceFilter(method=filter_deliverers)
+    recipients = GlobalIDMultipleChoiceFilter(method=filter_recipients)
+    deliverers = GlobalIDMultipleChoiceFilter(method=filter_deliverers)
     status = ListObjectTypeFilter(input_class=WmsDocumentStatusFilter, method=filter_status)
     location = django_filters.CharFilter(method=filter_location)
     created_at = ObjectTypeFilter(input_class=DateRangeInput, method=filter_created_at_range)
     updated_at = ObjectTypeFilter(input_class=DateRangeInput, method=filter_updated_at_range)
-    # warehouse = GlobalIDMultipleChoiceFilter(method=filter_warehouses)
+    warehouses = GlobalIDMultipleChoiceFilter(method=filter_warehouses)
     search = django_filters.CharFilter(
         method=filter_fields_containing_value("number")
     )
 
     class Meta:
         model = models.WmsDocument
-        fields = []
+        fields = ["created_at", "document_type", "status", "warehouses"]
 
 
 class WmsDocumentFilterInput(FilterInputObjectType):
@@ -142,6 +138,7 @@ class WmsDelivererFilter(django_filters.FilterSet):
         fields = [
             "search"
         ]
+
 
 class WmsDelivererFilterInput(FilterInputObjectType):
     class Meta:
