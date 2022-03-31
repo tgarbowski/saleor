@@ -17,6 +17,7 @@ from ...interface import GatewayConfig, GatewayResponse
 from ....order.events import external_notification_event
 from .utils import calculate_payu_price_to_decimal
 from ....plugins.manager import get_plugins_manager
+from ....order.fetch import fetch_order_info
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,8 @@ def handle_completed(notification: Dict[str, Any], _gateway_config: GatewayConfi
 
     if new_transaction.is_success and not capture_transaction:
         gateway_postprocess(new_transaction, payment)
-        order_captured(order=payment.order,
+        order_info = fetch_order_info(payment.order)
+        order_captured(order_info=order_info,
                        user=None,
                        amount=new_transaction.amount,
                        payment=payment,
