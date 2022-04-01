@@ -495,14 +495,14 @@ class Resolvers:
                 id=pvcl.variant.product.id,
                 variant_id=pvcl.variant.id,
                 bundle_id=pvcl.variant.product.metadata.get('bundle.id'),
-                created_at=pvcl.variant.product.created_at,
+                created=pvcl.variant.product.created,
                 type=pvcl.variant.product.product_type.name.lower(),
                 name=pvcl.variant.product.name,
                 slug=pvcl.variant.product.slug,
                 category=pvcl.variant.product.category.slug,
                 root_category=cls.get_root_category(category_tree_ids, pvcl.variant.product.category.tree_id),
                 weight=pvcl.variant.product.weight,
-                age=cls.parse_datetime(pvcl.variant.product.created_at),
+                age=cls.parse_datetime(pvcl.variant.product.created),
                 sku=pvcl.variant.sku,
                 brand=cls.get_attribute_from_description(pcl.product.description, 'Marka').lower(),
                 material=cls.get_attribute_from_description(pcl.product.description, 'Materiał').lower(),
@@ -727,7 +727,7 @@ class ProductRulesVariables:
     id: int
     variant_id: int
     bundle_id: int
-    created_at: datetime
+    created: datetime
     type: str
     name: str
     slug: str

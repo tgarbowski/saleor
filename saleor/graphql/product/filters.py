@@ -612,8 +612,8 @@ def filter_allegro_status(qs, _, value):
     return qs
 
 
-def filter_created_at_range(qs, _, value):
-    return filter_range_field(qs, "created_at__date", value)
+def filter_created_range(qs, _, value):
+    return filter_range_field(qs, "created__date", value)
 
 
 def filter_warehouse_location(qs, _, value):
@@ -655,8 +655,8 @@ class ProductFilter(MetadataFilterBase):
         method=filter_has_preordered_variants
     )
     allegro_status = django_filters.CharFilter(method=filter_allegro_status)
-    created_at = ObjectTypeFilter(input_class=DateRangeInput,
-                                  method=filter_created_at_range)
+    created = ObjectTypeFilter(input_class=DateRangeInput,
+                                  method=filter_created_range)
     warehouse_location = ObjectTypeFilter(input_class=WarehouseLocationRangeInput, method=filter_warehouse_location)
 
     class Meta:
@@ -672,7 +672,7 @@ class ProductFilter(MetadataFilterBase):
             "search",
             "allegro_status",
             "updated_at",
-            "created_at",
+            "created",
             "warehouse_location",
         ]
 
