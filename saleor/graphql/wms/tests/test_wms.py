@@ -2,8 +2,9 @@ import graphene
 import pytest
 
 from saleor.graphql.tests.utils import get_graphql_content
-from saleor.plugins.manager import PluginsManager
 from saleor.wms.models import WmsDocument, WmsDocPosition
+from saleor.graphql.account.enums import CountryCodeEnum
+
 
 QUERY_WMSDOCUMENT = """
     query ($id: ID, $number: String){
@@ -358,7 +359,6 @@ def test_create_wmsdocument(
     setup_wms
 ):
     query = MUTATION_CREATE_WMSDOCUMENT
-    manager = PluginsManager(plugins=setup_wms.PLUGINS)
 
     warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
     createdby_id = graphene.Node.to_global_id("User", staff_user.pk)
@@ -400,7 +400,6 @@ def test_update_wmsdocument(
         setup_wms
 ):
     query = MUTATION_UPDATE_WMSDOCUMENT
-    manager = PluginsManager(plugins=setup_wms.PLUGINS)
 
     wms_document_id = graphene.Node.to_global_id("WmsDocument", wms_document.pk)
     wms_document_type = "GIN"
@@ -532,7 +531,7 @@ def test_create_wmsdocposition_negative_quantity(
     content = get_graphql_content(response)
     data = content["data"]["wmsDocPositionCreate"]
     assert data["errors"][0]['field'] == "quantity"
-    assert data["wmsDocPosition"] == None
+    assert data["wmsDocPosition"] is None
 
 
 def test_create_wmsdocposition_negative_weight(
@@ -564,7 +563,7 @@ def test_create_wmsdocposition_negative_weight(
     content = get_graphql_content(response)
     data = content["data"]["wmsDocPositionCreate"]
     assert data["errors"][0]['field'] == "weight"
-    assert data["wmsDocPosition"] == None
+    assert data["wmsDocPosition"] is None
 
 
 def test_update_wmsdocposition(
@@ -656,15 +655,15 @@ def test_update_wmsdeliverer(staff_api_client, wms_deliverer, permission_manage_
 def test_create_wmsdeliverer(staff_api_client, permission_manage_wmsdocument):
     query = MUTATION_CREATE_WMSDELIVERER
 
-    company_name = "Company name",
-    street = "Długa 1",
-    city = "Warszawa",
-    postal_code = "111-11",
-    email = "asd@gmail.com",
-    vat_id = "365375734645656",
-    phone = "+48911231223",
-    country = "US",
-    first_name = "Adam",
+    company_name = "Company name"
+    street = "Długa 1"
+    city = "Warszawa"
+    postal_code = "111-11"
+    email = "asd@gmail.com"
+    vat_id = "365375734645656"
+    phone = "+48911231223"
+    country = CountryCodeEnum.US.name
+    first_name = "Adam"
     last_name = "Mickiewicz"
 
     variables = {

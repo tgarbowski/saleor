@@ -1,16 +1,19 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, Union
+from enum import Enum
+from typing import TYPE_CHECKING, List, Optional, Sequence, Union
 
 from ..checkout.error_codes import CheckoutErrorCode
 
 if TYPE_CHECKING:
+    from ..checkout.models import CheckoutLine
     from ..order.models import OrderLine
     from ..product.models import ProductVariant
 
 
 @dataclass
 class InsufficientStockData:
-    variant: "ProductVariant"
+    variant: Optional["ProductVariant"] = None
+    checkout_line: Optional["CheckoutLine"] = None
     order_line: Optional["OrderLine"] = None
     warehouse_pk: Union[str, int, None] = None
     available_quantity: Optional[int] = None
@@ -18,8 +21,8 @@ class InsufficientStockData:
 
 class InsufficientStock(Exception):
     def __init__(self, items: List[InsufficientStockData]):
-        variants = [str(item.variant) for item in items]
-        super().__init__(f"Insufficient stock for {', '.join(variants)}")
+        details = [str(item.variant or item.order_line) for item in items]
+        super().__init__(f"Insufficient stock for {', '.join(details)}")
         self.items = items
         self.code = CheckoutErrorCode.INSUFFICIENT_STOCK
 
@@ -29,6 +32,12 @@ class AllocationError(Exception):
         lines = [str(line) for line in order_lines]
         super().__init__(f"Unable to deallocate stock for lines {', '.join(lines)}.")
         self.order_lines = order_lines
+
+
+class PreorderAllocationError(Exception):
+    def __init__(self, order_line):
+        super().__init__(f"Unable to allocate in stock for line {str(order_line)}.")
+        self.order_line = order_line
 
 
 class ReadOnlyException(Exception):
@@ -46,8 +55,14 @@ class ProductNotPublished(Exception):
 
 
 class PermissionDenied(Exception):
-    def __init__(self, message=None):
-        default_message = "You do not have permission to perform this action"
-        if message is None:
-            message = default_message
+    def __init__(self, message=None, *, permissions: Sequence[Enum] = None):
+        if not message:
+            if permissions:
+                permission_list = ", ".join(p.name for p in permissions)
+                message = (
+                    f"You need one of the following permissions: {permission_list}"
+                )
+            else:
+                message = "You do not have permission to perform this action"
         super().__init__(message)
+        self.permissions = permissions

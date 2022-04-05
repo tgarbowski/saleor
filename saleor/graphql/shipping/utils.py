@@ -1,34 +1,32 @@
-from typing import List
+from typing import List, Optional
 
-from ...plugins.base_plugin import ExcludedShippingMethod
-from ...shipping import models as shipping_models
-from ...shipping.interface import ShippingMethodData
-from ..channel import ChannelContext
+from django.core.exceptions import ValidationError
 
-
-def annotate_active_shipping_methods(
-    shipping_methods: List[ShippingMethodData],
-    excluded_methods: List[ExcludedShippingMethod],
-):
-    """Assign availability status based on the response from plugins."""
-    for instance in shipping_methods:
-        instance.active = True
-        instance.message = ""
-        for method in excluded_methods:
-            if str(instance.id) == str(method.id):
-                instance.active = False
-                instance.message = method.reason or ""
+from ...shipping.models import ShippingMethod
+from ..core.utils import from_global_id_or_error
 
 
-def wrap_with_channel_context(
-    shipping_methods: List[shipping_models.ShippingMethod],
-    channel_slug: str,
-) -> List[ChannelContext]:
-    instances = [
-        ChannelContext(
-            node=method,
-            channel_slug=channel_slug,
-        )
-        for method in shipping_methods
-    ]
-    return instances
+def get_shipping_model_by_object_id(
+    object_id: Optional[str], raise_error: bool = True
+) -> Optional[ShippingMethod]:
+    if object_id:
+        _, object_pk = from_global_id_or_error(object_id)
+        shipping_method = ShippingMethod.objects.filter(pk=object_pk).first()
+        if not shipping_method and raise_error:
+            raise ValidationError(
+                {
+                    "id": ValidationError(
+                        "Couldn't resolve to a node: %s" % object_id, code="not_found"
+                    )
+                }
+            )
+        return shipping_method
+    return None
+
+
+def get_instances_by_object_ids(object_ids: List[str]) -> List[ShippingMethod]:
+    model_ids = []
+    for object_id in object_ids:
+        _, object_pk = from_global_id_or_error(object_id)
+        model_ids.append(object_pk)
+    return ShippingMethod.objects.filter(pk__in=model_ids)

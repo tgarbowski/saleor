@@ -5,13 +5,14 @@ from typing import List, Tuple
 import graphene
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils.text import slugify
 
 from ....attribute import AttributeInputType, AttributeType
 from ....attribute import models as attribute_models
-from ....core.exceptions import PermissionDenied
+from ....core.exceptions import PermissionDenied, PreorderAllocationError
 from ....core.permissions import ProductPermissions, ProductTypePermissions
+from ....core.tasks import delete_product_media_task
 from ....core.tracing import traced_atomic_transaction
 from ....core.utils.editorjs import clean_editor_js
 from ....core.utils.validators import get_oembed_data
@@ -19,8 +20,12 @@ from ....order import OrderStatus
 from ....order import events as order_events
 from ....order import models as order_models
 from ....order.tasks import recalculate_orders_task
-from ....product import ProductMediaTypes, models
+from ....product import ProductMediaTypes, ProductTypeKind, models
 from ....product.error_codes import CollectionErrorCode, ProductErrorCode
+from ....product.search import (
+    update_product_search_document,
+    update_products_search_document,
+)
 from ....product.tasks import (
     update_product_discounted_price_task,
     update_products_discounted_prices_of_catalogues_task,
@@ -33,9 +38,12 @@ from ....product.thumbnails import (
 )
 from ....product.utils import delete_categories, get_products_ids_without_variants
 from ....product.utils.variants import generate_and_set_variant_name
+from ....warehouse.management import deactivate_preorder_for_variant
 from ...attribute.types import AttributeValueInput
 from ...attribute.utils import AttributeAssignmentMixin, AttrValuesInput
 from ...channel import ChannelContext
+from ...core.descriptions import ADDED_IN_31, PREVIEW_FEATURE
+from ...core.fields import JSONString
 from ...core.inputs import ReorderInput
 from ...core.mutations import BaseMutation, ModelDeleteMutation, ModelMutation
 from ...core.scalars import WeightScalar
@@ -50,6 +58,7 @@ from ...core.utils import (
 )
 from ...core.utils.reordering import perform_reordering
 from ...warehouse.types import Warehouse
+from ..enums import ProductTypeKindEnum
 from ..types import (
     Category,
     Collection,
@@ -59,6 +68,7 @@ from ..types import (
     ProductVariant,
 )
 from ..utils import (
+    clean_variant_sku,
     create_stocks,
     get_draft_order_lines_data_for_variants,
     get_used_attribute_values_for_variant,
@@ -68,7 +78,7 @@ from saleor.salingo.images import BackupImageRetrieval
 
 
 class CategoryInput(graphene.InputObjectType):
-    description = graphene.JSONString(description="Category description (JSON).")
+    description = JSONString(description="Category description (JSON).")
     name = graphene.String(description="Category name.")
     slug = graphene.String(description="Category slug.")
     seo = SeoInput(description="Search engine optimization fields.")
@@ -92,6 +102,7 @@ class CategoryCreate(ModelMutation):
     class Meta:
         description = "Creates a new category."
         model = models.Category
+        object_type = Category
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -146,6 +157,7 @@ class CategoryUpdate(CategoryCreate):
     class Meta:
         description = "Updates a category."
         model = models.Category
+        object_type = Category
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -158,6 +170,7 @@ class CategoryDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a category."
         model = models.Category
+        object_type = Category
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -183,9 +196,7 @@ class CollectionInput(graphene.InputObjectType):
     )
     name = graphene.String(description="Name of the collection.")
     slug = graphene.String(description="Slug of the collection.")
-    description = graphene.JSONString(
-        description="Description of the collection (JSON)."
-    )
+    description = JSONString(description="Description of the collection (JSON).")
     background_image = Upload(description="Background image file.")
     background_image_alt = graphene.String(description="Alt text for an image.")
     seo = SeoInput(description="Search engine optimization fields.")
@@ -209,6 +220,7 @@ class CollectionCreate(ModelMutation):
     class Meta:
         description = "Creates a new collection."
         model = models.Collection
+        object_type = Collection
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = CollectionError
         error_type_field = "collection_errors"
@@ -242,6 +254,8 @@ class CollectionCreate(ModelMutation):
 
     @classmethod
     def post_save_action(cls, info, instance, cleaned_input):
+        info.context.plugins.collection_created(instance)
+
         products = instance.products.prefetched_for_webhook(single_object=False)
         for product in products:
             info.context.plugins.product_updated(product)
@@ -264,6 +278,7 @@ class CollectionUpdate(CollectionCreate):
     class Meta:
         description = "Updates a collection."
         model = models.Collection
+        object_type = Collection
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = CollectionError
         error_type_field = "collection_errors"
@@ -271,7 +286,7 @@ class CollectionUpdate(CollectionCreate):
     @classmethod
     def post_save_action(cls, info, instance, cleaned_input):
         """Override this method with `pass` to avoid triggering product webhook."""
-        pass
+        info.context.plugins.collection_updated(instance)
 
     @classmethod
     def save(cls, info, instance, cleaned_input):
@@ -287,6 +302,7 @@ class CollectionDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a collection."
         model = models.Collection
+        object_type = Collection
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = CollectionError
         error_type_field = "collection_errors"
@@ -299,8 +315,11 @@ class CollectionDelete(ModelDeleteMutation):
         products = list(instance.products.prefetched_for_webhook(single_object=False))
 
         result = super().perform_mutation(_root, info, **kwargs)
+
+        info.context.plugins.collection_deleted(instance)
         for product in products:
             info.context.plugins.product_updated(product)
+
         return CollectionDelete(
             collection=ChannelContext(node=result.collection, channel_slug=None)
         )
@@ -509,7 +528,7 @@ class ProductInput(graphene.InputObjectType):
         description="List of IDs of collections that the product belongs to.",
         name="collections",
     )
-    description = graphene.JSONString(description="Product description (JSON).")
+    description = JSONString(description="Product description (JSON).")
     name = graphene.String(description="Product name.")
     slug = graphene.String(description="Product slug.")
     tax_code = graphene.String(description="Tax rate for enabled tax gateway.")
@@ -547,6 +566,7 @@ class ProductCreate(ModelMutation):
     class Meta:
         description = "Creates a new product."
         model = models.Product
+        object_type = Product
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -556,9 +576,7 @@ class ProductCreate(ModelMutation):
         cls, attributes: dict, product_type: models.ProductType
     ) -> T_INPUT_MAP:
         attributes_qs = product_type.product_attributes
-        attributes = AttributeAssignmentMixin.clean_input(
-            attributes, attributes_qs, is_variant=False
-        )
+        attributes = AttributeAssignmentMixin.clean_input(attributes, attributes_qs)
         return attributes
 
     @classmethod
@@ -650,6 +668,7 @@ class ProductCreate(ModelMutation):
     @classmethod
     def post_save_action(cls, info, instance, _cleaned_input):
         product = models.Product.objects.prefetched_for_webhook().get(pk=instance.pk)
+        update_product_search_document(instance)
         info.context.plugins.product_created(product)
 
     @classmethod
@@ -676,9 +695,20 @@ class ProductUpdate(ProductCreate):
     class Meta:
         description = "Updates an existing product."
         model = models.Product
+        object_type = Product
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
+
+    @classmethod
+    def clean_attributes(
+        cls, attributes: dict, product_type: models.ProductType
+    ) -> T_INPUT_MAP:
+        attributes_qs = product_type.product_attributes
+        attributes = AttributeAssignmentMixin.clean_input(
+            attributes, attributes_qs, creation=False
+        )
+        return attributes
 
     @classmethod
     @traced_atomic_transaction()
@@ -691,6 +721,7 @@ class ProductUpdate(ProductCreate):
     @classmethod
     def post_save_action(cls, info, instance, _cleaned_input):
         product = models.Product.objects.prefetched_for_webhook().get(pk=instance.pk)
+        update_product_search_document(instance)
         info.context.plugins.product_updated(product)
 
 
@@ -701,6 +732,7 @@ class ProductDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a product."
         model = models.Product
+        object_type = Product
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -751,6 +783,13 @@ class ProductDelete(ModelDeleteMutation):
         ).delete()
 
 
+class PreorderSettingsInput(graphene.InputObjectType):
+    global_threshold = graphene.Int(
+        description="The global threshold for preorder variant."
+    )
+    end_date = graphene.DateTime(description="The end date for preorder.")
+
+
 class ProductVariantInput(graphene.InputObjectType):
     attributes = graphene.List(
         graphene.NonNull(AttributeValueInput),
@@ -765,6 +804,18 @@ class ProductVariantInput(graphene.InputObjectType):
         )
     )
     weight = WeightScalar(description="Weight of the Product Variant.", required=False)
+    preorder = PreorderSettingsInput(
+        description=(
+            f"{ADDED_IN_31} Determines if variant is in preorder. {PREVIEW_FEATURE}"
+        )
+    )
+    quantity_limit_per_customer = graphene.Int(
+        required=False,
+        description=(
+            f"{ADDED_IN_31} Determines maximum quantity of `ProductVariant`,"
+            f"that can be bought in a single checkout. {PREVIEW_FEATURE}"
+        ),
+    )
 
 
 class ProductVariantCreateInput(ProductVariantInput):
@@ -794,6 +845,7 @@ class ProductVariantCreate(ModelMutation):
     class Meta:
         description = "Creates a new variant for a product."
         model = models.ProductVariant
+        object_type = ProductVariant
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -804,9 +856,7 @@ class ProductVariantCreate(ModelMutation):
         cls, attributes: dict, product_type: models.ProductType
     ) -> T_INPUT_MAP:
         attributes_qs = product_type.variant_attributes
-        attributes = AttributeAssignmentMixin.clean_input(
-            attributes, attributes_qs, is_variant=True
-        )
+        attributes = AttributeAssignmentMixin.clean_input(attributes, attributes_qs)
         return attributes
 
     @classmethod
@@ -850,6 +900,20 @@ class ProductVariantCreate(ModelMutation):
                 }
             )
 
+        quantity_limit_per_customer = cleaned_input.get("quantity_limit_per_customer")
+        if quantity_limit_per_customer is not None and quantity_limit_per_customer < 1:
+            raise ValidationError(
+                {
+                    "quantity_limit_per_customer": ValidationError(
+                        (
+                            "Product variant can't have "
+                            "quantity_limit_per_customer lower than 1."
+                        ),
+                        code=ProductErrorCode.INVALID.value,
+                    )
+                }
+            )
+
         stocks = cleaned_input.get("stocks")
         if stocks:
             cls.check_for_duplicates_in_stocks(stocks)
@@ -881,14 +945,29 @@ class ProductVariantCreate(ModelMutation):
                         cleaned_attributes, used_attribute_values, instance
                     )
                     cleaned_input["attributes"] = cleaned_attributes
-                elif not instance.pk and not attributes:
+                # elif not instance.pk and not attributes:
+                elif not instance.pk and (
+                    not attributes
+                    and product_type.variant_attributes.filter(value_required=True)
+                ):
                     # if attributes were not provided on creation
                     raise ValidationError(
-                        "All attributes must take a value.",
+                        "All required attributes must take a value.",
                         ProductErrorCode.REQUIRED.value,
                     )
             except ValidationError as exc:
                 raise ValidationError({"attributes": exc})
+
+        if "sku" in cleaned_input:
+            cleaned_input["sku"] = clean_variant_sku(cleaned_input.get("sku"))
+
+        preorder_settings = cleaned_input.get("preorder")
+        if preorder_settings:
+            cleaned_input["is_preorder"] = True
+            cleaned_input["preorder_global_threshold"] = preorder_settings.get(
+                "global_threshold"
+            )
+            cleaned_input["preorder_end_date"] = preorder_settings.get("end_date")
 
         return cleaned_input
 
@@ -945,8 +1024,9 @@ class ProductVariantCreate(ModelMutation):
         attributes = cleaned_input.get("attributes")
         if attributes:
             AttributeAssignmentMixin.save(instance, attributes)
-            generate_and_set_variant_name(instance, cleaned_input.get("sku"))
 
+        generate_and_set_variant_name(instance, cleaned_input.get("sku"))
+        update_product_search_document(instance.product)
         event_to_call = (
             info.context.plugins.product_variant_created
             if new_variant
@@ -980,10 +1060,21 @@ class ProductVariantUpdate(ProductVariantCreate):
     class Meta:
         description = "Updates an existing variant for product."
         model = models.ProductVariant
+        object_type = ProductVariant
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
         errors_mapping = {"price_amount": "price"}
+
+    @classmethod
+    def clean_attributes(
+        cls, attributes: dict, product_type: models.ProductType
+    ) -> T_INPUT_MAP:
+        attributes_qs = product_type.variant_attributes
+        attributes = AttributeAssignmentMixin.clean_input(
+            attributes, attributes_qs, creation=False
+        )
+        return attributes
 
     @classmethod
     def validate_duplicated_attribute_values(
@@ -1021,6 +1112,7 @@ class ProductVariantDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a product variant."
         model = models.ProductVariant
+        object_type = ProductVariant
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -1030,10 +1122,11 @@ class ProductVariantDelete(ModelDeleteMutation):
         # Update the "discounted_prices" of the parent product
         update_product_discounted_price_task.delay(instance.product_id)
         product = models.Product.objects.get(id=instance.product_id)
+        update_product_search_document(product)
         # if the product default variant has been removed set the new one
         if not product.default_variant:
             product.default_variant = product.variants.first()
-            product.save(update_fields=["default_variant"])
+            product.save(update_fields=["default_variant", "updated_at"])
         instance = ChannelContext(node=instance, channel_slug=None)
         return super().success_response(instance)
 
@@ -1053,6 +1146,7 @@ class ProductVariantDelete(ModelDeleteMutation):
         ).get(id=instance.id)
 
         cls.delete_assigned_attribute_values(variant)
+        cls.delete_product_channel_listings_without_available_variants(variant)
         response = super().perform_mutation(_root, info, **data)
 
         # delete order lines for deleted variant
@@ -1084,10 +1178,40 @@ class ProductVariantDelete(ModelDeleteMutation):
             attribute__input_type__in=AttributeInputType.TYPES_WITH_UNIQUE_VALUES,
         ).delete()
 
+    @staticmethod
+    def delete_product_channel_listings_without_available_variants(instance):
+        """Delete invalid product channel listings.
+
+        Delete product channel listings for channels for which the deleted variant
+        was the last available variant.
+        """
+        channel_ids = set(
+            instance.channel_listings.values_list("channel_id", flat=True)
+        )
+        product_id = instance.product_id
+        variants = (
+            models.ProductVariant.objects.filter(product_id=product_id)
+            .exclude(id=instance.id)
+            .values("id")
+        )
+        available_channel_ids = set(
+            models.ProductVariantChannelListing.objects.filter(
+                Exists(
+                    variants.filter(id=OuterRef("variant_id")),
+                    channel_id__in=channel_ids,
+                )
+            ).values_list("channel_id", flat=True)
+        )
+        not_available_channel_ids = channel_ids - available_channel_ids
+        models.ProductChannelListing.objects.filter(
+            product_id=product_id, channel_id__in=not_available_channel_ids
+        ).delete()
+
 
 class ProductTypeInput(graphene.InputObjectType):
     name = graphene.String(description="Name of the product type.")
     slug = graphene.String(description="Product type slug.")
+    kind = ProductTypeKindEnum(description="The product type kind.")
     has_variants = graphene.Boolean(
         description=(
             "Determines if product of this type has multiple variants. This option "
@@ -1127,13 +1251,23 @@ class ProductTypeCreate(ModelMutation):
     class Meta:
         description = "Creates a new product type."
         model = models.ProductType
+        object_type = ProductType
         permissions = (ProductTypePermissions.MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES,)
         error_type_class = ProductError
         error_type_field = "product_errors"
 
     @classmethod
+    def clean_product_kind(cls, _instance, data):
+        # Fallback to ProductTypeKind.NORMAL if kind is not provided in the input.
+        # This method can be dropped when we separate inputs for `productTypeCreate`
+        # and `productTypeUpdate` - now they reuse the input class and all fields are
+        # optional, while `kind` is required in the model.
+        return data.get("kind") or ProductTypeKind.NORMAL
+
+    @classmethod
     def clean_input(cls, info, instance, data):
         cleaned_input = super().clean_input(info, instance, data)
+        cleaned_input["kind"] = cls.clean_product_kind(instance, cleaned_input)
 
         weight = cleaned_input.get("weight")
         if weight and weight.value < 0:
@@ -1204,9 +1338,14 @@ class ProductTypeUpdate(ProductTypeCreate):
     class Meta:
         description = "Updates an existing product type."
         model = models.ProductType
+        object_type = ProductType
         permissions = (ProductTypePermissions.MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES,)
         error_type_class = ProductError
         error_type_field = "product_errors"
+
+    @classmethod
+    def clean_product_kind(cls, instance, data):
+        return data.get("kind", instance.kind)
 
     @classmethod
     def save(cls, info, instance, cleaned_input):
@@ -1217,6 +1356,15 @@ class ProductTypeUpdate(ProductTypeCreate):
             update_variants_names.delay(instance.pk, variant_attr_ids)
         super().save(info, instance, cleaned_input)
 
+    @classmethod
+    def post_save_action(cls, info, instance, cleaned_input):
+        if (
+            "product_attributes" in cleaned_input
+            or "variant_attributes" in cleaned_input
+        ):
+            products = models.Product.objects.filter(product_type=instance)
+            update_products_search_document(products)
+
 
 class ProductTypeDelete(ModelDeleteMutation):
     class Arguments:
@@ -1225,6 +1373,7 @@ class ProductTypeDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a product type."
         model = models.ProductType
+        object_type = ProductType
         permissions = (ProductTypePermissions.MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES,)
         error_type_class = ProductError
         error_type_field = "product_errors"
@@ -1575,7 +1724,7 @@ class ProductVariantReorder(BaseMutation):
         with traced_atomic_transaction():
             perform_reordering(variants_m2m, operations)
 
-        product.save(update_fields=["updated_at"])
+        product.save(update_fields=["updated_at", "updated_at"])
         info.context.plugins.product_updated(product)
         product = ChannelContext(node=product, channel_slug=None)
         return ProductVariantReorder(product=product)
@@ -1621,9 +1770,19 @@ class ProductMediaDelete(BaseMutation):
     @classmethod
     def perform_mutation(cls, _root, info, **data):
         media_obj = cls.get_node_or_error(info, data.get("id"), only_type=ProductMedia)
+        if media_obj.to_remove:
+            raise ValidationError(
+                {
+                    "media_id": ValidationError(
+                        "Media not found.",
+                        code=ProductErrorCode.NOT_FOUND,
+                    )
+                }
+            )
         media_id = media_obj.id
-        media_obj.image.delete(save=False)
-        media_obj.delete()
+        media_obj.to_remove = True
+        media_obj.save(update_fields=["to_remove"])
+        delete_product_media_task.delay(media_id)
         media_obj.id = media_id
         product = models.Product.objects.prefetched_for_webhook().get(
             pk=media_obj.product_id
@@ -1729,3 +1888,55 @@ class VariantMediaUnassign(BaseMutation):
             lambda: info.context.plugins.product_variant_updated(variant.node)
         )
         return VariantMediaUnassign(product_variant=variant, media=media)
+
+
+class ProductVariantPreorderDeactivate(BaseMutation):
+    product_variant = graphene.Field(
+        ProductVariant, description="Product variant with ended preorder."
+    )
+
+    class Arguments:
+        id = graphene.ID(
+            required=True,
+            description="ID of a variant which preorder should be deactivated.",
+        )
+
+    class Meta:
+        description = (
+            f"{ADDED_IN_31} Deactivates product variant preorder. "
+            f"It changes all preorder allocation into regular allocation. "
+            f"{PREVIEW_FEATURE}"
+        )
+        permissions = (ProductPermissions.MANAGE_PRODUCTS,)
+        error_type_class = ProductError
+
+    @classmethod
+    @traced_atomic_transaction()
+    def perform_mutation(cls, _root, info, id):
+        qs = models.ProductVariant.objects.prefetched_for_webhook()
+        variant = cls.get_node_or_error(
+            info, id, field="id", only_type=ProductVariant, qs=qs
+        )
+        if not variant.is_preorder:
+            raise ValidationError(
+                {
+                    "id": ValidationError(
+                        "This variant is not in preorder.",
+                        code=ProductErrorCode.INVALID,
+                    )
+                }
+            )
+
+        try:
+            deactivate_preorder_for_variant(variant)
+        except PreorderAllocationError as error:
+            raise ValidationError(
+                str(error),
+                code=ProductErrorCode.PREORDER_VARIANT_CANNOT_BE_DEACTIVATED,
+            )
+
+        variant = ChannelContext(node=variant, channel_slug=None)
+        transaction.on_commit(
+            lambda: info.context.plugins.product_variant_updated(variant.node)
+        )
+        return ProductVariantPreorderDeactivate(product_variant=variant)

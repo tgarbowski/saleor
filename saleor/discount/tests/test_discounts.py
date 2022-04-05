@@ -18,10 +18,10 @@ from ..models import (
     VoucherChannelListing,
     VoucherCustomer,
 )
-from ..templatetags.voucher import discount_as_negative
 from ..utils import (
     add_voucher_usage_by_customer,
     decrease_voucher_usage,
+    fetch_catalogue_info,
     get_product_discount_on_sale,
     increase_voucher_usage,
     remove_voucher_usage_by_customer,
@@ -726,24 +726,6 @@ def test_sale_active(current_date, start_date, end_date, is_active, channel_USD)
     assert is_active == sale_is_active
 
 
-def test_discount_as_negative():
-    discount = Money(10, "USD")
-    result = discount_as_negative(discount)
-    assert result == "-$10.00"
-
-
-def test_discount_as_negative_for_zero_value():
-    discount = Money(0, "USD")
-    result = discount_as_negative(discount)
-    assert result == "$0.00"
-
-
-def test_discount_as_negative_for_html():
-    discount = Money(10, "USD")
-    result = discount_as_negative(discount, True)
-    assert result == '-<span class="currency">$</span>10.00'
-
-
 def test_get_fixed_sale_discount(sale):
     # given
     sale.type = DiscountValueType.FIXED
@@ -783,3 +765,22 @@ def test_get_not_applicable_sale_discount(sale, channel_PLN):
 
     with pytest.raises(NotApplicable):
         sale.get_discount(None)
+
+
+def test_fetch_catalogue_info_for_sale_has_one_element_sets(sale):
+    category_ids = set(sale.categories.all().values_list("id", flat=True))
+    collection_ids = set(sale.collections.all().values_list("id", flat=True))
+    product_ids = set(sale.products.all().values_list("id", flat=True))
+    variant_ids = set(sale.variants.all().values_list("id", flat=True))
+
+    catalogue_info = fetch_catalogue_info(sale)
+
+    assert catalogue_info["categories"]
+    assert catalogue_info["collections"]
+    assert catalogue_info["products"]
+    assert catalogue_info["variants"]
+
+    assert catalogue_info["categories"] == category_ids
+    assert catalogue_info["collections"] == collection_ids
+    assert catalogue_info["products"] == product_ids
+    assert catalogue_info["variants"] == variant_ids

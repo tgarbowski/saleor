@@ -5,10 +5,12 @@ import graphene
 from prices import Money, TaxedMoney
 
 from ....core.prices import quantize_price
-from ....order import OrderOrigin, OrderStatus
+from ....order import FulfillmentLineData, OrderOrigin, OrderStatus
 from ....order.error_codes import OrderErrorCode
+from ....order.fetch import OrderLineInfo
 from ....order.models import FulfillmentStatus, Order
 from ....payment import ChargeStatus, PaymentError
+from ....payment.interface import RefundData
 from ....warehouse.models import Stock
 from ...tests.utils import get_graphql_content
 
@@ -114,8 +116,53 @@ def test_fulfillment_return_products_amount_and_shipping_costs(
         ANY,
         amount=quantize_price(amount_to_refund, fulfilled_order.currency),
         channel_slug=fulfilled_order.channel.slug,
-        refund_data=ANY,
+        refund_data=RefundData(
+            refund_shipping_costs=True,
+            refund_amount_is_automatically_calculated=False,
+        ),
     )
+
+
+def test_fulfillment_return_products_amount_order_with_gift_card(
+    staff_api_client,
+    permission_manage_orders,
+    fulfilled_order,
+    payment_dummy,
+):
+    # given
+    payment_dummy.captured_amount = payment_dummy.total
+    payment_dummy.charge_status = ChargeStatus.FULLY_CHARGED
+    payment_dummy.save()
+    fulfilled_order.payments.add(payment_dummy)
+
+    line = fulfilled_order.lines.first()
+    line.is_gift_card = True
+    line.save(update_fields=["is_gift_card"])
+
+    order_id = graphene.Node.to_global_id("Order", fulfilled_order.pk)
+    amount_to_refund = Decimal("11.00")
+    variables = {
+        "order": order_id,
+        "input": {
+            "refund": True,
+            "amountToRefund": amount_to_refund,
+            "includeShippingCosts": True,
+        },
+    }
+    staff_api_client.user.user_permissions.add(permission_manage_orders)
+
+    # when
+    response = staff_api_client.post_graphql(ORDER_FULFILL_RETURN_MUTATION, variables)
+
+    # then
+    content = get_graphql_content(response)
+    data = content["data"]["orderFulfillmentReturnProducts"]
+    fulfillment = data["returnFulfillment"]
+    errors = data["errors"]
+    assert len(errors) == 1
+    assert errors[0]["field"] == "amountToRefund"
+    assert errors[0]["code"] == OrderErrorCode.CANNOT_REFUND.name
+    assert fulfillment is None
 
 
 @patch("saleor.order.actions.gateway.refund")
@@ -262,8 +309,67 @@ def test_fulfillment_return_products_order_lines(
         ANY,
         amount=amount,
         channel_slug=order_with_lines.channel.slug,
-        refund_data=ANY,
+        refund_data=RefundData(
+            order_lines_to_refund=[
+                OrderLineInfo(
+                    line=line_to_return,
+                    quantity=line_quantity_to_return,
+                    variant=line_to_return.variant,
+                ),
+            ],
+            refund_shipping_costs=True,
+        ),
     )
+
+
+def test_fulfillment_return_products_gift_card_order_line(
+    staff_api_client,
+    permission_manage_orders,
+    order_with_lines,
+    payment_dummy,
+):
+    # given
+    payment_dummy.total = order_with_lines.total_gross_amount
+    payment_dummy.captured_amount = payment_dummy.total
+    payment_dummy.charge_status = ChargeStatus.FULLY_CHARGED
+    payment_dummy.save()
+    order_with_lines.payments.add(payment_dummy)
+    line_to_return = order_with_lines.lines.first()
+    line_to_return.is_gift_card = True
+    line_to_return.save(update_fields=["is_gift_card"])
+    line_quantity_to_return = 2
+
+    order_id = graphene.Node.to_global_id("Order", order_with_lines.pk)
+    line_id = graphene.Node.to_global_id("OrderLine", line_to_return.pk)
+
+    variables = {
+        "order": order_id,
+        "input": {
+            "refund": True,
+            "includeShippingCosts": True,
+            "orderLines": [
+                {
+                    "orderLineId": line_id,
+                    "quantity": line_quantity_to_return,
+                    "replace": False,
+                },
+            ],
+        },
+    }
+    staff_api_client.user.user_permissions.add(permission_manage_orders)
+
+    # when
+    response = staff_api_client.post_graphql(ORDER_FULFILL_RETURN_MUTATION, variables)
+
+    # then
+    content = get_graphql_content(response)
+    data = content["data"]["orderFulfillmentReturnProducts"]
+    fulfillment = data["returnFulfillment"]
+    errors = data["errors"]
+    assert len(errors) == 1
+    assert errors[0]["field"] == "orderLineId"
+    assert errors[0]["code"] == OrderErrorCode.GIFT_CARD_LINE.name
+    assert fulfillment is None
 
 
 def test_fulfillment_return_products_order_lines_quantity_bigger_than_total(
@@ -370,7 +476,16 @@ def test_fulfillment_return_products_order_lines_custom_amount(
         ANY,
         amount=amount_to_refund,
         channel_slug=order_with_lines.channel.slug,
-        refund_data=ANY,
+        refund_data=RefundData(
+            order_lines_to_refund=[
+                OrderLineInfo(
+                    line=line_to_return,
+                    quantity=2,
+                    variant=line_to_return.variant,
+                )
+            ],
+            refund_amount_is_automatically_calculated=False,
+        ),
     )
 
 
@@ -496,8 +611,73 @@ def test_fulfillment_return_products_fulfillment_lines(
         ANY,
         amount=amount,
         channel_slug=fulfilled_order.channel.slug,
-        refund_data=ANY,
+        refund_data=RefundData(
+            fulfillment_lines_to_refund=[
+                FulfillmentLineData(
+                    line=fulfillment_line_to_return,
+                    quantity=quantity_to_return,
+                ),
+            ],
+            refund_shipping_costs=True,
+        ),
     )
+
+
+@patch("saleor.order.actions.gateway.refund")
+def test_fulfillment_return_products_gift_card_fulfillment_line(
+    mocked_refund,
+    staff_api_client,
+    permission_manage_orders,
+    fulfilled_order,
+    payment_dummy,
+):
+    # given
+    payment_dummy.total = fulfilled_order.total_gross_amount
+    payment_dummy.captured_amount = payment_dummy.total
+    payment_dummy.charge_status = ChargeStatus.FULLY_CHARGED
+    payment_dummy.save()
+    fulfilled_order.payments.add(payment_dummy)
+    order_fulfillment = fulfilled_order.fulfillments.first()
+
+    fulfillment_line_to_replace = order_fulfillment.lines.last()
+    order_line = fulfillment_line_to_replace.order_line
+    order_line.is_gift_card = True
+    order_line.save(update_fields=["is_gift_card"])
+    quantity_to_replace = 1
+
+    order_id = graphene.Node.to_global_id("Order", fulfilled_order.pk)
+    fulfillment_line_to_replace_id = graphene.Node.to_global_id(
+        "FulfillmentLine", fulfillment_line_to_replace.pk
+    )
+
+    variables = {
+        "order": order_id,
+        "input": {
+            "refund": True,
+            "includeShippingCosts": True,
+            "fulfillmentLines": [
+                {
+                    "fulfillmentLineId": fulfillment_line_to_replace_id,
+                    "quantity": quantity_to_replace,
+                    "replace": True,
+                },
+            ],
+        },
+    }
+    staff_api_client.user.user_permissions.add(permission_manage_orders)
+
+    # when
+    response = staff_api_client.post_graphql(ORDER_FULFILL_RETURN_MUTATION, variables)
+
+    # then
+    content = get_graphql_content(response)
+    data = content["data"]["orderFulfillmentReturnProducts"]
+    fulfillment = data["returnFulfillment"]
+    errors = data["errors"]
+    assert len(errors) == 1
+    assert errors[0]["field"] == "fulfillmentLineId"
+    assert errors[0]["code"] == OrderErrorCode.GIFT_CARD_LINE.name
+    assert fulfillment is None
 
 
 def test_fulfillment_return_products_fulfillment_lines_quantity_bigger_than_total(
@@ -662,7 +842,12 @@ def test_fulfillment_return_products_fulfillment_lines_include_shipping_costs(
         ANY,
         amount=amount,
         channel_slug=fulfilled_order.channel.slug,
-        refund_data=ANY,
+        refund_data=RefundData(
+            fulfillment_lines_to_refund=[
+                FulfillmentLineData(line=fulfillment_line_to_return, quantity=2)
+            ],
+            refund_shipping_costs=True,
+        ),
     )
 
 
@@ -696,7 +881,9 @@ def test_fulfillment_return_products_fulfillment_lines_and_order_lines(
         product_name=str(variant.product),
         variant_name=str(variant),
         product_sku=variant.sku,
+        product_variant_id=variant.get_global_id(),
         is_shipping_required=variant.is_shipping_required(),
+        is_gift_card=variant.is_gift_card(),
         quantity=quantity,
         quantity_fulfilled=2,
         variant=variant,
@@ -772,5 +959,13 @@ def test_fulfillment_return_products_fulfillment_lines_and_order_lines(
         ANY,
         amount=amount,
         channel_slug=fulfilled_order.channel.slug,
-        refund_data=ANY,
+        refund_data=RefundData(
+            order_lines_to_refund=[
+                OrderLineInfo(
+                    line=order_line,
+                    quantity=2,
+                    variant=variant,
+                )
+            ],
+        ),
     )

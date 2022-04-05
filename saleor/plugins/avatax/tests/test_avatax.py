@@ -14,13 +14,14 @@ from ....checkout.fetch import (
     fetch_checkout_info,
     fetch_checkout_lines,
     get_delivery_method_info,
-    get_shipping_method_list_for_checkout_info,
+    update_delivery_method_lists_for_checkout_info,
 )
 from ....checkout.utils import add_variant_to_checkout
 from ....core.prices import quantize_price
 from ....core.taxes import TaxError, TaxType, zero_taxed_money
 from ....discount import DiscountValueType, OrderDiscountType, VoucherType
 from ....order import OrderStatus
+from ....product import ProductTypeKind
 from ....product.models import Product, ProductType
 from ....shipping.utils import convert_to_shipping_method_data
 from ...manager import get_plugins_manager
@@ -43,6 +44,20 @@ from .. import (
     taxes_need_new_fetch,
 )
 from ..plugin import AvataxPlugin
+
+
+@pytest.fixture
+def avatax_config():
+    return AvataxConfiguration(
+        username_or_account="test",
+        password_or_license="test",
+        use_sandbox=False,
+        from_street_address="Tęczowa 7",
+        from_city="WROCŁAW",
+        from_country_area="",
+        from_postal_code="53-601",
+        from_country="PL",
+    )
 
 
 @pytest.mark.vcr()
@@ -437,6 +452,73 @@ def test_calculate_checkout_line_total_with_variant_on_sale_and_voucher_only_onc
 
 
 @pytest.mark.vcr()
+@pytest.mark.parametrize(
+    "with_discount, expected_net, expected_gross, taxes_in_prices",
+    [
+        (True, "12.20", "15.00", True),
+        (False, "24.39", "30.00", True),
+        (True, "15.00", "18.45", False),
+        (False, "30.00", "36.90", False),
+    ],
+)
+@override_settings(PLUGINS=["saleor.plugins.avatax.plugin.AvataxPlugin"])
+def test_calculate_checkout_line_without_sku_total(
+    with_discount,
+    expected_net,
+    expected_gross,
+    taxes_in_prices,
+    discount_info,
+    checkout_with_item,
+    address,
+    ship_to_pl_address,
+    site_settings,
+    monkeypatch,
+    shipping_zone,
+    plugin_configuration,
+):
+    monkeypatch.setattr(
+        "graphene.Node.to_global_id", lambda x, y: "UHJvZHVjdFZhcmlhbnQ6Mg"
+    )
+
+    plugin_configuration()
+    manager = get_plugins_manager()
+
+    checkout_with_item.shipping_address = ship_to_pl_address
+    checkout_with_item.shipping_method = shipping_zone.shipping_methods.get()
+    checkout_with_item.save()
+    site_settings.company_address = address
+    site_settings.include_taxes_in_prices = taxes_in_prices
+    site_settings.save()
+    line = checkout_with_item.lines.first()
+    line.variant.sku = None
+    line.variant.save()
+    product = line.variant.product
+    product.metadata = {}
+    product.charge_taxes = True
+    product.save()
+    product.product_type.save()
+    discounts = [discount_info] if with_discount else None
+
+    lines, _ = fetch_checkout_lines(checkout_with_item)
+    checkout_info = fetch_checkout_info(checkout_with_item, lines, discounts, manager)
+    checkout_line_info = lines[0]
+
+    total_prices_data = manager.calculate_checkout_line_total(
+        checkout_info,
+        lines,
+        checkout_line_info,
+        checkout_with_item.shipping_address,
+        discounts,
+    )
+    total = quantize_price(
+        total_prices_data.price_with_sale, total_prices_data.price_with_sale.currency
+    )
+    assert total == TaxedMoney(
+        net=Money(expected_net, "USD"), gross=Money(expected_gross, "USD")
+    )
+
+
+@pytest.mark.vcr()
 @override_settings(PLUGINS=["saleor.plugins.avatax.plugin.AvataxPlugin"])
 def test_calculate_order_line_total(
     order_line,
@@ -482,7 +564,62 @@ def test_calculate_order_line_total(
         product,
     ).price_with_discounts
     total = quantize_price(total, total.currency)
-    assert total == TaxedMoney(net=Money("30.00", "USD"), gross=Money("36.90", "USD"))
+    assert total == TaxedMoney(net=Money("24.39", "USD"), gross=Money("30.00", "USD"))
+
+
+@pytest.mark.vcr()
+@override_settings(PLUGINS=["saleor.plugins.avatax.plugin.AvataxPlugin"])
+def test_calculate_order_line_without_sku_total(
+    order_line,
+    address,
+    ship_to_pl_address,
+    shipping_zone,
+    site_settings,
+    monkeypatch,
+    plugin_configuration,
+):
+    monkeypatch.setattr(
+        "graphene.Node.to_global_id", lambda x, y: "UHJvZHVjdFZhcmlhbnQ6Mg"
+    )
+
+    plugin_configuration()
+    manager = get_plugins_manager()
+
+    site_settings.company_address = address
+    site_settings.save(update_fields=["company_address"])
+
+    order = order_line.order
+    order.shipping_address = ship_to_pl_address
+    order.shipping_method = shipping_zone.shipping_methods.get()
+    order.save(update_fields=["shipping_address", "shipping_method"])
+
+    variant = order_line.variant
+    variant.sku = None
+    variant.save()
+    product = variant.product
+    product.metadata = {}
+    product.charge_taxes = True
+    product.save()
+    product.product_type.save()
+
+    channel = order_line.order.channel
+    channel_listing = variant.channel_listings.get(channel=channel)
+
+    net = variant.get_price(product, [], channel, channel_listing)
+    unit_price = TaxedMoney(net=net, gross=net)
+    order_line.unit_price = unit_price
+    total_price = unit_price * order_line.quantity
+    order_line.total_price = total_price
+    order_line.save()
+
+    total = manager.calculate_order_line_total(
+        order_line.order,
+        order_line,
+        variant,
+        product,
+    ).price_with_discounts
+    total = quantize_price(total, total.currency)
+    assert total == TaxedMoney(net=Money("24.39", "USD"), gross=Money("30.00", "USD"))
 
 
 @pytest.mark.vcr()
@@ -612,8 +749,7 @@ def test_calculate_order_shipping_order_not_valid(
     product = variant.product
     product.metadata = {}
     product.charge_taxes = True
-    product.save()
-    product.product_type.save()
+    product.save(update_fields=["metadata", "charge_taxes"])
 
     order = order_line.order
 
@@ -961,15 +1097,16 @@ def test_calculate_checkout_subtotal_for_product_without_tax(
 
     lines, _ = fetch_checkout_lines(checkout)
     assert len(lines) == 1
-    valid_methods = get_shipping_method_list_for_checkout_info(
+    update_delivery_method_lists_for_checkout_info(
         checkout_info,
+        checkout_info.checkout.shipping_method,
+        checkout_info.checkout.collection_point,
         ship_to_pl_address,
         lines,
         [],
         manager,
-        checkout_info.channel.shipping_method_listings.all(),
+        checkout.channel.shipping_method_listings.all(),
     )
-    checkout_info.all_shipping_methods = valid_methods
 
     total = manager.calculate_checkout_subtotal(checkout_info, lines, address, [])
     total = quantize_price(total, total.currency)
@@ -1694,18 +1831,9 @@ def test_preprocess_order_creation_wrong_data(
 
 
 @pytest.mark.vcr
-def test_get_cached_tax_codes_or_fetch(monkeypatch):
+def test_get_cached_tax_codes_or_fetch(monkeypatch, avatax_config):
     monkeypatch.setattr("saleor.plugins.avatax.cache.get", lambda x, y: {})
-    config = AvataxConfiguration(
-        username_or_account="test",
-        password_or_license="test",
-        use_sandbox=False,
-        from_street_address="Tęczowa 7",
-        from_city="WROCŁAW",
-        from_country_area="",
-        from_postal_code="53-601",
-        from_country="PL",
-    )
+    config = avatax_config
     tax_codes = get_cached_tax_codes_or_fetch(config)
     assert len(tax_codes) > 0
 
@@ -1789,19 +1917,20 @@ def test_get_checkout_line_tax_rate(
     checkout_with_item.shipping_address = address
     checkout_with_item.shipping_method = shipping_zone.shipping_methods.get()
     checkout_with_item.save(update_fields=["shipping_address", "shipping_method"])
-
+    delivery_method = checkout_with_item.shipping_method
     checkout_info = CheckoutInfo(
         checkout=checkout_with_item,
         delivery_method_info=get_delivery_method_info(
             convert_to_shipping_method_data(
-                checkout_with_item.shipping_method,
-                checkout_with_item.shipping_method.channel_listings.get(),
+                delivery_method,
+                delivery_method.channel_listings.first(),
             )
         ),
         shipping_address=address,
         billing_address=None,
         channel=checkout_with_item.channel,
         user=None,
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
     lines, _ = fetch_checkout_lines(checkout_with_item)
@@ -1846,19 +1975,21 @@ def test_get_checkout_line_tax_rate_for_product_with_charge_taxes_set_to_false(
     checkout_with_item.shipping_address = address
     checkout_with_item.shipping_method = shipping_zone.shipping_methods.get()
     checkout_with_item.save(update_fields=["shipping_address", "shipping_method"])
+    delivery_method = checkout_with_item.shipping_method
 
     checkout_info = CheckoutInfo(
         checkout=checkout_with_item,
         delivery_method_info=get_delivery_method_info(
             convert_to_shipping_method_data(
-                checkout_with_item.shipping_method,
-                checkout_with_item.shipping_method.channel_listings.get(),
+                delivery_method,
+                delivery_method.channel_listings.first(),
             )
         ),
         shipping_address=address,
         billing_address=None,
         channel=checkout_with_item.channel,
         user=None,
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
     lines, _ = fetch_checkout_lines(checkout_with_item)
@@ -1904,7 +2035,9 @@ def test_get_checkout_line_tax_rate_for_product_type_with_non_taxable_product(
 
     manager = get_plugins_manager()
 
-    product_type = ProductType.objects.create(name="non-taxable")
+    product_type = ProductType.objects.create(
+        name="non-taxable", kind=ProductTypeKind.NORMAL
+    )
     product2 = product_with_two_variants
     product2.product_type = product_type
     manager.assign_tax_code_to_object_meta(product_type, "NT")
@@ -1914,20 +2047,22 @@ def test_get_checkout_line_tax_rate_for_product_type_with_non_taxable_product(
     checkout_with_item.shipping_address = address
     checkout_with_item.shipping_method = shipping_zone.shipping_methods.get()
     checkout_with_item.save(update_fields=["shipping_address", "shipping_method"])
+    delivery_method = checkout_with_item.shipping_method
 
     variant2 = product2.variants.first()
     checkout_info = CheckoutInfo(
         checkout=checkout_with_item,
         delivery_method_info=get_delivery_method_info(
             convert_to_shipping_method_data(
-                checkout_with_item.shipping_method,
-                checkout_with_item.shipping_method.channel_listings.get(),
+                delivery_method,
+                delivery_method.channel_listings.first(),
             )
         ),
         shipping_address=address,
         billing_address=None,
         channel=checkout_with_item.channel,
         user=None,
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
     add_variant_to_checkout(checkout_info, variant2, 1)
@@ -2143,20 +2278,22 @@ def test_get_checkout_shipping_tax_rate(
     checkout_with_item.shipping_address = address
     checkout_with_item.shipping_method = shipping_zone.shipping_methods.get()
     checkout_with_item.save(update_fields=["shipping_address", "shipping_method"])
+    delivery_method = checkout_with_item.shipping_method
 
     lines, _ = fetch_checkout_lines(checkout_with_item)
     checkout_info = CheckoutInfo(
         checkout=checkout_with_item,
         delivery_method_info=get_delivery_method_info(
             convert_to_shipping_method_data(
-                checkout_with_item.shipping_method,
-                checkout_with_item.shipping_method.channel_listings.get(),
+                delivery_method,
+                delivery_method.channel_listings.first(),
             )
         ),
         shipping_address=address,
         billing_address=None,
         channel=checkout_with_item.channel,
         user=None,
+        valid_pick_up_points=[],
         all_shipping_methods=[],
     )
 
@@ -2637,20 +2774,11 @@ def test_get_tax_code_from_object_meta(product, settings, plugin_configuration):
     assert tax_type.description == "DESC"
 
 
-def test_api_get_request_handles_request_errors(product, monkeypatch):
+def test_api_get_request_handles_request_errors(product, monkeypatch, avatax_config):
     mocked_response = Mock(side_effect=RequestException())
     monkeypatch.setattr("saleor.plugins.avatax.requests.get", mocked_response)
 
-    config = AvataxConfiguration(
-        username_or_account="test",
-        password_or_license="test",
-        use_sandbox=False,
-        from_street_address="Tęczowa 7",
-        from_city="WROCŁAW",
-        from_country_area="",
-        from_postal_code="53-601",
-        from_country="PL",
-    )
+    config = avatax_config
     url = "https://www.avatax.api.com/some-get-path"
 
     response = api_get_request(
@@ -2661,20 +2789,11 @@ def test_api_get_request_handles_request_errors(product, monkeypatch):
     assert mocked_response.called
 
 
-def test_api_get_request_handles_json_errors(product, monkeypatch):
+def test_api_get_request_handles_json_errors(product, monkeypatch, avatax_config):
     mocked_response = Mock(side_effect=JSONDecodeError("", "", 0))
     monkeypatch.setattr("saleor.plugins.avatax.requests.get", mocked_response)
 
-    config = AvataxConfiguration(
-        username_or_account="test",
-        password_or_license="test",
-        use_sandbox=False,
-        from_street_address="Tęczowa 7",
-        from_city="WROCŁAW",
-        from_country_area="",
-        from_postal_code="53-601",
-        from_country="PL",
-    )
+    config = avatax_config
     url = "https://www.avatax.api.com/some-get-path"
 
     response = api_get_request(
@@ -2685,20 +2804,11 @@ def test_api_get_request_handles_json_errors(product, monkeypatch):
     assert mocked_response.called
 
 
-def test_api_post_request_handles_request_errors(product, monkeypatch):
+def test_api_post_request_handles_request_errors(product, monkeypatch, avatax_config):
     mocked_response = Mock(side_effect=RequestException())
     monkeypatch.setattr("saleor.plugins.avatax.requests.post", mocked_response)
 
-    config = AvataxConfiguration(
-        username_or_account="test",
-        password_or_license="test",
-        use_sandbox=False,
-        from_street_address="Tęczowa 7",
-        from_city="WROCŁAW",
-        from_country_area="",
-        from_postal_code="53-601",
-        from_country="PL",
-    )
+    config = avatax_config
     url = "https://www.avatax.api.com/some-get-path"
 
     response = api_post_request(url, {}, config)
@@ -2707,20 +2817,11 @@ def test_api_post_request_handles_request_errors(product, monkeypatch):
     assert response == {}
 
 
-def test_api_post_request_handles_json_errors(product, monkeypatch):
+def test_api_post_request_handles_json_errors(product, monkeypatch, avatax_config):
     mocked_response = Mock(side_effect=JSONDecodeError("", "", 0))
     monkeypatch.setattr("saleor.plugins.avatax.requests.post", mocked_response)
 
-    config = AvataxConfiguration(
-        username_or_account="test",
-        password_or_license="test",
-        use_sandbox=False,
-        from_street_address="Tęczowa 7",
-        from_city="WROCŁAW",
-        from_country_area="",
-        from_postal_code="53-601",
-        from_country="PL",
-    )
+    config = avatax_config
     url = "https://www.avatax.api.com/some-get-path"
 
     response = api_post_request(url, {}, config)
@@ -3064,7 +3165,7 @@ def test_validate_adddress_details(
 
 
 def test_get_checkout_lines_data_sets_different_tax_code_for_zero_amount(
-    settings, channel_USD, plugin_configuration, checkout_with_item
+    settings, channel_USD, plugin_configuration, checkout_with_item, avatax_config
 ):
     # given
     settings.PLUGINS = ["saleor.plugins.avatax.plugin.AvataxPlugin"]
@@ -3083,16 +3184,7 @@ def test_get_checkout_lines_data_sets_different_tax_code_for_zero_amount(
         checkout_with_item, lines, [], get_plugins_manager()
     )
 
-    config = AvataxConfiguration(
-        username_or_account="test",
-        password_or_license="test",
-        use_sandbox=False,
-        from_street_address="Tęczowa 7",
-        from_city="WROCŁAW",
-        from_country_area="",
-        from_postal_code="53-601",
-        from_country="PL",
-    )
+    config = avatax_config
 
     # when
     lines_data = get_checkout_lines_data(checkout_info, lines, config)
@@ -3103,7 +3195,7 @@ def test_get_checkout_lines_data_sets_different_tax_code_for_zero_amount(
 
 
 def test_get_checkout_lines_data_sets_different_tax_code_only_for_zero_amount(
-    settings, channel_USD, plugin_configuration, checkout_with_item
+    settings, channel_USD, plugin_configuration, checkout_with_item, avatax_config
 ):
     # given
     settings.PLUGINS = ["saleor.plugins.avatax.plugin.AvataxPlugin"]
@@ -3125,16 +3217,7 @@ def test_get_checkout_lines_data_sets_different_tax_code_only_for_zero_amount(
         checkout_with_item, lines, [], get_plugins_manager()
     )
 
-    config = AvataxConfiguration(
-        username_or_account="test",
-        password_or_license="test",
-        use_sandbox=False,
-        from_street_address="Tęczowa 7",
-        from_city="WROCŁAW",
-        from_country_area="",
-        from_postal_code="53-601",
-        from_country="PL",
-    )
+    config = avatax_config
 
     # when
     lines_data = get_checkout_lines_data(checkout_info, lines, config)
@@ -3142,6 +3225,87 @@ def test_get_checkout_lines_data_sets_different_tax_code_only_for_zero_amount(
     # then
     assert lines_data[0]["amount"] == "11.00"
     assert lines_data[0]["taxCode"] == "taxcode"
+
+
+def test_get_checkout_lines_data_with_collection_point(
+    settings,
+    channel_USD,
+    plugin_configuration,
+    checkout_with_item,
+    avatax_config,
+    warehouse,
+):
+    # given
+    settings.PLUGINS = ["saleor.plugins.avatax.plugin.AvataxPlugin"]
+    plugin_configuration(channel=channel_USD)
+
+    line = checkout_with_item.lines.first()
+    line.quantity = 1
+    line.save()
+
+    variant = line.variant
+    variant.channel_listings.all().update(price_amount=Decimal("11"))
+    variant.product.store_value_in_metadata(
+        {META_CODE_KEY: "taxcode", META_DESCRIPTION_KEY: "tax_description"}
+    )
+    variant.product.save()
+
+    checkout_with_item.shipping_method = None
+    checkout_with_item.collection_point = warehouse
+    checkout_with_item.save()
+
+    lines, _ = fetch_checkout_lines(checkout_with_item)
+    checkout_info = fetch_checkout_info(
+        checkout_with_item, lines, [], get_plugins_manager()
+    )
+    config = avatax_config
+
+    # when
+    lines_data = get_checkout_lines_data(checkout_info, lines, config)
+
+    # then
+    assert len(lines_data) == checkout_with_item.lines.count()
+
+
+def test_get_checkout_lines_data_with_shipping_method(
+    settings,
+    channel_USD,
+    plugin_configuration,
+    checkout_with_item,
+    avatax_config,
+    shipping_method,
+):
+    # given
+    settings.PLUGINS = ["saleor.plugins.avatax.plugin.AvataxPlugin"]
+    plugin_configuration(channel=channel_USD)
+
+    line = checkout_with_item.lines.first()
+    line.quantity = 1
+    line.save()
+
+    variant = line.variant
+    variant.channel_listings.all().update(price_amount=Decimal("11"))
+    variant.product.store_value_in_metadata(
+        {META_CODE_KEY: "taxcode", META_DESCRIPTION_KEY: "tax_description"}
+    )
+    variant.product.save()
+
+    checkout_with_item.shipping_method = shipping_method
+    checkout_with_item.collection_point = None
+    checkout_with_item.save()
+
+    lines, _ = fetch_checkout_lines(checkout_with_item)
+    checkout_info = fetch_checkout_info(
+        checkout_with_item, lines, [], get_plugins_manager()
+    )
+    config = avatax_config
+
+    # when
+    lines_data = get_checkout_lines_data(checkout_info, lines, config)
+
+    # then
+    assert len(lines_data) == checkout_with_item.lines.count() + 1
+    assert lines_data[-1]["itemCode"] == "Shipping"
 
 
 def test_get_order_lines_data_sets_different_tax_code_for_zero_amount(
@@ -3186,7 +3350,7 @@ def test_get_order_lines_data_sets_different_tax_code_for_zero_amount(
 
 
 def test_get_order_lines_data_sets_different_tax_code_only_for_zero_amount(
-    settings, channel_USD, plugin_configuration, order_with_lines
+    settings, channel_USD, plugin_configuration, order_with_lines, avatax_config
 ):
     # given
     settings.PLUGINS = ["saleor.plugins.avatax.plugin.AvataxPlugin"]
@@ -3209,16 +3373,7 @@ def test_get_order_lines_data_sets_different_tax_code_only_for_zero_amount(
     )
     variant.product.save()
 
-    config = AvataxConfiguration(
-        username_or_account="test",
-        password_or_license="test",
-        use_sandbox=False,
-        from_street_address="Tęczowa 7",
-        from_city="WROCŁAW",
-        from_country_area="",
-        from_postal_code="53-601",
-        from_country="PL",
-    )
+    config = avatax_config
 
     # when
     lines_data = get_order_lines_data(order_with_lines, config)

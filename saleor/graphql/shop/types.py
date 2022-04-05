@@ -8,14 +8,16 @@ from phonenumbers import COUNTRY_CODE_TO_REGION_CODE
 
 from ... import __version__
 from ...account import models as account_models
+from ...channel import models as channel_models
 from ...core.permissions import SitePermissions, get_permissions
 from ...core.tracing import traced_resolver
 from ...site import models as site_models
 from ..account.types import Address, AddressInput, StaffNotificationRecipient
 from ..checkout.types import PaymentGateway
-from ..core.connection import CountableDjangoObjectType
+from ..core.descriptions import ADDED_IN_31, DEPRECATED_IN_3X_INPUT, PREVIEW_FEATURE
 from ..core.enums import LanguageCodeEnum, WeightUnitsEnum
-from ..core.types.common import CountryDisplay, LanguageDisplay, Permission
+from ..core.types import ModelObjectType
+from ..core.types.common import CountryDisplay, LanguageDisplay, Permission, TimePeriod
 from ..core.utils import str_to_enum
 from ..decorators import (
     permission_required,
@@ -27,6 +29,7 @@ from ..translations.fields import TranslationField
 from ..translations.resolvers import resolve_translation
 from ..translations.types import ShopTranslation
 from ..utils import format_permissions_for_display
+from .enums import GiftCardSettingsExpiryTypeEnum
 from .filters import CountryFilterInput
 from .resolvers import resolve_available_shipping_methods, resolve_countries
 
@@ -42,11 +45,36 @@ class Domain(graphene.ObjectType):
         description = "Represents shop's domain."
 
 
-class OrderSettings(CountableDjangoObjectType):
+class OrderSettings(ModelObjectType):
+    automatically_confirm_all_new_orders = graphene.Boolean(required=True)
+    automatically_fulfill_non_shippable_gift_card = graphene.Boolean(required=True)
+
     class Meta:
-        only_fields = ["automatically_confirm_all_new_orders"]
         description = "Order related settings from site settings."
         model = site_models.SiteSettings
+
+
+class GiftCardSettings(ModelObjectType):
+    expiry_type = GiftCardSettingsExpiryTypeEnum(
+        description="The gift card expiry type settings.", required=True
+    )
+    expiry_period = graphene.Field(
+        TimePeriod, description="The gift card expiry period settings.", required=False
+    )
+
+    class Meta:
+        description = "Gift card related settings from site settings."
+        model = site_models.SiteSettings
+
+    def resolve_expiry_type(root, info):
+        return root.gift_card_expiry_type
+
+    def resolve_expiry_period(root, info):
+        if root.gift_card_expiry_period_type is None:
+            return None
+        return TimePeriod(
+            amount=root.gift_card_expiry_period, type=root.gift_card_expiry_period_type
+        )
 
 
 class ExternalAuthentication(graphene.ObjectType):
@@ -83,9 +111,8 @@ class Shop(graphene.ObjectType):
         currency=graphene.Argument(
             graphene.String,
             description=(
-                "DEPRECATED: use `channel` argument instead. This argument will be "
-                "removed in Saleor 4.0."
-                "A currency for which gateways will be returned."
+                "A currency for which gateways will be returned. "
+                f"{DEPRECATED_IN_3X_INPUT} Use `channel` argument instead."
             ),
             required=False,
         ),
@@ -119,13 +146,20 @@ class Shop(graphene.ObjectType):
         required=False,
         description="Shipping methods that are available for the shop.",
     )
+    channel_currencies = graphene.List(
+        graphene.NonNull(graphene.String),
+        description=(
+            f"{ADDED_IN_31} List of all currencies supported by shop's channels."
+        ),
+        required=True,
+    )
     countries = graphene.List(
         graphene.NonNull(CountryDisplay),
         language_code=graphene.Argument(
             LanguageCodeEnum,
             description=(
-                "DEPRECATED: This argument will be removed in Saleor 4.0. "
-                "A language code to return the translation for."
+                "A language code to return the translation for. "
+                f"{DEPRECATED_IN_3X_INPUT}"
             ),
         ),
         filter=CountryFilterInput(
@@ -162,6 +196,14 @@ class Shop(graphene.ObjectType):
     include_taxes_in_prices = graphene.Boolean(
         description="Include taxes in prices.", required=True
     )
+    fulfillment_auto_approve = graphene.Boolean(
+        description=f"{ADDED_IN_31} Automatically approve all new fulfillments.",
+        required=True,
+    )
+    fulfillment_allow_unpaid = graphene.Boolean(
+        description=f"{ADDED_IN_31} Allow to approve fulfillments which are unpaid.",
+        required=True,
+    )
     display_gross_prices = graphene.Boolean(
         description="Display prices with tax in store.", required=True
     )
@@ -175,6 +217,25 @@ class Shop(graphene.ObjectType):
     translation = TranslationField(ShopTranslation, type_name="shop", resolver=None)
     automatic_fulfillment_digital_products = graphene.Boolean(
         description="Enable automatic fulfillment for all digital products."
+    )
+
+    reserve_stock_duration_anonymous_user = graphene.Int(
+        description=(
+            f"{ADDED_IN_31} Default number of minutes stock will be reserved for "
+            "anonymous checkout or null when stock reservation is disabled."
+        )
+    )
+    reserve_stock_duration_authenticated_user = graphene.Int(
+        description=(
+            f"{ADDED_IN_31} Default number of minutes stock will be reserved for "
+            "authenticated checkout or null when stock reservation is disabled."
+        )
+    )
+    limit_quantity_per_checkout = graphene.Int(
+        description=(
+            f"{ADDED_IN_31} Default number of maximum line quantity in single checkout "
+            f"(per single checkout line). {PREVIEW_FEATURE}"
+        )
     )
 
     default_digital_max_downloads = graphene.Int(
@@ -226,6 +287,13 @@ class Shop(graphene.ObjectType):
         return resolve_available_shipping_methods(info, channel, address)
 
     @staticmethod
+    @staff_member_or_app_required
+    def resolve_channel_currencies(_, info):
+        return set(
+            channel_models.Channel.objects.values_list("currency_code", flat=True)
+        )
+
+    @staticmethod
     def resolve_countries(_, _info, **kwargs):
         return resolve_countries(**kwargs)
 
@@ -272,6 +340,14 @@ class Shop(graphene.ObjectType):
     @staticmethod
     def resolve_include_taxes_in_prices(_, info):
         return info.context.site.settings.include_taxes_in_prices
+
+    @staticmethod
+    def resolve_fulfillment_auto_approve(_, info):
+        return info.context.site.settings.fulfillment_auto_approve
+
+    @staticmethod
+    def resolve_fulfillment_allow_unpaid(_, info):
+        return info.context.site.settings.fulfillment_allow_unpaid
 
     @staticmethod
     def resolve_display_gross_prices(_, info):
@@ -330,6 +406,24 @@ class Shop(graphene.ObjectType):
     def resolve_automatic_fulfillment_digital_products(_, info):
         site_settings = info.context.site.settings
         return site_settings.automatic_fulfillment_digital_products
+
+    @staticmethod
+    @permission_required(SitePermissions.MANAGE_SETTINGS)
+    def resolve_reserve_stock_duration_anonymous_user(_, info):
+        site_settings = info.context.site.settings
+        return site_settings.reserve_stock_duration_anonymous_user
+
+    @staticmethod
+    @permission_required(SitePermissions.MANAGE_SETTINGS)
+    def resolve_reserve_stock_duration_authenticated_user(_, info):
+        site_settings = info.context.site.settings
+        return site_settings.reserve_stock_duration_authenticated_user
+
+    @staticmethod
+    @permission_required(SitePermissions.MANAGE_SETTINGS)
+    def resolve_limit_quantity_per_checkout(_, info):
+        site_settings = info.context.site.settings
+        return site_settings.limit_quantity_per_checkout
 
     @staticmethod
     @permission_required(SitePermissions.MANAGE_SETTINGS)

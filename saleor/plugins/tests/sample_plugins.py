@@ -1,9 +1,12 @@
 from decimal import Decimal
-from typing import TYPE_CHECKING, Iterable, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Iterable, Optional, Tuple, Union
 
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpResponse, HttpResponseNotFound, JsonResponse
 from django_countries.fields import Country
+from graphene import Mutation
+from graphql import GraphQLError, ResolveInfo
+from graphql.execution import ExecutionResult
 from prices import Money, TaxedMoney
 
 from ...account.models import User
@@ -19,6 +22,8 @@ if TYPE_CHECKING:
     from ...checkout.fetch import CheckoutInfo, CheckoutLineInfo
     from ...checkout.models import Checkout
     from ...discount import DiscountInfo
+    from ...discount.models import Sale
+    from ...graphql.discount.mutations import NodeCatalogueInfo
     from ...order.models import Order, OrderLine
     from ...product.models import Product, ProductType, ProductVariant
 
@@ -96,6 +101,9 @@ class PluginSample(BasePlugin):
         discounts: Iterable["DiscountInfo"],
         previous_value: CheckoutTaxedPricesData,
     ):
+        # See if delivery method doesn't trigger infinite recursion
+        bool(checkout_info.delivery_method_info.delivery_method)
+
         price = Money("1.0", currency=checkout_info.checkout.currency)
         return CheckoutTaxedPricesData(
             price_with_sale=TaxedMoney(price, price),
@@ -159,12 +167,6 @@ class PluginSample(BasePlugin):
         price = Money("1.0", price.currency)
         return TaxedMoney(price, price)
 
-    def apply_taxes_to_shipping(
-        self, price, shipping_address, previous_value
-    ) -> TaxedMoney:
-        price = Money("1.0", price.currency)
-        return TaxedMoney(price, price)
-
     def get_tax_rate_percentage_value(
         self, obj: Union["Product", "ProductType"], country: Country, previous_value
     ) -> Decimal:
@@ -203,6 +205,25 @@ class PluginSample(BasePlugin):
     def external_logout(self, data: dict, request: WSGIRequest, previous_value) -> dict:
         return {"logoutUrl": "http://www.auth.provider.com/logout/"}
 
+    def sale_created(
+        self, sale: "Sale", current_catalogue: "NodeCatalogueInfo", previous_value: Any
+    ):
+        return sale, current_catalogue
+
+    def sale_updated(
+        self,
+        sale: "Sale",
+        previous_catalogue: "NodeCatalogueInfo",
+        current_catalogue: "NodeCatalogueInfo",
+        previous_value: Any,
+    ):
+        return sale, previous_catalogue, current_catalogue
+
+    def sale_deleted(
+        self, sale: "Sale", previous_catalogue: "NodeCatalogueInfo", previous_value: Any
+    ):
+        return sale, previous_catalogue
+
     def get_checkout_line_tax_rate(
         self,
         checkout_info: "CheckoutInfo",
@@ -239,6 +260,19 @@ class PluginSample(BasePlugin):
 
     def sample_not_implemented(self, previous_value):
         return NotImplemented
+
+    def event_delivery_retry(self, delivery: "EventDelivery", previous_value: Any):
+        return True
+
+    def perform_mutation(
+        self,
+        mutation_cls: Mutation,
+        root,
+        info: ResolveInfo,
+        data: dict,
+        previous_value: Optional[Union[ExecutionResult, GraphQLError]],
+    ) -> Optional[Union[ExecutionResult, GraphQLError]]:
+        return None
 
 
 class ChannelPluginSample(PluginSample):

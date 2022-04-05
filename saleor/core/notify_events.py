@@ -13,6 +13,7 @@ class UserNotifyEvent:
     ORDER_PAYMENT_CONFIRMATION = "order_payment_confirmation"
     ORDER_CANCELED = "order_canceled"
     ORDER_REFUND_CONFIRMATION = "order_refund_confirmation"
+    SEND_GIFT_CARD = "send_gift_card"
 
     CHOICES = [
         ACCOUNT_CONFIRMATION,
@@ -29,19 +30,20 @@ class UserNotifyEvent:
         ORDER_PAYMENT_CONFIRMATION,
         ORDER_CANCELED,
         ORDER_REFUND_CONFIRMATION,
+        SEND_GIFT_CARD,
     ]
 
 
 class AdminNotifyEvent:
     ACCOUNT_SET_STAFF_PASSWORD = "account_set_staff_password"
     ACCOUNT_STAFF_RESET_PASSWORD = "account_staff_reset_password"
-    CSV_PRODUCT_EXPORT_SUCCESS = "csv_export_products_success"
+    CSV_EXPORT_SUCCESS = "csv_export_success"
     CSV_EXPORT_FAILED = "csv_export_failed"
     STAFF_ORDER_CONFIRMATION = "staff_order_confirmation"
 
     CHOICES = [
         ACCOUNT_SET_STAFF_PASSWORD,
-        CSV_PRODUCT_EXPORT_SUCCESS,
+        CSV_EXPORT_SUCCESS,
         CSV_EXPORT_FAILED,
         STAFF_ORDER_CONFIRMATION,
         ACCOUNT_STAFF_RESET_PASSWORD,

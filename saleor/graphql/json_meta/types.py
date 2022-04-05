@@ -2,14 +2,15 @@ import graphene
 from saleor.graphql.meta.types import ObjectWithMetadata
 from saleor.core.models import ModelWithMetadata
 from .resolvers import resolve_json_metadata, resolve_json_private_metadata
+from saleor.graphql.core.fields import JSONString
 
 
 class ObjectWithJSONMetadata(ObjectWithMetadata):
-    json_private_metadata = graphene.JSONString(required=True, description=(
+    json_private_metadata = JSONString(required=True, description=(
             "JSON of private metadata items."
             "Requires proper staff permissions to access."
         ),)
-    json_metadata = graphene.JSONString(required=True, description=(
+    json_metadata = JSONString(required=True, description=(
             "JSON of metadata items."
             "Requires proper staff permissions to access."
         ),)

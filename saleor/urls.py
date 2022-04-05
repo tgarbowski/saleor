@@ -41,6 +41,7 @@ urlpatterns = [
         handle_plugin_webhook,
         name="plugins",
     ),
+    url(r".well-known/jwks.json", jwks, name="jwks"),
     url(r'^allegro/(?P<channel_slug>[.0-9A-Za-z_\-]+)?$', AllegroAuth.resolve_auth),
     url(r'^sumi/reserve', SumiPlugin.create_reservation),
     url(r'^sumi/cancel', SumiPlugin.cancel_reservation),

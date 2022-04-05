@@ -3,6 +3,7 @@ from urllib.parse import urljoin
 import graphene
 from django.conf import settings
 
+from ....core.tracing import traced_resolver
 from ....product.product_images import get_thumbnail
 from ...account.enums import AddressTypeEnum
 from ..enums import (
@@ -14,7 +15,9 @@ from ..enums import (
     CollectionErrorCode,
     DiscountErrorCode,
     ExportErrorCode,
+    ExternalNotificationTriggerErrorCode,
     GiftCardErrorCode,
+    GiftCardSettingsErrorCode,
     InvoiceErrorCode,
     JobStatusEnum,
     LanguageCodeEnum,
@@ -31,14 +34,15 @@ from ..enums import (
     ShippingErrorCode,
     ShopErrorCode,
     StockErrorCode,
+    TimePeriodTypeEnum,
     TranslationErrorCode,
     UploadErrorCode,
     WarehouseErrorCode,
     WebhookErrorCode,
     WeightUnitsEnum,
-    WishlistErrorCode,
     WmsDocumentErrorCode
 )
+from ..scalars import PositiveDecimal
 from .money import VAT
 
 
@@ -163,6 +167,12 @@ class ExportError(Error):
     code = ExportErrorCode(description="The error code.", required=True)
 
 
+class ExternalNotificationError(Error):
+    code = ExternalNotificationTriggerErrorCode(
+        description="The error code.", required=True
+    )
+
+
 class MenuError(Error):
     code = MenuErrorCode(description="The error code.", required=True)
 
@@ -171,9 +181,13 @@ class OrderSettingsError(Error):
     code = OrderSettingsErrorCode(description="The error code.", required=True)
 
 
+class GiftCardSettingsError(Error):
+    code = GiftCardSettingsErrorCode(description="The error code.", required=True)
+
+
 class MetadataError(Error):
     code = MetadataErrorCode(description="The error code.", required=True)
-    params = graphene.JSONString(description="list of errors", required=False)
+    # params = JSONString(description="list of errors", required=False)
 
 
 class OrderError(Error):
@@ -313,6 +327,11 @@ class PaymentError(Error):
 
 class GiftCardError(Error):
     code = GiftCardErrorCode(description="The error code.", required=True)
+    tags = graphene.List(
+        graphene.NonNull(graphene.String),
+        description="List of tag values that cause the error.",
+        required=False,
+    )
 
 
 class PluginError(Error):
@@ -339,10 +358,6 @@ class WarehouseError(Error):
 
 class WebhookError(Error):
     code = WebhookErrorCode(description="The error code.", required=True)
-
-
-class WishlistError(ProductWithoutVariantError):
-    code = WishlistErrorCode(description="The error code.", required=True)
 
 
 class WmsDocumentError(Error):
@@ -400,6 +415,11 @@ class File(graphene.ObjectType):
         return info.context.build_absolute_uri(urljoin(settings.MEDIA_URL, root.url))
 
 
+class PriceInput(graphene.InputObjectType):
+    currency = graphene.String(description="Currency code.", required=True)
+    amount = PositiveDecimal(description="Amount of money.", required=True)
+
+
 class PriceRangeInput(graphene.InputObjectType):
     gte = graphene.Float(description="Price greater than or equal to.", required=False)
     lte = graphene.Float(description="Price less than or equal to.", required=False)
@@ -425,6 +445,11 @@ class IntRangeInput(graphene.InputObjectType):
     lte = graphene.Int(description="Value less than or equal to.", required=False)
 
 
+class TimePeriodInputType(graphene.InputObjectType):
+    amount = graphene.Int(description="The length of the period.", required=True)
+    type = TimePeriodTypeEnum(description="The type of the period.", required=True)
+
+
 class TaxType(graphene.ObjectType):
     """Representation of tax types fetched from tax gateway."""
 
@@ -445,9 +470,15 @@ class Job(graphene.Interface):
     message = graphene.String(description="Job message.")
 
     @classmethod
+    @traced_resolver
     def resolve_type(cls, instance, _info):
         """Map a data object to a Graphene type."""
         MODEL_TO_TYPE_MAP = {
             # <DjangoModel>: <GrapheneType>
         }
         return MODEL_TO_TYPE_MAP.get(type(instance))
+
+
+class TimePeriod(graphene.ObjectType):
+    amount = graphene.Int(description="The length of the period.", required=True)
+    type = TimePeriodTypeEnum(description="The type of the period.", required=True)

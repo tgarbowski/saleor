@@ -10,12 +10,14 @@ from ....account.utils import create_superuser
 from ...utils.random_data import (
     add_address_to_admin,
     create_channels,
-    create_gift_card,
+    create_checkout_with_preorders,
+    create_gift_cards,
     create_menus,
     create_orders,
     create_page_type,
     create_pages,
     create_permission_groups,
+    create_preorder_orders,
     create_product_sales,
     create_products_by_schema,
     create_shipping_zones,
@@ -100,13 +102,17 @@ class Command(BaseCommand):
             self.stdout.write(msg)
         for msg in create_vouchers():
             self.stdout.write(msg)
-        for msg in create_gift_card():
-            self.stdout.write(msg)
         for msg in create_users(user_password, 20):
             self.stdout.write(msg)
         for msg in create_orders(20):
             self.stdout.write(msg)
+        for msg in create_preorder_orders(1):
+            self.stdout.write(msg)
+        for msg in create_gift_cards():
+            self.stdout.write(msg)
         for msg in create_menus():
+            self.stdout.write(msg)
+        for msg in create_checkout_with_preorders():
             self.stdout.write(msg)
 
         if options["createsuperuser"]:

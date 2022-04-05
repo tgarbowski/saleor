@@ -1,11 +1,13 @@
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import Dict, Optional
 
+import graphene
+import graphql
 from measurement.measures import Weight
 from prices import Money
 
-if TYPE_CHECKING:
-    from django.db.models.manager import RelatedManager
+from ..graphql.core.utils import from_global_id_or_error
+from ..plugins.webhook.utils import APP_ID_PREFIX
 
 
 @dataclass
@@ -19,8 +21,6 @@ class ShippingMethodData:
     type: Optional[str] = None
     maximum_order_price: Optional[Money] = None
     minimum_order_price: Optional[Money] = None
-    excluded_products: Optional["RelatedManager"] = None
-    channel_listings: Optional["RelatedManager"] = None
     minimum_order_weight: Optional[Weight] = None
     maximum_order_weight: Optional[Weight] = None
     maximum_delivery_days: Optional[int] = None
@@ -29,3 +29,21 @@ class ShippingMethodData:
     private_metadata: Dict[str, str] = field(default_factory=dict)
     active: bool = True
     message: str = ""
+
+    @property
+    def is_external(self) -> bool:
+        try:
+            type_, _ = from_global_id_or_error(self.id)
+            str_type = str(type_)
+        except graphql.error.base.GraphQLError:
+            pass
+        else:
+            return str_type == APP_ID_PREFIX
+
+        return False
+
+    @property
+    def graphql_id(self):
+        if self.is_external:
+            return self.id
+        return graphene.Node.to_global_id("ShippingMethod", self.id)

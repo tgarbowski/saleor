@@ -1,6 +1,6 @@
 import logging
 from decimal import Decimal
-from typing import TYPE_CHECKING, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Iterable, List, Optional, Tuple
 
 import requests
 from django.utils import timezone
@@ -8,7 +8,9 @@ from posuto import Posuto
 from requests.auth import HTTPBasicAuth
 
 from ....order.models import Order
-from ...interface import AddressData, PaymentData
+from ... import PaymentError
+from ...interface import AddressData, PaymentData, PaymentLineData, RefundData
+from ...models import Payment
 from ...utils import price_to_minor_unit
 from .api_types import NPResponse, error_np_response
 from .const import NP_ATOBARAI, REQUEST_TIMEOUT
@@ -22,7 +24,11 @@ from .errors import (
     SHIPPING_ADDRESS_INVALID,
     SHIPPING_COMPANY_CODE_INVALID,
 )
-from .utils import notify_dashboard, np_atobarai_opentracing_trace
+from .utils import (
+    create_refunded_lines,
+    notify_dashboard,
+    np_atobarai_opentracing_trace,
+)
 
 if TYPE_CHECKING:
     from . import ApiConfig
@@ -42,7 +48,8 @@ def _request(
     path: str = "",
     json: Optional[dict] = None,
 ) -> requests.Response:
-    with np_atobarai_opentracing_trace("np-atobarai.utilities.request"):
+    trace_name = f"np-atobarai.request.{path.lstrip('/')}"
+    with np_atobarai_opentracing_trace(trace_name):
         response = requests.request(
             method=method,
             url=get_url(config, path),
@@ -51,6 +58,9 @@ def _request(
             auth=HTTPBasicAuth(config.merchant_code, config.sp_code),
             headers={"X-NP-Terminal-Id": config.terminal_id},
         )
+        # NP Atobarai returns error codes with http status code 400
+        # Because we want to pass those errors to the end user,
+        # we treat 400 as valid response.
         if 400 < response.status_code <= 600:
             raise requests.HTTPError
         return response
@@ -100,68 +110,139 @@ def format_address(config: "ApiConfig", ad: AddressData) -> Optional[str]:
     # example: "東京都千代田区麹町４－２－６　住友不動産麹町ファーストビル５階"
     if not config.fill_missing_address:
         return f"{ad.country_area}{ad.street_address_1}{ad.street_address_2}"
-    with Posuto() as pp:
-        try:
+    try:
+        with Posuto() as pp:
             jap_ad = pp.get(ad.postal_code)
-        except KeyError:
-            logger.warning(f"Invalid japanese postal code: {ad.postal_code}")
-            return None
-        else:
-            return (
-                f"{ad.country_area}"
-                f"{jap_ad.city}"
-                f"{jap_ad.neighborhood}"
-                f"{ad.street_address_1}"
-                f"{ad.street_address_2}"
-            )
+    except KeyError:
+        logger.warning("Invalid japanese postal code: %s", ad.postal_code)
+        return None
+    else:
+        return (
+            f"{ad.country_area}"
+            f"{jap_ad.city}"
+            f"{jap_ad.neighborhood}"
+            f"{ad.street_address_1}"
+            f"{ad.street_address_2}"
+        )
 
 
 def format_price(price: Decimal, currency: str) -> int:
     return int(price_to_minor_unit(price, currency))
 
 
-def get_refunded_goods(
+def _get_goods_name(line: PaymentLineData, config: "ApiConfig") -> str:
+    if not config.sku_as_name:
+        return line.product_name
+    elif sku := line.product_sku:
+        return sku
+    return str(line.variant_id)
+
+
+def _get_voucher_and_shipping_goods(
     config: "ApiConfig",
-    refund_data: Dict[int, int],
     payment_information: PaymentData,
 ) -> List[dict]:
-    return [
-        {
-            "goods_name": line.product_sku if config.sku_as_name else line.product_name,
-            "goods_price": format_price(line.gross, payment_information.currency),
-            "quantity": quantity,
-        }
-        for line in payment_information.lines
-        if (quantity := refund_data.get(line.variant_id, line.quantity))
-    ]
+    """Convert voucher and shipping amount into NP Atobarai goods lines."""
+    goods_lines = []
+    voucher_amount = payment_information.lines_data.voucher_amount
+    if voucher_amount:
+        goods_lines.append(
+            {
+                "goods_name": "Voucher",
+                "goods_price": format_price(
+                    voucher_amount, payment_information.currency
+                ),
+                "quantity": 1,
+            }
+        )
+    shipping_amount = payment_information.lines_data.shipping_amount
+    if shipping_amount:
+        goods_lines.append(
+            {
+                "goods_name": "Shipping",
+                "goods_price": format_price(
+                    shipping_amount, payment_information.currency
+                ),
+                "quantity": 1,
+            }
+        )
+
+    return goods_lines
+
+
+def get_goods_with_refunds(
+    config: "ApiConfig",
+    payment: Payment,
+    payment_information: PaymentData,
+) -> Tuple[List[dict], Decimal]:
+    """Combine PaymentLinesData and RefundData into NP Atobarai's goods list.
+
+    Used for payment updates.
+    Returns current state of order lines after refunds and total order amount.
+    """
+    goods_lines = []
+    refund_data = payment_information.refund_data or RefundData()
+
+    order = payment.order
+    if not order:
+        raise PaymentError("Cannot refund payment without order.")
+
+    refunded_lines = create_refunded_lines(order, refund_data)
+
+    total = Decimal("0.00")
+    for line in payment_information.lines_data.lines:
+        quantity = line.quantity
+        refunded_quantity = refunded_lines.get(line.variant_id)
+        if refunded_quantity:
+            quantity -= refunded_quantity
+
+        if quantity:
+            goods_lines.append(
+                {
+                    "goods_name": _get_goods_name(line, config),
+                    "goods_price": format_price(
+                        line.amount, payment_information.currency
+                    ),
+                    "quantity": quantity,
+                }
+            )
+            total += line.amount * quantity
+
+    goods_lines.extend(_get_voucher_and_shipping_goods(config, payment_information))
+    total += payment_information.lines_data.shipping_amount
+    total += payment_information.lines_data.voucher_amount
+
+    billed_amount = payment.captured_amount - payment_information.amount
+    # NP requires that the sum of all goods prices is equal to billing amount
+    refunded_manual_amount = billed_amount - total
+
+    if refunded_manual_amount:
+        goods_lines.append(
+            {
+                "goods_name": "Discount",
+                "goods_price": format_price(
+                    refunded_manual_amount, payment_information.currency
+                ),
+                "quantity": 1,
+            }
+        )
+
+    return goods_lines, billed_amount
 
 
 def get_goods(config: "ApiConfig", payment_information: PaymentData) -> List[dict]:
+    """Convert PaymentLinesData into NP Atobarai's goods list.
+
+    Used for initial payment registration only.
+    """
     return [
         {
             "quantity": line.quantity,
-            "goods_name": line.product_sku if config.sku_as_name else line.product_name,
-            "goods_price": format_price(line.gross, payment_information.currency),
+            "goods_name": _get_goods_name(line, config),
+            "goods_price": format_price(line.amount, payment_information.currency),
         }
-        for line in payment_information.lines
-    ]
-
-
-def get_goods_with_discount(
-    config: "ApiConfig",
-    payment_information: PaymentData,
-) -> List[dict]:
-    product_lines = get_goods(config, payment_information)
-    return product_lines + [
-        {
-            "goods_name": "Discount",
-            "goods_price": format_price(
-                -payment_information.amount,
-                payment_information.currency,
-            ),
-            "quantity": 1,
-        }
-    ]
+        for line in payment_information.lines_data.lines
+    ] + _get_voucher_and_shipping_goods(config, payment_information)
 
 
 def cancel(config: "ApiConfig", transaction_id: str) -> NPResponse:
@@ -179,6 +260,7 @@ def register(
         billed_amount = format_price(
             payment_information.amount, payment_information.currency
         )
+
     if goods is None:
         goods = get_goods(config, payment_information)
 

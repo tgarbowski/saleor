@@ -180,6 +180,10 @@ if not SECRET_KEY and DEBUG:
     warnings.warn("SECRET_KEY not configured, using a random temporary key.")
     SECRET_KEY = get_random_secret_key()
 
+JWT_MANAGER_PATH = os.environ.get(
+    "JWT_MANAGER_PATH", "saleor.core.jwt_manager.JWTManager"
+)
+
 AWS_SECRET_ID = os.environ.get("AWS_SECRET_ID", None)
 
 if AWS_SECRET_ID:
@@ -235,7 +239,6 @@ INSTALLED_APPS = [
     "saleor.payment",
     "saleor.warehouse",
     "saleor.webhook",
-    "saleor.wishlist",
     "saleor.app",
     "saleor.salingo",
     "saleor.wms",
@@ -245,7 +248,6 @@ INSTALLED_APPS = [
     "django_prices",
     "django_prices_openexchangerates",
     "django_prices_vatlayer",
-    "graphene_django",
     "mptt",
     "django_countries",
     "django_filters",
@@ -410,7 +412,7 @@ PAYMENT_HOST = get_host
 
 PAYMENT_MODEL = "order.Payment"
 
-MAX_CHECKOUT_LINE_QUANTITY = int(os.environ.get("MAX_CHECKOUT_LINE_QUANTITY", 50))
+MAX_USER_ADDRESSES = int(os.environ.get("MAX_USER_ADDRESSES", 100))
 
 TEST_RUNNER = "saleor.tests.runner.PytestTestRunner"
 
@@ -501,6 +503,22 @@ AUTHENTICATION_BACKENDS = [
     "saleor.core.auth_backend.PluginBackend",
 ]
 
+# Expired checkouts settings - defines after what time checkouts will be deleted
+ANONYMOUS_CHECKOUTS_TIMEDELTA = timedelta(
+    seconds=parse(os.environ.get("ANONYMOUS_CHECKOUTS_TIMEDELTA", "30 days"))
+)
+USER_CHECKOUTS_TIMEDELTA = timedelta(
+    seconds=parse(os.environ.get("USER_CHECKOUTS_TIMEDELTA", "90 days"))
+)
+EMPTY_CHECKOUTS_TIMEDELTA = timedelta(
+    seconds=parse(os.environ.get("EMPTY_CHECKOUTS_TIMEDELTA", "6 hours"))
+)
+
+# Exports settings - defines after what time exported files will be deleted
+EXPORT_FILES_TIMEDELTA = timedelta(
+    seconds=parse(os.environ.get("EXPORT_FILES_TIMEDELTA", "30 days"))
+)
+
 # CELERY SETTINGS
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BROKER_URL = (
@@ -526,6 +544,34 @@ if APP_ENVIRONMENT in ['production']:
             "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
             "schedule": timedelta(days=1),
         },
+        "deactivate-preorder-for-variants": {
+            "task": "saleor.product.tasks.deactivate_preorder_for_variants_task",
+            "schedule": timedelta(hours=1),
+        },
+        "delete-expired-reservations": {
+            "task": "saleor.warehouse.tasks.delete_expired_reservations_task",
+            "schedule": timedelta(days=1),
+        },
+        "delete-expired-checkouts": {
+            "task": "saleor.checkout.tasks.delete_expired_checkouts",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "delete-outdated-event-data": {
+            "task": "saleor.core.tasks.delete_event_payloads_task",
+            "schedule": timedelta(days=1),
+        },
+        "deactivate-expired-gift-cards": {
+            "task": "saleor.giftcard.tasks.deactivate_expired_cards_task",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "update-stocks-quantity-allocated": {
+            "task": "saleor.warehouse.tasks.update_stocks_quantity_allocated_task",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "delete-old-export-files": {
+            "task": "saleor.csv.tasks.delete_old_export_files",
+            "schedule": crontab(hour=1, minute=0),
+        },
     }
 
 if APP_ENVIRONMENT in ['development']:
@@ -533,8 +579,44 @@ if APP_ENVIRONMENT in ['development']:
         'refresh_token_task': {
             'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
             'schedule': 1800.0
-        }
+        },
+        "delete-empty-allocations": {
+            "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
+            "schedule": timedelta(days=1),
+        },
+        "deactivate-preorder-for-variants": {
+            "task": "saleor.product.tasks.deactivate_preorder_for_variants_task",
+            "schedule": timedelta(hours=1),
+        },
+        "delete-expired-reservations": {
+            "task": "saleor.warehouse.tasks.delete_expired_reservations_task",
+            "schedule": timedelta(days=1),
+        },
+        "delete-expired-checkouts": {
+            "task": "saleor.checkout.tasks.delete_expired_checkouts",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "delete-outdated-event-data": {
+            "task": "saleor.core.tasks.delete_event_payloads_task",
+            "schedule": timedelta(days=1),
+        },
+        "deactivate-expired-gift-cards": {
+            "task": "saleor.giftcard.tasks.deactivate_expired_cards_task",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "update-stocks-quantity-allocated": {
+            "task": "saleor.warehouse.tasks.update_stocks_quantity_allocated_task",
+            "schedule": crontab(hour=0, minute=0),
+        },
+        "delete-old-export-files": {
+            "task": "saleor.csv.tasks.delete_old_export_files",
+            "schedule": crontab(hour=1, minute=0),
+        },
     }
+
+EVENT_PAYLOAD_DELETE_PERIOD = timedelta(
+    seconds=parse(os.environ.get("EVENT_PAYLOAD_DELETE_PERIOD", "14 days"))
+)
 
 # Change this value if your application is running behind a proxy,
 # e.g. HTTP_CF_Connecting_IP for Cloudflare or X_FORWARDED_FOR
@@ -568,6 +650,11 @@ GRAPHENE = {
     "RELAY_CONNECTION_MAX_LIMIT": 100,
 }
 
+# Set GRAPHQL_QUERY_MAX_COMPLEXITY=0 in env to disable (not recommended)
+GRAPHQL_QUERY_MAX_COMPLEXITY = int(
+    os.environ.get("GRAPHQL_QUERY_MAX_COMPLEXITY", 50000)
+)
+
 # Max number entities that can be requested in single query by Apollo Federation
 # Federation protocol implements no securities on its own part - malicious actor
 # may build a query that requests for potentially few thousands of entities.
@@ -575,8 +662,8 @@ GRAPHENE = {
 FEDERATED_QUERY_MAX_ENTITIES = int(os.environ.get("FEDERATED_QUERY_MAX_ENTITIES", 100))
 
 BUILTIN_PLUGINS = [
-    "saleor.plugins.avatax.plugin.AvataxPlugin",
-    "saleor.plugins.vatlayer.plugin.VatlayerPlugin",
+    # "saleor.plugins.avatax.plugin.AvataxPlugin",
+    # "saleor.plugins.vatlayer.plugin.VatlayerPlugin",
     "saleor.plugins.webhook.plugin.WebhookPlugin",
     "saleor.payment.gateways.dummy.plugin.DummyGatewayPlugin",
     "saleor.payment.gateways.dummy_credit_card.plugin.DummyCreditCardGatewayPlugin",
@@ -584,10 +671,10 @@ BUILTIN_PLUGINS = [
     "saleor.payment.gateways.stripe.plugin.StripeGatewayPlugin",
     "saleor.payment.gateways.braintree.plugin.BraintreeGatewayPlugin",
     "saleor.payment.gateways.razorpay.plugin.RazorpayGatewayPlugin",
-    #"saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
+    "saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
     "saleor.payment.gateways.authorize_net.plugin.AuthorizeNetGatewayPlugin",
+    "saleor.payment.gateways.np_atobarai.plugin.NPAtobaraiGatewayPlugin",
     "saleor.payment.gateways.payu.plugin.PayuGatewayPlugin",
-    #"saleor.payment.gateways.np_atobarai.plugin.NPAtobaraiGatewayPlugin",
     "saleor.plugins.invoicing.plugin.InvoicingPlugin",
     "saleor.plugins.user_email.plugin.UserEmailPlugin",
     "saleor.plugins.admin_email.plugin.AdminEmailPlugin",
@@ -629,11 +716,6 @@ if (
 # for getting response from the server.
 WEBHOOK_TIMEOUT = 10
 WEBHOOK_SYNC_TIMEOUT = 20
-
-# This is deprecated env which will be removed in Saleor 3.1
-WEBHOOK_EXCLUDED_SHIPPING_REQUEST_TIMEOUT = int(
-    os.environ.get("WEBHOOK_EXCLUDED_SHIPPING_REQUEST_TIMEOUT", 2)
-)
 
 # Initialize a simple and basic Jaeger Tracing integration
 # for open-tracing if enabled.

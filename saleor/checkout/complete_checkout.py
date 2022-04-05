@@ -1,5 +1,5 @@
 from datetime import date
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, cast
 
 import graphene
 from django.contrib.sites.models import Site
@@ -13,7 +13,7 @@ from ..account.utils import store_user_address
 from ..checkout import calculations
 from ..checkout.error_codes import CheckoutErrorCode
 from ..core.exceptions import InsufficientStock
-from ..core.taxes import TaxError, include_taxes_in_prices, zero_taxed_money
+from ..core.taxes import TaxError, zero_taxed_money
 from ..core.tracing import traced_atomic_transaction
 from ..core.utils.url import validate_storefront_url
 from ..discount import DiscountInfo, DiscountValueType, OrderDiscountType, VoucherType
@@ -25,19 +25,23 @@ from ..discount.utils import (
     release_voucher_usage,
 )
 from ..giftcard.models import GiftCard
+from ..giftcard.utils import fulfill_non_shippable_gift_cards
 from ..graphql.checkout.utils import (
     prepare_insufficient_stock_checkout_validation_error,
 )
-from ..order import OrderLineData, OrderOrigin, OrderStatus
+from ..order import OrderOrigin, OrderStatus
 from ..order.actions import mark_order_as_paid, order_created
+from ..order.fetch import OrderInfo, OrderLineInfo
 from ..order.models import Order, OrderLine
 from ..order.notifications import send_order_confirmation
+from ..order.search import prepare_order_search_document_value
 from ..payment import PaymentError, gateway
 from ..payment.models import Payment, Transaction
 from ..payment.utils import fetch_customer_id, store_customer_id
 from ..product.models import ProductTranslation, ProductVariantTranslation
-from ..warehouse.availability import check_stock_quantity_bulk
-from ..warehouse.management import allocate_stocks
+from ..warehouse.availability import check_stock_and_preorder_quantity_bulk
+from ..warehouse.management import allocate_preorders, allocate_stocks
+from ..warehouse.reservations import is_reservation_enabled
 from . import AddressType
 from .checkout_cleaner import clean_checkout_payment, clean_checkout_shipping
 from .models import Checkout
@@ -46,6 +50,7 @@ from .utils import get_voucher_for_checkout_info
 if TYPE_CHECKING:
     from ..app.models import App
     from ..plugins.manager import PluginsManager
+    from ..site.models import SiteSettings
     from .fetch import CheckoutInfo, CheckoutLineInfo
 
 
@@ -70,7 +75,8 @@ def _process_voucher_data_for_order(checkout_info: "CheckoutInfo") -> dict:
     if voucher.usage_limit:
         increase_voucher_usage(voucher)
     if voucher.apply_once_per_customer:
-        add_voucher_usage_by_customer(voucher, checkout_info.get_customer_email())
+        customer_email = cast(str, checkout_info.get_customer_email())
+        add_voucher_usage_by_customer(voucher, customer_email)
     return {
         "voucher": voucher,
     }
@@ -144,7 +150,7 @@ def _create_line_for_order(
     products_translation: Dict[int, Optional[str]],
     variants_translation: Dict[int, Optional[str]],
     taxes_included_in_prices: bool,
-) -> OrderLineData:
+) -> OrderLineInfo:
     """Create a line for the given order.
 
     :raises InsufficientStock: when there is not enough items in stock for this variant.
@@ -228,7 +234,9 @@ def _create_line_for_order(
         translated_product_name=translated_product_name,
         translated_variant_name=translated_variant_name,
         product_sku=variant.sku,
+        product_variant_id=variant.get_global_id(),
         is_shipping_required=variant.is_shipping_required(),
+        is_gift_card=variant.is_gift_card(),
         quantity=quantity,
         variant=variant,
         unit_price=unit_price_data.price_with_discounts,  # type: ignore
@@ -244,8 +252,15 @@ def _create_line_for_order(
         unit_discount_reason=unit_discount_reason,
         unit_discount_value=discount_amount.amount,  # we store value as fixed discount
     )
-
-    line_info = OrderLineData(line=line, quantity=quantity, variant=variant)
+    is_digital = line.is_digital
+    line_info = OrderLineInfo(
+        line=line,
+        quantity=quantity,
+        is_digital=is_digital,
+        variant=variant,
+        digital_content=variant.digital_content if is_digital and variant else None,
+        warehouse_pk=checkout_info.delivery_method_info.warehouse_pk,
+    )
 
     return line_info
 
@@ -255,8 +270,9 @@ def _create_lines_for_order(
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
     discounts: Iterable[DiscountInfo],
+    check_reservations: bool,
     taxes_included_in_prices: bool,
-) -> Iterable[OrderLineData]:
+) -> Iterable[OrderLineInfo]:
     """Create a lines for the given order.
 
     :raises InsufficientStock: when there is not enough items in stock for this variant.
@@ -288,8 +304,19 @@ def _create_lines_for_order(
         for variant_translation in variants_translation
     }
 
-    check_stock_quantity_bulk(
-        variants, country_code, quantities, checkout_info.channel.slug
+    additional_warehouse_lookup = (
+        checkout_info.delivery_method_info.get_warehouse_filter_lookup()
+    )
+    check_stock_and_preorder_quantity_bulk(
+        variants,
+        country_code,
+        quantities,
+        checkout_info.channel.slug,
+        global_quantity_limit=None,
+        additional_filter_lookup=additional_warehouse_lookup,
+        existing_lines=lines,
+        replace=True,
+        check_reservations=check_reservations,
     )
 
     return [
@@ -313,7 +340,8 @@ def _prepare_order_data(
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
     discounts: Iterable["DiscountInfo"],
-    taxes_included_in_prices: bool
+    taxes_included_in_prices: bool,
+    check_reservations: bool = False,
 ) -> dict:
     """Run checks and return all the data from a given checkout to create an order.
 
@@ -360,7 +388,12 @@ def _prepare_order_data(
     )
 
     order_data["lines"] = _create_lines_for_order(
-        manager, checkout_info, lines, discounts, taxes_included_in_prices
+        manager,
+        checkout_info,
+        lines,
+        discounts,
+        check_reservations,
+        taxes_included_in_prices,
     )
 
     # validate checkout gift cards
@@ -387,6 +420,7 @@ def _prepare_order_data(
 def _create_order(
     *,
     checkout_info: "CheckoutInfo",
+    checkout_lines: Iterable["CheckoutLineInfo"],
     order_data: dict,
     user: User,
     app: Optional["App"],
@@ -404,7 +438,7 @@ def _create_order(
     Current user's language is saved in the order so we can later determine
     which language to use when sending email.
     """
-    from ..order.utils import add_gift_card_to_order
+    from ..order.utils import add_gift_cards_to_order
 
     checkout = checkout_info.checkout
     order = Order.objects.filter(checkout_token=checkout.token).first()
@@ -460,11 +494,26 @@ def _create_order(
     OrderLine.objects.bulk_create(order_lines)
 
     country_code = checkout_info.get_country()
-    allocate_stocks(order_lines_info, country_code, checkout_info.channel.slug)
+    additional_warehouse_lookup = (
+        checkout_info.delivery_method_info.get_warehouse_filter_lookup()
+    )
+    allocate_stocks(
+        order_lines_info,
+        country_code,
+        checkout_info.channel.slug,
+        manager,
+        additional_warehouse_lookup,
+        check_reservations=is_reservation_enabled(site_settings),
+        checkout_lines=[line.line for line in checkout_lines],
+    )
+    allocate_preorders(
+        order_lines_info,
+        checkout_info.channel.slug,
+        check_reservations=is_reservation_enabled(site_settings),
+        checkout_lines=[line.line for line in checkout_lines],
+    )
 
-    # Add gift cards to the order
-    for gift_card in checkout.gift_cards.select_for_update():
-        total_price_left = add_gift_card_to_order(order, gift_card, total_price_left)
+    add_gift_cards_to_order(checkout_info, order, total_price_left, user, app)
 
     # assign checkout payments to the order
     checkout.payments.update(order=order)
@@ -474,16 +523,32 @@ def _create_order(
     order.redirect_url = checkout.redirect_url
     order.private_metadata = checkout.private_metadata
     order.update_total_paid()
+    order.search_document = prepare_order_search_document_value(order)
     order.save()
 
+    order_info = OrderInfo(
+        order=order,
+        customer_email=order_data["user_email"],
+        channel=checkout_info.channel,
+        payment=order.get_last_payment(),
+        lines_data=order_lines_info,
+    )
+
     transaction.on_commit(
-        lambda: order_created(order=order, user=user, app=app, manager=manager)
+        lambda: order_created(
+            order_info=order_info, user=user, app=app, manager=manager
+        )
     )
 
     # Send the order confirmation email
     transaction.on_commit(
-        lambda: send_order_confirmation(order, checkout.redirect_url, manager)
+        lambda: send_order_confirmation(order_info, checkout.redirect_url, manager)
     )
+
+    if site_settings.automatically_fulfill_non_shippable_gift_card:
+        fulfill_non_shippable_gift_cards(
+            order, order_lines, site_settings, user, app, manager
+        )
 
     return order
 
@@ -544,7 +609,7 @@ def _get_order_data(
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
     discounts: List[DiscountInfo],
-    taxes_included_in_prices: bool,
+    site_settings: "SiteSettings",
 ) -> dict:
     """Prepare data that will be converted to order and its lines."""
     try:
@@ -553,7 +618,8 @@ def _get_order_data(
             checkout_info=checkout_info,
             lines=lines,
             discounts=discounts,
-            taxes_included_in_prices=taxes_included_in_prices,
+            check_reservations=is_reservation_enabled(site_settings),
+            taxes_included_in_prices=site_settings.include_taxes_in_prices,
         )
     except InsufficientStock as e:
         error = prepare_insufficient_stock_checkout_validation_error(e)
@@ -640,14 +706,12 @@ def complete_checkout(
         payment=payment,
     )
 
-    if site_settings:
-        taxes_included_in_prices = site_settings.include_taxes_in_prices
-    else:
-        taxes_included_in_prices = include_taxes_in_prices()
+    if site_settings is None:
+        site_settings = Site.objects.get_current().settings
 
     try:
         order_data = _get_order_data(
-            manager, checkout_info, lines, discounts, taxes_included_in_prices
+            manager, checkout_info, lines, discounts, site_settings
         )
     except ValidationError as exc:
         gateway.payment_refund_or_void(payment, manager, channel_slug=channel_slug)
@@ -683,6 +747,7 @@ def complete_checkout(
         try:
             order = _create_order(
                 checkout_info=checkout_info,
+                checkout_lines=lines,
                 order_data=order_data,
                 user=user,  # type: ignore
                 app=app,

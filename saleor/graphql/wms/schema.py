@@ -6,16 +6,17 @@ from .mutations import (WmsDocumentCreate, WmsDocumentUpdate, WmsDocPositionCrea
                         WmsDocPositionUpdate, WmsDocumentDelete, WmsDocPositionDelete,
                         WmsDelivererCreate, WmsDelivererUpdate, WmsDelivererDelete)
 
-from saleor.wms import models
-from saleor.graphql.core.fields import FilterInputConnectionField
+from saleor.graphql.core.fields import FilterConnectionField
 from saleor.graphql.wms.resolvers import (resolve_wms_documents, resolve_wms_document,
                                           resolve_wms_doc_positions, resolve_wms_document_pdf,
                                           resolve_wms_actions_report, resolve_wms_products_report,
                                           resolve_wms_doc_position, resolve_wms_deliverers,
                                           resolve_wms_deliverer)
-from .types import WmsDeliverer, WmsDocPosition, WmsDocument
+from .types import (WmsDeliverer, WmsDocPosition, WmsDocument, WMSDocumentCountableConnection,
+                    WMSDocPositionCountableConnection, WMSDelivererCountableConnection)
 from .filters import WmsDocPositionFilterInput, WmsDocumentFilterInput, WmsDelivererFilterInput
 from graphene.types.generic import GenericScalar
+from ..core.connection import create_connection_slice, filter_connection_queryset
 
 
 class WmsDocumentMutations(graphene.ObjectType):
@@ -34,11 +35,12 @@ class WmsDocumentMutations(graphene.ObjectType):
 
 
 class WmsDocumentQueries(graphene.ObjectType):
-    wms_documents = FilterInputConnectionField(
-        WmsDocument,
-        filter=WmsDocumentFilterInput(description="Filtering wms documents"),
+    wms_documents = FilterConnectionField(
+        WMSDocumentCountableConnection,
+        filter=WmsDocumentFilterInput(),
         description="List of wms documents"
     )
+
     wms_document = graphene.Field(
         WmsDocument,
         id=graphene.Argument(graphene.ID, description="ID of the wms document.",),
@@ -61,7 +63,9 @@ class WmsDocumentQueries(graphene.ObjectType):
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_documents(self, info, **kwargs):
-        return resolve_wms_documents(info, **kwargs)
+        qs = resolve_wms_documents(info, **kwargs)
+        qs = filter_connection_queryset(qs, kwargs)
+        return create_connection_slice(qs, info, kwargs, WMSDocumentCountableConnection)
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_document(self, info, **kwargs):
@@ -81,8 +85,8 @@ class WmsDocumentQueries(graphene.ObjectType):
 
 
 class WmsDocPositionQueries(graphene.ObjectType):
-    wms_doc_positions = FilterInputConnectionField(
-        WmsDocPosition,
+    wms_doc_positions = FilterConnectionField(
+        WMSDocPositionCountableConnection,
         filter=WmsDocPositionFilterInput(description="Filtering wms document positions"),
         description="List of wms document positions"
     )
@@ -95,7 +99,9 @@ class WmsDocPositionQueries(graphene.ObjectType):
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_doc_positions(self, info, **kwargs):
-        return resolve_wms_doc_positions(info, **kwargs)
+        qs = resolve_wms_doc_positions(info, **kwargs)
+        qs = filter_connection_queryset(qs, kwargs)
+        return create_connection_slice(qs, info, kwargs, WMSDocPositionCountableConnection)
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_doc_position(self, info, **kwargs):
@@ -103,8 +109,8 @@ class WmsDocPositionQueries(graphene.ObjectType):
 
 
 class WmsDelivererQueries(graphene.ObjectType):
-    wms_deliverers = FilterInputConnectionField(
-        WmsDeliverer,
+    wms_deliverers = FilterConnectionField(
+        WMSDelivererCountableConnection,
         filter=WmsDelivererFilterInput(description="Filtering wms deliverers"),
         description="List of wms deliverers"
     )
@@ -116,7 +122,9 @@ class WmsDelivererQueries(graphene.ObjectType):
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_deliverers(self, info, **kwargs):
-        return resolve_wms_deliverers(info, **kwargs)
+        qs = resolve_wms_deliverers(info, **kwargs)
+        qs = filter_connection_queryset(qs, kwargs)
+        return create_connection_slice(qs, info, kwargs, WMSDelivererCountableConnection)
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_deliverer(self, info, **kwargs):

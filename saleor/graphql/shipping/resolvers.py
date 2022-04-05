@@ -1,10 +1,9 @@
 from prices import MoneyRange
 
 from ...shipping import models
-from ..channel import ChannelContext, ChannelQsContext
-from .dataloaders import (
-    ShippingMethodChannelListingByShippingMethodIdAndChannelSlugLoader,
-)
+from ...shipping.interface import ShippingMethodData
+from ..channel import ChannelQsContext
+from ..translations.resolvers import resolve_translation
 
 
 def resolve_shipping_zones(channel_slug):
@@ -25,51 +24,7 @@ def resolve_price_range(channel_slug):
     return MoneyRange(min(prices), max(prices)) if prices else None
 
 
-def resolve_shipping_minimum_order_price(
-    root: ChannelContext[models.ShippingMethod], info, **_kwargs
-):
-    if not root.channel_slug:
+def resolve_shipping_translation(root: ShippingMethodData, info, language_code):
+    if root.is_external:
         return None
-
-    return (
-        ShippingMethodChannelListingByShippingMethodIdAndChannelSlugLoader(info.context)
-        .load((root.node.id, root.channel_slug))
-        .then(
-            lambda channel_listing: channel_listing
-            and channel_listing.minimum_order_price
-        )
-    )
-
-
-def resolve_shipping_maximum_order_price(
-    root: ChannelContext[models.ShippingMethod], info, **_kwargs
-):
-    if not root.channel_slug:
-        return None
-
-    return (
-        ShippingMethodChannelListingByShippingMethodIdAndChannelSlugLoader(info.context)
-        .load((root.node.id, root.channel_slug))
-        .then(
-            lambda channel_listing: channel_listing
-            and channel_listing.maximum_order_price
-        )
-    )
-
-
-def resolve_shipping_price(
-    root: ChannelContext[models.ShippingMethod], info, **_kwargs
-):
-    # Price field are dynamically generated in "available_shipping_methods" resolver
-    price = getattr(root.node, "price", None)
-    if price is not None:
-        return price
-
-    if not root.channel_slug:
-        return None
-
-    return (
-        ShippingMethodChannelListingByShippingMethodIdAndChannelSlugLoader(info.context)
-        .load((root.node.id, root.channel_slug))
-        .then(lambda channel_listing: channel_listing and channel_listing.price)
-    )
+    return resolve_translation(root, info, language_code)

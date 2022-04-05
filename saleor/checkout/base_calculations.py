@@ -154,7 +154,7 @@ def calculate_base_price_for_shipping_method(
     shipping_method_info: ShippingMethodInfo,
     lines=None,
 ) -> TaxedMoney:
-    """Calculate base (untaxed) price for a shipping method."""
+    """Return checkout shipping price."""
     # FIXME: Optimize checkout.is_shipping_required
     shipping_method = shipping_method_info.delivery_method
 
@@ -195,6 +195,24 @@ def base_checkout_total(
     if total.gross <= zero.gross:
         return zero
     return total
+
+
+def base_checkout_lines_total(
+    checkout_lines: Iterable["CheckoutLineInfo"],
+    channel: "Channel",
+    currency: str,
+    discounts: Optional[Iterable[DiscountInfo]] = None,
+) -> TaxedMoney:
+    line_totals = [
+        calculate_base_line_total_price(
+            line,
+            channel,
+            discounts,
+        ).price_with_sale
+        for line in checkout_lines
+    ]
+
+    return sum(line_totals, zero_taxed_money(currency))
 
 
 def base_checkout_line_total(

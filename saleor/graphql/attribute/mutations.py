@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 import graphene
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db.models import Exists, OuterRef, Q
 from django.utils.text import slugify
 
 from ...attribute import ATTRIBUTE_PROPERTIES_CONFIGURATION, AttributeInputType
@@ -15,8 +16,10 @@ from ...core.permissions import (
 )
 from ...core.tracing import traced_atomic_transaction
 from ...core.utils import generate_unique_slug
-from ..attribute.types import Attribute, AttributeValue
+from ...product import models as product_models
+from ...product.search import update_products_search_document
 from ..core.enums import MeasurementUnitsEnum
+from ..core.fields import JSONString
 from ..core.inputs import ReorderInput
 from ..core.mutations import BaseMutation, ModelDeleteMutation, ModelMutation
 from ..core.types.common import AttributeError
@@ -24,6 +27,7 @@ from ..core.utils import validate_slug_and_generate_if_needed
 from ..core.utils.reordering import perform_reordering
 from .descriptions import AttributeDescriptions, AttributeValueDescriptions
 from .enums import AttributeEntityTypeEnum, AttributeInputTypeEnum, AttributeTypeEnum
+from .types import Attribute, AttributeValue
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -185,10 +189,22 @@ class BaseReorderAttributeValuesMutation(BaseMutation):
         return operations
 
 
-class AttributeValueCreateInput(graphene.InputObjectType):
-    name = graphene.String(required=True, description=AttributeValueDescriptions.NAME)
+class AttributeValueInput(graphene.InputObjectType):
     value = graphene.String(description=AttributeValueDescriptions.VALUE)
-    rich_text = graphene.JSONString(description=AttributeValueDescriptions.RICH_TEXT)
+    rich_text = JSONString(description=AttributeValueDescriptions.RICH_TEXT)
+    file_url = graphene.String(
+        required=False,
+        description="URL of the file attribute. Every time, a new value is created.",
+    )
+    content_type = graphene.String(required=False, description="File content type.")
+
+
+class AttributeValueCreateInput(AttributeValueInput):
+    name = graphene.String(required=True, description=AttributeValueDescriptions.NAME)
+
+
+class AttributeValueUpdateInput(AttributeValueInput):
+    name = graphene.String(required=False, description=AttributeValueDescriptions.NAME)
 
 
 class AttributeCreateInput(graphene.InputObjectType):
@@ -232,7 +248,7 @@ class AttributeUpdateInput(graphene.InputObjectType):
         description="IDs of values to be removed from this attribute.",
     )
     add_values = graphene.List(
-        AttributeValueCreateInput,
+        AttributeValueUpdateInput,
         name="addValues",
         description="New values to be created for this attribute.",
     )
@@ -258,38 +274,8 @@ class AttributeUpdateInput(graphene.InputObjectType):
 
 
 class AttributeMixin:
-    @classmethod
-    def check_values_are_unique(cls, values_input, attribute):
-        # Check values uniqueness in case of creating new attribute.
-        existing_values = attribute.values.values_list("slug", flat=True)
-        for value_data in values_input:
-            slug = slugify(value_data["name"], allow_unicode=True)
-            if slug in existing_values:
-                msg = (
-                    "Value %s already exists within this attribute."
-                    % value_data["name"]
-                )
-                raise ValidationError(
-                    {
-                        cls.ATTRIBUTE_VALUES_FIELD: ValidationError(
-                            msg, code=AttributeErrorCode.ALREADY_EXISTS
-                        )
-                    }
-                )
-
-        new_slugs = [
-            slugify(value_data["name"], allow_unicode=True)
-            for value_data in values_input
-        ]
-        if len(set(new_slugs)) != len(new_slugs):
-            raise ValidationError(
-                {
-                    cls.ATTRIBUTE_VALUES_FIELD: ValidationError(
-                        "Provided values are not unique.",
-                        code=AttributeErrorCode.UNIQUE,
-                    )
-                }
-            )
+    # must be redefined by inheriting classes
+    ATTRIBUTE_VALUES_FIELD = None
 
     @classmethod
     def clean_values(cls, cleaned_input, attribute):
@@ -321,22 +307,55 @@ class AttributeMixin:
             )
 
         is_numeric_attr = attribute_input_type == AttributeInputType.NUMERIC
+        is_swatch_attr = attribute_input_type == AttributeInputType.SWATCH
         for value_data in values_input:
-            value = value_data["name"]
-            if is_numeric_attr:
-                cls.validate_numeric_value(value)
-            slug_value = value if not is_numeric_attr else value.replace(".", "_")
-            value_data["slug"] = slugify(slug_value, allow_unicode=True)
+            cls.validate_value(attribute, value_data, is_numeric_attr, is_swatch_attr)
 
-            attribute_value = models.AttributeValue(**value_data, attribute=attribute)
-            try:
-                attribute_value.full_clean()
-            except ValidationError as validation_errors:
-                for field, err in validation_errors.error_dict.items():
-                    if field == "attribute":
-                        continue
-                    raise ValidationError({cls.ATTRIBUTE_VALUES_FIELD: err})
         cls.check_values_are_unique(values_input, attribute)
+
+    @classmethod
+    def validate_value(
+        cls,
+        attribute: models.Attribute,
+        value_data: dict,
+        is_numeric_attr: bool,
+        is_swatch_attr: bool,
+    ):
+        value = value_data["name"]
+        cls.clean_value_input_data(value_data, is_swatch_attr)
+
+        if is_numeric_attr:
+            cls.validate_numeric_value(value)
+        elif is_swatch_attr:
+            cls.validate_swatch_attr_value(value_data)
+
+        slug_value = value if not is_numeric_attr else value.replace(".", "_")
+        value_data["slug"] = slugify(slug_value, allow_unicode=True)
+
+        attribute_value = models.AttributeValue(**value_data, attribute=attribute)
+        try:
+            attribute_value.full_clean()
+        except ValidationError as validation_errors:
+            for field, err in validation_errors.error_dict.items():
+                if field == "attribute":
+                    continue
+                raise ValidationError({cls.ATTRIBUTE_VALUES_FIELD: err})
+
+    @classmethod
+    def clean_value_input_data(cls, value_data: dict, is_swatch_attr: bool):
+        swatch_fields = ["file_url", "content_type", "value"]
+        if not is_swatch_attr and any(
+            [value_data.get(field) for field in swatch_fields]
+        ):
+            raise ValidationError(
+                {
+                    cls.ATTRIBUTE_VALUES_FIELD: ValidationError(
+                        "Cannot define value, file and contentType fields "
+                        "for not swatch attribute.",
+                        code=AttributeErrorCode.INVALID.value,
+                    )
+                }
+            )
 
     @classmethod
     def validate_numeric_value(cls, value):
@@ -347,7 +366,52 @@ class AttributeMixin:
                 {
                     cls.ATTRIBUTE_VALUES_FIELD: ValidationError(
                         "Value of numeric attribute must be numeric.",
-                        code=AttributeErrorCode.INVALID,
+                        code=AttributeErrorCode.INVALID.value,
+                    )
+                }
+            )
+
+    @classmethod
+    def validate_swatch_attr_value(cls, value_data: dict):
+        if value_data.get("value") and value_data.get("file_url"):
+            raise ValidationError(
+                {
+                    cls.ATTRIBUTE_VALUES_FIELD: ValidationError(
+                        "Cannot specify both value and file for swatch attribute.",
+                        code=AttributeErrorCode.INVALID.value,
+                    )
+                }
+            )
+
+    @classmethod
+    def check_values_are_unique(cls, values_input: dict, attribute: models.Attribute):
+        # Check values uniqueness in case of creating new attribute.
+        existing_values = attribute.values.values_list("slug", flat=True)
+        for value_data in values_input:
+            slug = slugify(value_data["name"], allow_unicode=True)
+            if slug in existing_values:
+                msg = (
+                    "Value %s already exists within this attribute."
+                    % value_data["name"]
+                )
+                raise ValidationError(
+                    {
+                        cls.ATTRIBUTE_VALUES_FIELD: ValidationError(
+                            msg, code=AttributeErrorCode.ALREADY_EXISTS.value
+                        )
+                    }
+                )
+
+        new_slugs = [
+            slugify(value_data["name"], allow_unicode=True)
+            for value_data in values_input
+        ]
+        if len(set(new_slugs)) != len(new_slugs):
+            raise ValidationError(
+                {
+                    cls.ATTRIBUTE_VALUES_FIELD: ValidationError(
+                        "Provided values are not unique.",
+                        code=AttributeErrorCode.UNIQUE.value,
                     )
                 }
             )
@@ -407,6 +471,7 @@ class AttributeCreate(AttributeMixin, ModelMutation):
 
     class Meta:
         model = models.Attribute
+        object_type = Attribute
         description = "Creates an attribute."
         error_type_class = AttributeError
         error_type_field = "attribute_errors"
@@ -436,7 +501,7 @@ class AttributeCreate(AttributeMixin, ModelMutation):
         else:
             permissions = (PageTypePermissions.MANAGE_PAGE_TYPES_AND_ATTRIBUTES,)
         if not cls.check_permissions(info.context, permissions):
-            raise PermissionDenied()
+            raise PermissionDenied(permissions=permissions)
 
         instance = models.Attribute()
 
@@ -472,6 +537,7 @@ class AttributeUpdate(AttributeMixin, ModelMutation):
 
     class Meta:
         model = models.Attribute
+        object_type = Attribute
         description = "Updates attribute."
         permissions = (ProductTypePermissions.MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES,)
         error_type_class = AttributeError
@@ -527,6 +593,7 @@ class AttributeDelete(ModelDeleteMutation):
 
     class Meta:
         model = models.Attribute
+        object_type = Attribute
         description = "Deletes an attribute."
         permissions = (ProductTypePermissions.MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES,)
         error_type_class = AttributeError
@@ -547,7 +614,9 @@ def validate_value_is_unique(attribute: models.Attribute, value: models.Attribut
         )
 
 
-class AttributeValueCreate(ModelMutation):
+class AttributeValueCreate(AttributeMixin, ModelMutation):
+    ATTRIBUTE_VALUES_FIELD = "input"
+
     attribute = graphene.Field(Attribute, description="The updated attribute.")
 
     class Arguments:
@@ -562,6 +631,7 @@ class AttributeValueCreate(ModelMutation):
 
     class Meta:
         model = models.AttributeValue
+        object_type = AttributeValue
         description = "Creates a value for an attribute."
         permissions = (ProductPermissions.MANAGE_PRODUCTS,)
         error_type_class = AttributeError
@@ -570,7 +640,31 @@ class AttributeValueCreate(ModelMutation):
     @classmethod
     def clean_input(cls, info, instance, data):
         cleaned_input = super().clean_input(info, instance, data)
-        cleaned_input["slug"] = generate_unique_slug(instance, cleaned_input["name"])
+        if "name" in cleaned_input:
+            cleaned_input["slug"] = generate_unique_slug(
+                instance, cleaned_input["name"]
+            )
+        input_type = instance.attribute.input_type
+
+        is_swatch_attr = input_type == AttributeInputType.SWATCH
+        only_swatch_fields = ["file_url", "content_type"]
+        errors = {}
+        if not is_swatch_attr:
+            for field in only_swatch_fields:
+                if cleaned_input.get(field):
+                    errors[field] = ValidationError(
+                        f"The field {field} can be defined only for swatch attributes.",
+                        code=AttributeErrorCode.INVALID.value,
+                    )
+        else:
+            try:
+                cls.validate_swatch_attr_value(cleaned_input)
+            except ValidationError as error:
+                errors["value"] = error.error_dict[cls.ATTRIBUTE_VALUES_FIELD]
+                errors["fileUrl"] = error.error_dict[cls.ATTRIBUTE_VALUES_FIELD]
+        if errors:
+            raise ValidationError(errors)
+
         return cleaned_input
 
     @classmethod
@@ -591,19 +685,20 @@ class AttributeValueCreate(ModelMutation):
         return AttributeValueCreate(attribute=attribute, attributeValue=instance)
 
 
-class AttributeValueUpdate(ModelMutation):
+class AttributeValueUpdate(AttributeValueCreate):
     attribute = graphene.Field(Attribute, description="The updated attribute.")
 
     class Arguments:
         id = graphene.ID(
             required=True, description="ID of an AttributeValue to update."
         )
-        input = AttributeValueCreateInput(
+        input = AttributeValueUpdateInput(
             required=True, description="Fields required to update an AttributeValue."
         )
 
     class Meta:
         model = models.AttributeValue
+        object_type = AttributeValue
         description = "Updates value of an attribute."
         permissions = (ProductTypePermissions.MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES,)
         error_type_class = AttributeError
@@ -612,20 +707,34 @@ class AttributeValueUpdate(ModelMutation):
     @classmethod
     def clean_input(cls, info, instance, data):
         cleaned_input = super().clean_input(info, instance, data)
-        if "name" in cleaned_input:
-            cleaned_input["slug"] = slugify(cleaned_input["name"], allow_unicode=True)
+        if cleaned_input.get("value"):
+            cleaned_input["file_url"] = ""
+            cleaned_input["content_type"] = ""
+        elif cleaned_input.get("file_url"):
+            cleaned_input["value"] = ""
         return cleaned_input
 
     @classmethod
-    def clean_instance(cls, info, instance):
-        validate_value_is_unique(instance.attribute, instance)
-        super().clean_instance(info, instance)
+    def perform_mutation(cls, _root, info, **data):
+        return super(AttributeValueCreate, cls).perform_mutation(_root, info, **data)
 
     @classmethod
     def success_response(cls, instance):
         response = super().success_response(instance)
         response.attribute = instance.attribute
         return response
+
+    @classmethod
+    def post_save_action(cls, info, instance, cleaned_input):
+        super().post_save_action(info, instance, cleaned_input)
+        variants = product_models.ProductVariant.objects.filter(
+            Exists(instance.variantassignments.filter(variant_id=OuterRef("id")))
+        )
+        products = product_models.Product.objects.filter(
+            Q(Exists(instance.productassignments.filter(product_id=OuterRef("id"))))
+            | Q(Exists(variants.filter(product_id=OuterRef("id"))))
+        )
+        update_products_search_document(products)
 
 
 class AttributeValueDelete(ModelDeleteMutation):
@@ -636,10 +745,33 @@ class AttributeValueDelete(ModelDeleteMutation):
 
     class Meta:
         model = models.AttributeValue
+        object_type = AttributeValue
         description = "Deletes a value of an attribute."
         permissions = (ProductTypePermissions.MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES,)
         error_type_class = AttributeError
         error_type_field = "attribute_errors"
+
+    @classmethod
+    def perform_mutation(cls, _root, info, **data):
+        node_id = data.get("id")
+        instance = cls.get_node_or_error(info, node_id, only_type=AttributeValue)
+        product_ids = cls.get_product_ids_to_update(instance)
+        response = super().perform_mutation(_root, info, **data)
+        update_products_search_document(
+            product_models.Product.objects.filter(id__in=product_ids)
+        )
+        return response
+
+    @classmethod
+    def get_product_ids_to_update(cls, instance):
+        variants = product_models.ProductVariant.objects.filter(
+            Exists(instance.variantassignments.filter(variant_id=OuterRef("id")))
+        )
+        product_ids = product_models.Product.objects.filter(
+            Q(Exists(instance.productassignments.filter(product_id=OuterRef("id"))))
+            | Q(Exists(variants.filter(product_id=OuterRef("id"))))
+        ).values_list("id", flat=True)
+        return list(product_ids)
 
     @classmethod
     def success_response(cls, instance):

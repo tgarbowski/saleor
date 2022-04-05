@@ -1,7 +1,7 @@
 import copy
 from decimal import Decimal
 from functools import partial, wraps
-from typing import TYPE_CHECKING, Iterable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Iterable, List, Optional, Tuple, Union, cast
 
 import graphene
 from django.conf import settings
@@ -19,21 +19,30 @@ from ..discount.utils import (
     get_sale_id_applied_as_a_discount,
     validate_voucher_in_order,
 )
-from ..order import FulfillmentStatus, OrderLineData, OrderStatus
+from ..giftcard import events as gift_card_events
+from ..giftcard.models import GiftCard
+from ..order import FulfillmentStatus, OrderStatus
+from ..order.fetch import OrderLineInfo
 from ..order.models import Order, OrderLine
 from ..product.utils.digital_products import get_default_digital_content_settings
 from ..shipping.interface import ShippingMethodData
 from ..shipping.models import ShippingMethod, ShippingMethodChannelListing
-from ..shipping.utils import convert_to_shipping_method_data
+from ..shipping.utils import (
+    convert_to_shipping_method_data,
+    initialize_shipping_method_active_status,
+)
 from ..warehouse.management import (
     decrease_allocations,
     get_order_lines_with_track_inventory,
     increase_allocations,
     increase_stock,
 )
+from ..warehouse.models import Warehouse
 from . import events
 
 if TYPE_CHECKING:
+    from ..app.models import App
+    from ..checkout.fetch import CheckoutInfo
     from ..plugins.manager import PluginsManager
 
 
@@ -47,11 +56,11 @@ def get_order_country(order: Order) -> str:
     return address.country.code
 
 
-def order_line_needs_automatic_fulfillment(line: OrderLine) -> bool:
+def order_line_needs_automatic_fulfillment(line_data: OrderLineInfo) -> bool:
     """Check if given line is digital and should be automatically fulfilled."""
     digital_content_settings = get_default_digital_content_settings()
     default_automatic_fulfillment = digital_content_settings["automatic_fulfillment"]
-    content = line.variant.digital_content if line.variant else None
+    content = line_data.digital_content
     if not content:
         return False
     if default_automatic_fulfillment and content.use_default_settings:
@@ -61,10 +70,10 @@ def order_line_needs_automatic_fulfillment(line: OrderLine) -> bool:
     return False
 
 
-def order_needs_automatic_fulfillment(order: Order) -> bool:
+def order_needs_automatic_fulfillment(lines_data: Iterable["OrderLineInfo"]) -> bool:
     """Check if order has digital products which should be automatically fulfilled."""
-    for line in order.lines.digital():  # type: ignore
-        if order_line_needs_automatic_fulfillment(line):
+    for line_data in lines_data:
+        if line_data.is_digital and order_line_needs_automatic_fulfillment(line_data):
             return True
     return False
 
@@ -174,6 +183,7 @@ def recalculate_order(order: Order, **kwargs):
             "undiscounted_total_net_amount",
             "undiscounted_total_gross_amount",
             "currency",
+            "updated_at",
         ]
     )
     recalculate_order_weight(order)
@@ -186,7 +196,7 @@ def recalculate_order_weight(order):
         if line.variant:
             weight += line.variant.get_weight() * line.quantity
     order.weight = weight
-    order.save(update_fields=["weight"])
+    order.save(update_fields=["weight", "updated_at"])
 
 
 def update_taxes_for_order_line(
@@ -250,6 +260,7 @@ def update_order_prices(order: Order, manager: "PluginsManager", tax_included: b
                 "shipping_price_gross_amount",
                 "shipping_tax_rate",
                 "currency",
+                "updated_at",
             ]
         )
 
@@ -282,12 +293,16 @@ def _calculate_quantity_including_returns(order):
 
 def update_order_status(order):
     """Update order status depending on fulfillments."""
-
     (
         total_quantity,
         quantity_fulfilled,
         quantity_returned,
     ) = _calculate_quantity_including_returns(order)
+
+    # check if order contains any fulfillments that awaiting approval
+    awaiting_approval = order.fulfillments.filter(
+        status=FulfillmentStatus.WAITING_FOR_APPROVAL
+    ).exists()
 
     # total_quantity == 0 means that all products have been replaced, we don't change
     # the order status in that case
@@ -299,14 +314,14 @@ def update_order_status(order):
         status = OrderStatus.PARTIALLY_RETURNED
     elif quantity_returned == total_quantity:
         status = OrderStatus.RETURNED
-    elif quantity_fulfilled < total_quantity:
+    elif quantity_fulfilled < total_quantity or awaiting_approval:
         status = OrderStatus.PARTIALLY_FULFILLED
     else:
         status = OrderStatus.FULFILLED
 
     if status != order.status:
         order.status = status
-        order.save(update_fields=["status"])
+        order.save(update_fields=["status", "updated_at"])
 
 
 @traced_atomic_transaction()
@@ -330,7 +345,7 @@ def add_variant_to_order(
         line = order.lines.get(variant=variant)
         old_quantity = line.quantity
         new_quantity = old_quantity + quantity
-        line_info = OrderLineData(line=line, quantity=old_quantity)
+        line_info = OrderLineInfo(line=line, quantity=old_quantity)
         change_order_line_quantity(
             user,
             app,
@@ -338,6 +353,7 @@ def add_variant_to_order(
             old_quantity,
             new_quantity,
             channel.slug,
+            manager=manager,
             send_event=False,
         )
     except OrderLine.DoesNotExist:
@@ -376,7 +392,9 @@ def add_variant_to_order(
             translated_product_name=translated_product_name,
             translated_variant_name=translated_variant_name,
             product_sku=variant.sku,
+            product_variant_id=variant.get_global_id(),
             is_shipping_required=variant.is_shipping_required(),
+            is_gift_card=variant.is_gift_card(),
             quantity=quantity,
             unit_price=unit_price,
             undiscounted_unit_price=undiscounted_unit_price,
@@ -444,7 +462,7 @@ def add_variant_to_order(
     if allocate_stock:
         increase_allocations(
             [
-                OrderLineData(
+                OrderLineInfo(
                     line=line,
                     quantity=quantity,
                     variant=variant,
@@ -452,31 +470,82 @@ def add_variant_to_order(
                 )
             ],
             channel.slug,
+            manager=manager,
         )
 
     return line
 
 
-def add_gift_card_to_order(order, gift_card, total_price_left):
-    """Add gift card to order.
+def add_gift_cards_to_order(
+    checkout_info: "CheckoutInfo",
+    order: Order,
+    total_price_left: Money,
+    user: Optional[User],
+    app: Optional["App"],
+):
+    order_gift_cards = []
+    gift_cards_to_update = []
+    balance_data: List[Tuple[GiftCard, float]] = []
+    used_by_user = checkout_info.user
+    used_by_email = cast(str, checkout_info.get_customer_email())
+    for gift_card in checkout_info.checkout.gift_cards.select_for_update():
+        if total_price_left > zero_money(total_price_left.currency):
+            order_gift_cards.append(gift_card)
 
-    Return a total price left after applying the gift cards.
-    """
-    if total_price_left > zero_money(total_price_left.currency):
-        order.gift_cards.add(gift_card)
-        if total_price_left < gift_card.current_balance:
-            gift_card.current_balance = gift_card.current_balance - total_price_left
-            total_price_left = zero_money(total_price_left.currency)
-        else:
-            total_price_left = total_price_left - gift_card.current_balance
-            gift_card.current_balance_amount = 0
-        gift_card.last_used_on = timezone.now()
-        gift_card.save(update_fields=["current_balance_amount", "last_used_on"])
-    return total_price_left
+            update_gift_card_balance(gift_card, total_price_left, balance_data)
+
+            set_gift_card_user(gift_card, used_by_user, used_by_email)
+
+            gift_card.last_used_on = timezone.now()
+            gift_cards_to_update.append(gift_card)
+
+    order.gift_cards.add(*order_gift_cards)
+    update_fields = [
+        "current_balance_amount",
+        "last_used_on",
+        "used_by",
+        "used_by_email",
+    ]
+    GiftCard.objects.bulk_update(gift_cards_to_update, update_fields)
+    gift_card_events.gift_cards_used_in_order_event(balance_data, order.id, user, app)
+
+
+def update_gift_card_balance(
+    gift_card: GiftCard,
+    total_price_left: Money,
+    balance_data: List[Tuple[GiftCard, float]],
+):
+    previous_balance = gift_card.current_balance
+    if total_price_left < gift_card.current_balance:
+        gift_card.current_balance = gift_card.current_balance - total_price_left
+        total_price_left = zero_money(total_price_left.currency)
+    else:
+        total_price_left = total_price_left - gift_card.current_balance
+        gift_card.current_balance_amount = 0
+    balance_data.append((gift_card, previous_balance.amount))
+
+
+def set_gift_card_user(
+    gift_card: GiftCard,
+    used_by_user: Optional[User],
+    used_by_email: str,
+):
+    """Set user when the gift card is used for the first time."""
+    if gift_card.used_by_email is None:
+        gift_card.used_by = (
+            used_by_user
+            if used_by_user
+            else User.objects.filter(email=used_by_email).first()
+        )
+        gift_card.used_by_email = used_by_email
 
 
 def _update_allocations_for_line(
-    line_info: OrderLineData, old_quantity: int, new_quantity: int, channel_slug: str
+    line_info: OrderLineInfo,
+    old_quantity: int,
+    new_quantity: int,
+    channel_slug: str,
+    manager: "PluginsManager",
 ):
     if old_quantity == new_quantity:
         return
@@ -486,10 +555,10 @@ def _update_allocations_for_line(
 
     if old_quantity < new_quantity:
         line_info.quantity = new_quantity - old_quantity
-        increase_allocations([line_info], channel_slug)
+        increase_allocations([line_info], channel_slug, manager)
     else:
         line_info.quantity = old_quantity - new_quantity
-        decrease_allocations([line_info])
+        decrease_allocations([line_info], manager)
 
 
 def change_order_line_quantity(
@@ -499,6 +568,7 @@ def change_order_line_quantity(
     old_quantity: int,
     new_quantity: int,
     channel_slug: str,
+    manager: "PluginsManager",
     send_event=True,
 ):
     """Change the quantity of ordered items in a order line."""
@@ -506,7 +576,7 @@ def change_order_line_quantity(
     if new_quantity:
         if line.order.is_unconfirmed():
             _update_allocations_for_line(
-                line_info, old_quantity, new_quantity, channel_slug
+                line_info, old_quantity, new_quantity, channel_slug, manager
             )
         line.quantity = new_quantity
         total_price_net_amount = line.quantity * line.unit_price_net_amount
@@ -537,7 +607,7 @@ def change_order_line_quantity(
             ]
         )
     else:
-        delete_order_line(line_info)
+        delete_order_line(line_info, manager)
 
     quantity_diff = old_quantity - new_quantity
 
@@ -559,10 +629,10 @@ def create_order_event(line, user, app, quantity_diff):
         )
 
 
-def delete_order_line(line_info):
+def delete_order_line(line_info, manager):
     """Delete an order line from an order."""
     if line_info.line.order.is_unconfirmed():
-        decrease_allocations([line_info])
+        decrease_allocations([line_info], manager)
     line_info.line.delete()
 
 
@@ -588,7 +658,9 @@ def sum_order_totals(qs, currency_code):
 
 
 def get_valid_shipping_methods_for_order(
-    order: Order, shipping_channel_listings: Iterable["ShippingMethodChannelListing"]
+    order: Order,
+    shipping_channel_listings: Iterable["ShippingMethodChannelListing"],
+    manager: "PluginsManager",
 ) -> List[ShippingMethodData]:
     """Return a list of shipping methods according to Saleor's own business logic.
 
@@ -602,7 +674,7 @@ def get_valid_shipping_methods_for_order(
 
     valid_methods = []
 
-    queryset = ShippingMethod.objects.applicable_shipping_methods_for_instance(
+    shipping_methods = ShippingMethod.objects.applicable_shipping_methods_for_instance(
         order,
         channel_id=order.channel_id,
         price=order.get_subtotal().gross,
@@ -613,13 +685,34 @@ def get_valid_shipping_methods_for_order(
         listing.shipping_method_id: listing for listing in shipping_channel_listings
     }
 
-    for method in queryset:
+    for method in shipping_methods:
         listing = listing_map.get(method.id)
-        if not listing:
-            continue
-        valid_methods.append(convert_to_shipping_method_data(method, listing))
+        shipping_method_data = convert_to_shipping_method_data(method, listing)
+        if shipping_method_data:
+            valid_methods.append(shipping_method_data)
+
+    excluded_methods = manager.excluded_shipping_methods_for_order(order, valid_methods)
+    initialize_shipping_method_active_status(valid_methods, excluded_methods)
 
     return valid_methods
+
+
+def is_shipping_required(lines: Iterable["OrderLine"]):
+    return any(line.is_shipping_required for line in lines)
+
+
+def get_valid_collection_points_for_order(lines: Iterable["OrderLine"], address):
+    if not is_shipping_required(lines):
+        return []
+    if not address:
+        return []
+
+    line_ids = [line.id for line in lines]
+    lines = OrderLine.objects.filter(id__in=line_ids)
+
+    return Warehouse.objects.applicable_for_click_and_collect(
+        lines, address.country.code
+    )
 
 
 def get_discounted_lines(lines, voucher):
@@ -759,7 +852,7 @@ def create_order_discount_for_order(
         amount=new_amount,  # type: ignore
     )
     order.total = TaxedMoney(net_total, gross_total)
-    order.save(update_fields=["total_net_amount", "total_gross_amount"])
+    order.save(update_fields=["total_net_amount", "total_gross_amount", "updated_at"])
     return order_discount
 
 
@@ -806,7 +899,7 @@ def remove_order_discount_from_order(order: Order, order_discount: OrderDiscount
     order_discount.delete()
 
     order.total += discount_amount
-    order.save(update_fields=["total_net_amount", "total_gross_amount"])
+    order.save(update_fields=["total_net_amount", "total_gross_amount", "updated_at"])
 
 
 def update_discount_for_order_line(

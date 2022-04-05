@@ -100,7 +100,7 @@ class Command(BaseCommand):
                 and aapa.id = aapav.assignment_id
                 and aapav.value_id = aav.id
                 and aav.attribute_id = aa.id
-                and cast(pp.created_at as date) between %s and %s
+                and cast(pp.created as date) between %s and %s
                 and aa."name" = 'Kolor'
                 and aav."name" != 'biały'
                 and ppt."name" not like 'Biustonosz%%'

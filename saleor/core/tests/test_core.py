@@ -15,12 +15,12 @@ from ...account.models import Address, User
 from ...account.utils import create_superuser
 from ...channel.models import Channel
 from ...discount.models import Sale, SaleChannelListing, Voucher, VoucherChannelListing
-from ...giftcard.models import GiftCard
-from ...order.models import Order
+from ...giftcard.models import GiftCard, GiftCardEvent
+from ...order.models import Order, OrderLine
+from ...product import ProductTypeKind
 from ...product.models import ProductMedia, ProductType
 from ...shipping.models import ShippingZone
 from ..storages import S3MediaStorage
-from ..templatetags.placeholder import placeholder
 from ..utils import (
     build_absolute_uri,
     create_thumbnails,
@@ -150,10 +150,16 @@ def test_create_fake_order(db, monkeypatch, image, media_root, warehouse):
     for msg in random_data.create_pages():
         pass
     random_data.create_products_by_schema("/", False)
-    how_many = 2
-    for _ in random_data.create_orders(how_many):
+    how_many_orders = 2
+    for _ in random_data.create_orders(how_many_orders):
         pass
     assert Order.objects.all().count() == 2
+
+    how_many_preorder_orders = 1
+    for _ in random_data.create_preorder_orders(how_many_preorder_orders):
+        pass
+    assert Order.objects.count() == how_many_orders + how_many_preorder_orders
+    assert OrderLine.objects.filter(variant__is_preorder=True).exists()
 
 
 def test_create_product_sales(db):
@@ -179,11 +185,20 @@ def test_create_vouchers(db):
     assert VoucherChannelListing.objects.all().count() == voucher_count * channel_count
 
 
-def test_create_gift_card(db):
+def test_create_gift_card(
+    db, product, shippable_gift_card_product, customer_user, staff_user, order
+):
+    product = shippable_gift_card_product
+    product.name = "Gift card"
+    product.save(update_fields=["name"])
+
+    amount = 5
     assert GiftCard.objects.count() == 0
-    for _ in random_data.create_gift_card():
+    assert GiftCardEvent.objects.count() == 0
+    for _ in random_data.create_gift_cards(amount):
         pass
-    assert GiftCard.objects.count() == 1
+    assert GiftCard.objects.count() == amount * 2
+    assert GiftCardEvent.objects.count() == amount * 2
 
 
 @override_settings(VERSATILEIMAGEFIELD_SETTINGS={"create_images_on_demand": False})
@@ -258,12 +273,6 @@ def test_delete_sort_order_with_null_value(menu_item):
     menu_item.delete()
 
 
-def test_placeholder(settings):
-    size = 60
-    result = placeholder(size)
-    assert result == "/static/" + settings.PLACEHOLDER_IMAGES[size]
-
-
 @pytest.mark.parametrize(
     "product_name, slug_result",
     [
@@ -290,7 +299,11 @@ def test_generate_unique_slug_with_slugable_field(
         ("わたし わ にっぽん です", "わたし-わ-にっぽん-です"),
     ]
     for name, slug in product_names_and_slugs:
-        ProductType.objects.create(name=name, slug=slug)
+        ProductType.objects.create(
+            name=name,
+            slug=slug,
+            kind=ProductTypeKind.NORMAL,
+        )
 
     instance, _ = ProductType.objects.get_or_create(name=product_name)
     result = generate_unique_slug(instance, instance.name)

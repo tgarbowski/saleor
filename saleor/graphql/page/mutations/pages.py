@@ -13,11 +13,12 @@ from ....page import models
 from ....page.error_codes import PageErrorCode
 from ...attribute.types import AttributeValueInput
 from ...attribute.utils import AttributeAssignmentMixin
+from ...core.fields import JSONString
 from ...core.mutations import ModelDeleteMutation, ModelMutation
 from ...core.types.common import PageError, SeoInput
 from ...core.utils import clean_seo_fields, validate_slug_and_generate_if_needed
 from ...utils.validators import check_for_duplicates
-from ..types import PageType
+from ..types import Page, PageType
 
 if TYPE_CHECKING:
     from ....attribute.models import Attribute
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 class PageInput(graphene.InputObjectType):
     slug = graphene.String(description="Page internal name.")
     title = graphene.String(description="Page title.")
-    content = graphene.JSONString(description="Page content in JSON format.")
+    content = JSONString(description="Page content in JSON format.")
     attributes = graphene.List(
         graphene.NonNull(AttributeValueInput), description="List of attributes."
     )
@@ -54,6 +55,7 @@ class PageCreate(ModelMutation):
     class Meta:
         description = "Creates a new page."
         model = models.Page
+        object_type = Page
         permissions = (PagePermissions.MANAGE_PAGES,)
         error_type_class = PageError
         error_type_field = "page_errors"
@@ -123,9 +125,18 @@ class PageUpdate(PageCreate):
     class Meta:
         description = "Updates an existing page."
         model = models.Page
+        object_type = Page
         permissions = (PagePermissions.MANAGE_PAGES,)
         error_type_class = PageError
         error_type_field = "page_errors"
+
+    @classmethod
+    def clean_attributes(cls, attributes: dict, page_type: models.PageType):
+        attributes_qs = page_type.page_attributes
+        attributes = AttributeAssignmentMixin.clean_input(
+            attributes, attributes_qs, creation=False, is_page_attributes=True
+        )
+        return attributes
 
     @classmethod
     def save(cls, info, instance, cleaned_input):
@@ -140,6 +151,7 @@ class PageDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a page."
         model = models.Page
+        object_type = Page
         permissions = (PagePermissions.MANAGE_PAGES,)
         error_type_class = PageError
         error_type_field = "page_errors"
@@ -213,6 +225,7 @@ class PageTypeCreate(PageTypeMixin, ModelMutation):
     class Meta:
         description = "Create a new page type."
         model = models.PageType
+        object_type = PageType
         permissions = (PageTypePermissions.MANAGE_PAGE_TYPES_AND_ATTRIBUTES,)
         error_type_class = PageError
         error_type_field = "page_errors"
@@ -256,6 +269,7 @@ class PageTypeUpdate(PageTypeMixin, ModelMutation):
     class Meta:
         description = "Update page type."
         model = models.PageType
+        object_type = PageType
         permissions = (PageTypePermissions.MANAGE_PAGE_TYPES_AND_ATTRIBUTES,)
         error_type_class = PageError
         error_type_field = "page_errors"
@@ -308,6 +322,7 @@ class PageTypeDelete(ModelDeleteMutation):
     class Meta:
         description = "Delete a page type."
         model = models.PageType
+        object_type = PageType
         permissions = (PageTypePermissions.MANAGE_PAGE_TYPES_AND_ATTRIBUTES,)
         error_type_class = PageError
         error_type_field = "page_errors"

@@ -159,6 +159,7 @@ class User(PermissionsMixin, ModelWithMetadata, AbstractBaseUser):
     is_active = models.BooleanField(default=True)
     note = models.TextField(null=True, blank=True)
     date_joined = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
     default_shipping_address = models.ForeignKey(
         Address, related_name="+", null=True, blank=True, on_delete=models.SET_NULL
     )
@@ -170,6 +171,7 @@ class User(PermissionsMixin, ModelWithMetadata, AbstractBaseUser):
     language_code = models.CharField(
         max_length=35, choices=settings.LANGUAGES, default=settings.LANGUAGE_CODE
     )
+    search_document = models.TextField(blank=True, default="")
 
     USERNAME_FIELD = "email"
 
@@ -186,10 +188,17 @@ class User(PermissionsMixin, ModelWithMetadata, AbstractBaseUser):
             *ModelWithMetadata.Meta.indexes,
             # Orders searching index
             GinIndex(
-                name="user_search_gin",
+                name="order_user_search_gin",
                 # `opclasses` and `fields` should be the same length
                 fields=["email", "first_name", "last_name"],
                 opclasses=["gin_trgm_ops"] * 3,
+            ),
+            # Account searching index
+            GinIndex(
+                name="user_search_gin",
+                # `opclasses` and `fields` should be the same length
+                fields=["search_document"],
+                opclasses=["gin_trgm_ops"],
             ),
         ]
 

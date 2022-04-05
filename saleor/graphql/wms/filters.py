@@ -1,7 +1,7 @@
 import django_filters
 import graphene
-from graphene_django.filter import GlobalIDMultipleChoiceFilter
 
+from ..core.filters import GlobalIDMultipleChoiceFilter
 from .enums import WmsDocumentStatusFilter, WmsDocumentTypeFilter
 from saleor.graphql.core.filters import ListObjectTypeFilter, ObjectTypeFilter
 from saleor.graphql.core.types import FilterInputObjectType
@@ -11,7 +11,7 @@ from saleor.graphql.utils.filters import filter_range_field
 from saleor.wms import models
 from saleor.account.models import User
 from saleor.warehouse.models import Warehouse
-from saleor.graphql.product.filters import filter_fields_containing_value
+from saleor.graphql.utils.filters import filter_fields_containing_value
 
 
 def filter_document_type(qs, _, value):
@@ -19,10 +19,6 @@ def filter_document_type(qs, _, value):
     if value:
         query_objects |= qs.filter(document_type__in=value)
     return query_objects
-
-
-def filter_created_by(qs, _, value):
-    return qs.filter(created_by=value.get("created_by"))
 
 
 def filter_status(qs, _, value):
@@ -92,9 +88,10 @@ class DocumentInput(graphene.InputObjectType):
 class LocationInput(graphene.InputObjectType):
     location = graphene.String(description="Location for warehouse document", required=False)
 
+
 class WmsDocumentFilter(django_filters.FilterSet):
     document_type = ListObjectTypeFilter(input_class=WmsDocumentTypeFilter, method=filter_document_type)
-    created_by = GlobalIDMultipleChoiceFilter(method=filter_created_by)
+    created_by = django_filters.CharFilter(method=filter_created_by)
     recipients = GlobalIDMultipleChoiceFilter(method=filter_recipients)
     deliverers = GlobalIDMultipleChoiceFilter(method=filter_deliverers)
     status = ListObjectTypeFilter(input_class=WmsDocumentStatusFilter, method=filter_status)
@@ -108,17 +105,7 @@ class WmsDocumentFilter(django_filters.FilterSet):
 
     class Meta:
         model = models.WmsDocument
-        fields = [
-            "document_type",
-            "created_by",
-            "recipients",
-            "deliverers",
-            "status",
-            "location",
-            "created_at",
-            "updated_at",
-            "warehouses"
-        ]
+        fields = ["created_at", "document_type", "status", "warehouses"]
 
 
 class WmsDocumentFilterInput(FilterInputObjectType):
@@ -151,6 +138,7 @@ class WmsDelivererFilter(django_filters.FilterSet):
         fields = [
             "search"
         ]
+
 
 class WmsDelivererFilterInput(FilterInputObjectType):
     class Meta:

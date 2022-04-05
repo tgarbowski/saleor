@@ -84,6 +84,7 @@ class OrderQueryset(models.QuerySet):
 
 class Order(ModelWithMetadata):
     created = models.DateTimeField(default=now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False, db_index=True)
     status = models.CharField(
         max_length=32, default=OrderStatus.UNFULFILLED, choices=OrderStatus.CHOICES
     )
@@ -129,9 +130,20 @@ class Order(ModelWithMetadata):
         related_name="orders",
         on_delete=models.SET_NULL,
     )
+    collection_point = models.ForeignKey(
+        "warehouse.Warehouse",
+        blank=True,
+        null=True,
+        related_name="orders",
+        on_delete=models.SET_NULL,
+    )
     shipping_method_name = models.CharField(
         max_length=255, null=True, default=None, blank=True, editable=False
     )
+    collection_point_name = models.CharField(
+        max_length=255, null=True, default=None, blank=True, editable=False
+    )
+
     channel = models.ForeignKey(
         Channel,
         related_name="orders",
@@ -235,13 +247,28 @@ class Order(ModelWithMetadata):
         default=zero_weight,
     )
     redirect_url = models.URLField(blank=True, null=True)
+    search_document = models.TextField(blank=True, default="")
 
     objects = models.Manager.from_queryset(OrderQueryset)()
 
     class Meta:
         ordering = ("-pk",)
         permissions = ((OrderPermissions.MANAGE_ORDERS.codename, "Manage orders."),)
-        indexes = [*ModelWithMetadata.Meta.indexes, GinIndex(fields=["user_email"])]
+        indexes = [
+            *ModelWithMetadata.Meta.indexes,
+            GinIndex(
+                name="order_search_gin",
+                # `opclasses` and `fields` should be the same length
+                fields=["search_document"],
+                opclasses=["gin_trgm_ops"],
+            ),
+            GinIndex(
+                name="order_email_search_gin",
+                # `opclasses` and `fields` should be the same length
+                fields=["user_email"],
+                opclasses=["gin_trgm_ops"],
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.token:
@@ -261,7 +288,7 @@ class Order(ModelWithMetadata):
         self.total_paid_amount = (
             sum(self.payments.values_list("captured_amount", flat=True)) or 0
         )
-        self.save(update_fields=["total_paid_amount"])
+        self.save(update_fields=["total_paid_amount", "updated_at"])
 
     def _index_billing_phone(self):
         return self.billing_address.phone
@@ -410,8 +437,11 @@ class OrderLine(models.Model):
     variant_name = models.CharField(max_length=255, default="", blank=True)
     translated_product_name = models.CharField(max_length=386, default="", blank=True)
     translated_variant_name = models.CharField(max_length=255, default="", blank=True)
-    product_sku = models.CharField(max_length=255)
+    product_sku = models.CharField(max_length=255, null=True, blank=True)
+    # str with GraphQL ID used as fallback when product SKU is not available
+    product_variant_id = models.CharField(max_length=255, null=True, blank=True)
     is_shipping_required = models.BooleanField()
+    is_gift_card = models.BooleanField()
     quantity = models.IntegerField(validators=[MinValueValidator(1)])
     quantity_fulfilled = models.IntegerField(
         validators=[MinValueValidator(0)], default=0

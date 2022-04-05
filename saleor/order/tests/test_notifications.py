@@ -9,16 +9,83 @@ from ...core.notify_events import NotifyEventType
 from ...core.prices import quantize_price
 from ...discount import DiscountValueType
 from ...order import notifications
+from ...order.fetch import fetch_order_info
 from ...plugins.manager import get_plugins_manager
 from ...product.models import DigitalContentUrl
 from ..notifications import (
     get_address_payload,
+    get_custom_order_payload,
     get_default_fulfillment_line_payload,
     get_default_fulfillment_payload,
     get_default_order_payload,
     get_order_line_payload,
 )
 from ..utils import add_variant_to_order
+
+
+def test_get_custom_order_payload(order):
+    expected_payload = get_custom_order_payload(order)
+    assert expected_payload == {
+        "order": {
+            "id": expected_payload["order"]["id"],
+            "number": expected_payload["order"]["id"],
+            "private_metadata": {},
+            "metadata": {},
+            "status": "unfulfilled",
+            "language_code": "en",
+            "currency": "USD",
+            "token": expected_payload["order"]["token"],
+            "total_net_amount": 0,
+            "undiscounted_total_net_amount": 0,
+            "total_gross_amount": 0,
+            "undiscounted_total_gross_amount": 0,
+            "display_gross_prices": True,
+            "channel_slug": "main",
+            "created": expected_payload["order"]["created"],
+            "shipping_price_net_amount": 0,
+            "shipping_price_gross_amount": 0,
+            "order_details_url": "",
+            "email": "test@example.com",
+            "subtotal_gross_amount": expected_payload["order"]["subtotal_gross_amount"],
+            "subtotal_net_amount": expected_payload["order"]["subtotal_net_amount"],
+            "tax_amount": 0,
+            "lines": [],
+            "billing_address": {
+                "first_name": "John",
+                "last_name": "Doe",
+                "company_name": "Mirumee Software",
+                "street_address_1": "Tęczowa 7",
+                "street_address_2": "",
+                "city": "WROCŁAW",
+                "city_area": "",
+                "postal_code": "53-601",
+                "country": "PL",
+                "country_area": "",
+                "phone": "+48713988102",
+            },
+            "shipping_address": {
+                "first_name": "John",
+                "last_name": "Doe",
+                "company_name": "Mirumee Software",
+                "street_address_1": "Tęczowa 7",
+                "street_address_2": "",
+                "city": "WROCŁAW",
+                "city_area": "",
+                "postal_code": "53-601",
+                "country": "PL",
+                "country_area": "",
+                "phone": "+48713988102",
+            },
+            "shipping_method_name": None,
+            "collection_point_name": None,
+            "voucher_discount": None,
+            "discounts": [],
+            "discount_amount": 0,
+        },
+        "recipient_email": "test@example.com",
+        "domain": "mirumee.com",
+        "site_name": "mirumee.com",
+    }
 
 
 def test_get_order_line_payload(order_line):
@@ -62,6 +129,9 @@ def test_get_order_line_payload(order_line):
             "first_image": None,
             "images": None,
             "weight": "",
+            "is_preorder": False,
+            "preorder_global_threshold": None,
+            "preorder_end_date": None,
         },
         "product": {
             "attributes": expected_attributes_payload,
@@ -78,6 +148,7 @@ def test_get_order_line_payload(order_line):
         "product_name": order_line.product_name,
         "variant_name": order_line.variant_name,
         "product_sku": order_line.product_sku,
+        "product_variant_id": order_line.product_variant_id,
         "is_shipping_required": order_line.is_shipping_required,
         "quantity": order_line.quantity,
         "quantity_fulfilled": order_line.quantity_fulfilled,
@@ -173,6 +244,7 @@ def test_get_default_order_payload(order_line):
         "total_gross_amount": order.total_gross_amount,
         "total_net_amount": order.total_net_amount,
         "shipping_method_name": order.shipping_method_name,
+        "collection_point_name": order.collection_point_name,
         "status": order.status,
         "metadata": order.metadata,
         "private_metadata": order.private_metadata,
@@ -234,6 +306,7 @@ def test_get_default_fulfillment_payload(
 def test_send_email_payment_confirmation(mocked_notify, site_settings, payment_dummy):
     manager = get_plugins_manager()
     order = payment_dummy.order
+    order_info = fetch_order_info(order)
     expected_payload = {
         "order": get_default_order_payload(order),
         "recipient_email": order.get_customer_email(),
@@ -248,7 +321,7 @@ def test_send_email_payment_confirmation(mocked_notify, site_settings, payment_d
         "site_name": "mirumee.com",
         "domain": "mirumee.com",
     }
-    notifications.send_payment_confirmation(order, manager)
+    notifications.send_payment_confirmation(order_info, manager)
     mocked_notify.assert_called_once_with(
         NotifyEventType.ORDER_PAYMENT_CONFIRMATION,
         expected_payload,
@@ -260,8 +333,9 @@ def test_send_email_payment_confirmation(mocked_notify, site_settings, payment_d
 def test_send_email_order_confirmation(mocked_notify, order, site_settings):
     manager = get_plugins_manager()
     redirect_url = "https://www.example.com"
+    order_info = fetch_order_info(order)
 
-    notifications.send_order_confirmation(order, redirect_url, manager)
+    notifications.send_order_confirmation(order_info, redirect_url, manager)
 
     expected_payload = {
         "order": get_default_order_payload(order, redirect_url),
@@ -274,6 +348,30 @@ def test_send_email_order_confirmation(mocked_notify, order, site_settings):
         expected_payload,
         channel_slug=order.channel.slug,
     )
+
+
+@mock.patch("saleor.plugins.manager.PluginsManager.notify")
+def test_send_email_order_confirmation_for_cc(
+    mocked_notify, order_with_lines_for_cc, site_settings, warehouse_for_cc
+):
+    manager = get_plugins_manager()
+    redirect_url = "https://www.example.com"
+    order_info = fetch_order_info(order_with_lines_for_cc)
+
+    notifications.send_order_confirmation(order_info, redirect_url, manager)
+
+    expected_payload = {
+        "order": get_default_order_payload(order_with_lines_for_cc, redirect_url),
+        "recipient_email": order_with_lines_for_cc.get_customer_email(),
+        "site_name": "mirumee.com",
+        "domain": "mirumee.com",
+    }
+    mocked_notify.assert_called_once_with(
+        NotifyEventType.ORDER_CONFIRMATION,
+        expected_payload,
+        channel_slug=order_with_lines_for_cc.channel.slug,
+    )
+    assert expected_payload["order"]["collection_point_name"] == warehouse_for_cc.name
 
 
 @mock.patch("saleor.plugins.manager.PluginsManager.notify")
@@ -301,8 +399,9 @@ def test_send_confirmation_emails_without_addresses_for_payment(
     order.shipping_method = None
     order.billing_address = None
     order.save(update_fields=["shipping_address", "shipping_method", "billing_address"])
+    order_info = fetch_order_info(order)
 
-    notifications.send_payment_confirmation(order, info.context.plugins)
+    notifications.send_payment_confirmation(order_info, info.context.plugins)
 
     expected_payload = {
         "order": get_default_order_payload(order),
@@ -346,10 +445,13 @@ def test_send_confirmation_emails_without_addresses_for_order(
     order.shipping_method = None
     order.billing_address = None
     order.save(update_fields=["shipping_address", "shipping_method", "billing_address"])
+    order_info = fetch_order_info(order)
 
     redirect_url = "https://www.example.com"
 
-    notifications.send_order_confirmation(order, redirect_url, info.context.plugins)
+    notifications.send_order_confirmation(
+        order_info, redirect_url, info.context.plugins
+    )
 
     expected_payload = {
         "order": get_default_order_payload(order, redirect_url),

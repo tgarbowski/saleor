@@ -10,16 +10,22 @@ from ....core.permissions import OrderPermissions
 from ....core.taxes import TaxError, zero_taxed_money
 from ....core.tracing import traced_atomic_transaction
 from ....core.utils.url import validate_storefront_url
-from ....order import OrderLineData, OrderOrigin, OrderStatus, events, models
+from ....order import OrderOrigin, OrderStatus, events, models
 from ....order.actions import order_created
 from ....order.error_codes import OrderErrorCode
+from ....order.fetch import OrderInfo, OrderLineInfo
+from ....order.search import (
+    prepare_order_search_document_value,
+    update_order_search_document,
+)
 from ....order.utils import (
     add_variant_to_order,
     get_order_country,
     recalculate_order,
     update_order_prices,
 )
-from ....warehouse.management import allocate_stocks
+from ....warehouse.management import allocate_preorders, allocate_stocks
+from ....warehouse.reservations import is_reservation_enabled
 from ...account.i18n import I18nMixin
 from ...account.types import AddressInput
 from ...channel.types import Channel
@@ -27,6 +33,7 @@ from ...core.mutations import BaseMutation, ModelDeleteMutation, ModelMutation
 from ...core.scalars import PositiveDecimal
 from ...core.types.common import OrderError
 from ...product.types import ProductVariant
+from ...shipping.utils import get_shipping_model_by_object_id
 from ..types import Order
 from ..utils import (
     prepare_insufficient_stock_order_validation_errors,
@@ -93,6 +100,7 @@ class DraftOrderCreate(ModelMutation, I18nMixin):
     class Meta:
         description = "Creates a new draft order."
         model = models.Order
+        object_type = Order
         permissions = (OrderPermissions.MANAGE_ORDERS,)
         error_type_class = OrderError
         error_type_field = "order_errors"
@@ -103,6 +111,10 @@ class DraftOrderCreate(ModelMutation, I18nMixin):
         billing_address = data.pop("billing_address", None)
         redirect_url = data.pop("redirect_url", None)
         channel_id = data.pop("channel_id", None)
+
+        shipping_method = get_shipping_model_by_object_id(
+            object_id=data.pop("shipping_method", None), raise_error=False
+        )
 
         cleaned_input = super().clean_input(info, instance, data)
 
@@ -118,6 +130,7 @@ class DraftOrderCreate(ModelMutation, I18nMixin):
         lines = data.pop("lines", None)
         cls.clean_lines(cleaned_input, lines, channel)
 
+        cleaned_input["shipping_method"] = shipping_method
         cleaned_input["status"] = OrderStatus.DRAFT
         cleaned_input["origin"] = OrderOrigin.DRAFT
         display_gross_prices = info.context.site.settings.display_gross_prices
@@ -266,7 +279,9 @@ class DraftOrderCreate(ModelMutation, I18nMixin):
                 order=instance, user=info.context.user, app=info.context.app
             )
 
-        instance.save(update_fields=["billing_address", "shipping_address"])
+        instance.save(
+            update_fields=["billing_address", "shipping_address", "updated_at"]
+        )
 
     @classmethod
     def _refresh_lines_unit_price(cls, info, instance, cleaned_input, new_instance):
@@ -327,6 +342,7 @@ class DraftOrderCreate(ModelMutation, I18nMixin):
 
         # Post-process the results
         recalculate_order(instance)
+        update_order_search_document(instance)
 
 
 class DraftOrderUpdate(DraftOrderCreate):
@@ -339,6 +355,7 @@ class DraftOrderUpdate(DraftOrderCreate):
     class Meta:
         description = "Updates a draft order."
         model = models.Order
+        object_type = Order
         permissions = (OrderPermissions.MANAGE_ORDERS,)
         error_type_class = OrderError
         error_type_field = "order_errors"
@@ -368,17 +385,10 @@ class DraftOrderDelete(ModelDeleteMutation):
     class Meta:
         description = "Deletes a draft order."
         model = models.Order
+        object_type = Order
         permissions = (OrderPermissions.MANAGE_ORDERS,)
         error_type_class = OrderError
         error_type_field = "order_errors"
-
-    @classmethod
-    @traced_atomic_transaction()
-    def perform_mutation(cls, _root, info, **data):
-        order = cls.get_instance(info, **data)
-        response = super().perform_mutation(_root, info, **data)
-        transaction.on_commit(lambda: info.context.plugins.draft_order_deleted(order))
-        return response
 
     @classmethod
     def clean_instance(cls, info, instance):
@@ -391,6 +401,14 @@ class DraftOrderDelete(ModelDeleteMutation):
                     )
                 }
             )
+
+    @classmethod
+    @traced_atomic_transaction()
+    def perform_mutation(cls, _root, info, **data):
+        order = cls.get_instance(info, **data)
+        response = super().perform_mutation(_root, info, **data)
+        transaction.on_commit(lambda: info.context.plugins.draft_order_deleted(order))
+        return response
 
 
 class DraftOrderComplete(BaseMutation):
@@ -430,7 +448,13 @@ class DraftOrderComplete(BaseMutation):
 
     @classmethod
     def perform_mutation(cls, _root, info, id):
-        order = cls.get_node_or_error(info, id, only_type=Order)
+        manager = info.context.plugins
+        order = cls.get_node_or_error(
+            info,
+            id,
+            only_type=Order,
+            qs=models.Order.objects.prefetch_related("lines__variant"),
+        )
         cls.validate_order(order)
 
         country = get_order_country(order)
@@ -445,20 +469,50 @@ class DraftOrderComplete(BaseMutation):
                 order.shipping_address.delete()
                 order.shipping_address = None
 
+        order.search_document = prepare_order_search_document_value(order)
         order.save()
 
+        channel = order.channel
+        channel_slug = channel.slug
+        order_lines_info = []
         for line in order.lines.all():
-            if line.variant.track_inventory:
-                line_data = OrderLineData(
+            if line.variant.track_inventory or line.variant.is_preorder_active():
+                line_data = OrderLineInfo(
                     line=line, quantity=line.quantity, variant=line.variant
                 )
+                order_lines_info.append(line_data)
                 try:
-                    allocate_stocks([line_data], country, order.channel.slug)
+                    with traced_atomic_transaction():
+                        allocate_stocks(
+                            [line_data],
+                            country,
+                            channel_slug,
+                            manager,
+                            check_reservations=is_reservation_enabled(
+                                info.context.site.settings
+                            ),
+                        )
+                        allocate_preorders(
+                            [line_data],
+                            channel_slug,
+                            check_reservations=is_reservation_enabled(
+                                info.context.site.settings
+                            ),
+                        )
                 except InsufficientStock as exc:
                     errors = prepare_insufficient_stock_order_validation_errors(exc)
                     raise ValidationError({"lines": errors})
+
+        order_info = OrderInfo(
+            order=order,
+            customer_email=order.get_customer_email(),
+            channel=channel,
+            payment=order.get_last_payment(),
+            lines_data=order_lines_info,
+        )
+
         order_created(
-            order,
+            order_info=order_info,
             user=info.context.user,
             app=info.context.app,
             manager=info.context.plugins,

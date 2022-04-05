@@ -1,6 +1,4 @@
 import base64
-import uuid
-import warnings
 from unittest.mock import patch
 
 import graphene
@@ -10,6 +8,7 @@ from django.core.exceptions import ValidationError
 from ....core.error_codes import MetadataErrorCode
 from ....core.models import ModelWithMetadata
 from ....invoice.models import Invoice
+from ....payment.utils import payment_owned_by_user
 from ...tests.utils import assert_no_permission, get_graphql_content
 
 PRIVATE_KEY = "private_key"
@@ -129,13 +128,18 @@ def item_contains_multiple_proper_public_metadata(
 def test_base_metadata_mutation_handles_errors_from_extra_action(
     mock_checkout_updated, api_client, checkout
 ):
+    # given
     error_field = "field"
     error_msg = "boom"
     mock_checkout_updated.side_effect = ValidationError({error_field: error_msg})
     checkout_id = graphene.Node.to_global_id("Checkout", checkout.pk)
+
+    # when
     response = execute_update_public_metadata_for_item(
         api_client, None, checkout_id, "Checkout"
     )
+
+    # then
     errors = response["data"]["updateMetadata"]["errors"]
     assert errors[0]["field"] == error_field
     assert errors[0]["message"] == error_msg
@@ -360,10 +364,15 @@ def test_add_public_metadata_for_checkout_by_token(api_client, checkout):
 def test_add_metadata_for_checkout_triggers_checkout_updated_hook(
     mock_checkout_updated, api_client, checkout
 ):
+    # given
     checkout_id = graphene.Node.to_global_id("Checkout", checkout.pk)
+
+    # when
     response = execute_update_public_metadata_for_item(
         api_client, None, checkout_id, "Checkout"
     )
+
+    # then
     assert response["data"]["updateMetadata"]["errors"] == []
     mock_checkout_updated.assert_called_once_with(checkout)
 
@@ -373,13 +382,9 @@ def test_add_public_metadata_for_order_by_id(api_client, order):
     order_id = graphene.Node.to_global_id("Order", order.pk)
 
     # when
-    with warnings.catch_warnings(record=True) as warns:
-        response = execute_update_public_metadata_for_item(
-            api_client, None, order_id, "Order"
-        )
-        expected_warning = "DEPRECATED. Use token for changing order metadata."
-
-        assert any([str(warning.message) == expected_warning for warning in warns])
+    response = execute_update_public_metadata_for_item(
+        api_client, None, order_id, "Order"
+    )
 
     # then
     assert item_contains_proper_public_metadata(
@@ -407,13 +412,9 @@ def test_add_public_metadata_for_draft_order_by_id(api_client, draft_order):
     draft_order_id = graphene.Node.to_global_id("Order", draft_order.pk)
 
     # when
-    with warnings.catch_warnings(record=True) as warns:
-        response = execute_update_public_metadata_for_item(
-            api_client, None, draft_order_id, "Order"
-        )
-        expected_warning = "DEPRECATED. Use token for changing order metadata."
-
-        assert any([str(warning.message) == expected_warning for warning in warns])
+    response = execute_update_public_metadata_for_item(
+        api_client, None, draft_order_id, "Order"
+    )
 
     # then
     assert item_contains_proper_public_metadata(
@@ -740,7 +741,7 @@ def test_update_public_metadata_for_item(api_client, checkout):
 
     # when
     response = execute_update_public_metadata_for_item(
-        api_client, None, checkout_id, "Checkout", value="NewMetaValue"
+        api_client, None, checkout.token, "Checkout", value="NewMetaValue"
     )
 
     # then
@@ -752,14 +753,16 @@ def test_update_public_metadata_for_item(api_client, checkout):
     )
 
 
-def test_update_public_metadata_for_non_exist_item(api_client):
+def test_update_public_metadata_for_non_exist_item(
+    staff_api_client, permission_manage_payments
+):
     # given
-    checkout_id = "Checkout:" + str(uuid.uuid4())
-    checkout_id = base64.b64encode(str.encode(checkout_id)).decode("utf-8")
+    payment_id = "Payment: 0"
+    payment_id = base64.b64encode(str.encode(payment_id)).decode("utf-8")
 
     # when
     response = execute_update_public_metadata_for_item(
-        api_client, None, checkout_id, "Checkout"
+        staff_api_client, permission_manage_payments, payment_id, "Payment"
     )
 
     # then
@@ -784,6 +787,103 @@ def test_update_public_metadata_for_item_without_meta(api_client, address):
     errors = response["data"]["updateMetadata"]["errors"]
     assert errors[0]["field"] == "id"
     assert errors[0]["code"] == MetadataErrorCode.NOT_FOUND.name
+
+
+def test_update_public_metadata_for_payment_by_logged_user(
+    user_api_client, payment_with_public_metadata
+):
+    # given
+    payment_with_public_metadata.order.user = user_api_client.user
+    payment_with_public_metadata.order.save()
+    payment_id = graphene.Node.to_global_id("Payment", payment_with_public_metadata.pk)
+
+    # when
+    response = execute_update_public_metadata_for_item(
+        user_api_client, None, payment_id, "Payment", value="NewMetaValue"
+    )
+
+    # then
+    assert item_contains_proper_public_metadata(
+        response["data"]["updateMetadata"]["item"],
+        payment_with_public_metadata,
+        payment_id,
+        value="NewMetaValue",
+    )
+
+
+def test_update_public_metadata_for_payment_by_different_logged_user(
+    user2_api_client, payment_with_public_metadata
+):
+    # given
+    assert not payment_owned_by_user(
+        payment_with_public_metadata.pk, user2_api_client.user
+    )
+    payment_id = graphene.Node.to_global_id("Payment", payment_with_public_metadata.pk)
+    variables = {
+        "id": payment_id,
+        "input": [{"key": PUBLIC_KEY, "value": "NewMetaValue"}],
+    }
+
+    # when
+    response = user2_api_client.post_graphql(
+        UPDATE_PUBLIC_METADATA_MUTATION % "Payment", variables, permissions=None
+    )
+
+    # then
+    assert_no_permission(response)
+
+
+def test_update_public_metadata_for_payment_by_non_logged_user(
+    api_client, payment_with_public_metadata
+):
+    # given
+    payment_id = graphene.Node.to_global_id("Payment", payment_with_public_metadata.pk)
+    variables = {
+        "id": payment_id,
+        "input": [{"key": PUBLIC_KEY, "value": "NewMetaValue"}],
+    }
+
+    # when
+    response = api_client.post_graphql(
+        UPDATE_PUBLIC_METADATA_MUTATION % "Payment", variables, permissions=None
+    )
+
+    # then
+    assert_no_permission(response)
+
+
+def test_add_public_metadata_for_warehouse(
+    staff_api_client, permission_manage_products, warehouse
+):
+    # given
+    warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
+
+    # when
+    response = execute_update_public_metadata_for_item(
+        staff_api_client, permission_manage_products, warehouse_id, "Warehouse"
+    )
+
+    # then
+    assert item_contains_proper_public_metadata(
+        response["data"]["updateMetadata"]["item"], warehouse, warehouse_id
+    )
+
+
+def test_add_public_metadata_for_gift_card(
+    staff_api_client, permission_manage_gift_card, gift_card
+):
+    # given
+    gift_card_id = graphene.Node.to_global_id("GiftCard", gift_card.pk)
+
+    # when
+    response = execute_update_public_metadata_for_item(
+        staff_api_client, permission_manage_gift_card, gift_card_id, "GiftCard"
+    )
+
+    # then
+    assert item_contains_proper_public_metadata(
+        response["data"]["updateMetadata"]["item"], gift_card, gift_card_id
+    )
 
 
 DELETE_PUBLIC_METADATA_MUTATION = """
@@ -1060,13 +1160,9 @@ def test_delete_public_metadata_for_order_by_id(api_client, order):
     order_id = graphene.Node.to_global_id("Order", order.pk)
 
     # when
-    with warnings.catch_warnings(record=True) as warns:
-        response = execute_clear_public_metadata_for_item(
-            api_client, None, order_id, "Order"
-        )
-        expected_warning = "DEPRECATED. Use token for changing order metadata."
-
-        assert any([str(warning.message) == expected_warning for warning in warns])
+    response = execute_clear_public_metadata_for_item(
+        api_client, None, order_id, "Order"
+    )
 
     # then
     assert item_without_public_metadata(
@@ -1098,13 +1194,9 @@ def test_delete_public_metadata_for_draft_order_by_id(api_client, draft_order):
     draft_order_id = graphene.Node.to_global_id("Order", draft_order.pk)
 
     # when
-    with warnings.catch_warnings(record=True) as warns:
-        response = execute_clear_public_metadata_for_item(
-            api_client, None, draft_order_id, "Order"
-        )
-        expected_warning = "DEPRECATED. Use token for changing order metadata."
-
-        assert any([str(warning.message) == expected_warning for warning in warns])
+    response = execute_clear_public_metadata_for_item(
+        api_client, None, draft_order_id, "Order"
+    )
 
     # then
     assert item_without_public_metadata(
@@ -1457,14 +1549,16 @@ def test_delete_public_metadata_for_menu_item(
     )
 
 
-def test_delete_public_metadata_for_non_exist_item(api_client):
+def test_delete_public_metadata_for_non_exist_item(
+    staff_api_client, permission_manage_payments
+):
     # given
-    checkout_id = "Checkout:" + str(uuid.uuid4())
-    checkout_id = base64.b64encode(str.encode(checkout_id)).decode("utf-8")
+    payment_id = "Payment: 0"
+    payment_id = base64.b64encode(str.encode(payment_id)).decode("utf-8")
 
     # when
     response = execute_clear_public_metadata_for_item(
-        api_client, None, checkout_id, "Checkout"
+        staff_api_client, permission_manage_payments, payment_id, "Checkout"
     )
 
     # then
@@ -1530,6 +1624,44 @@ def test_delete_public_metadata_for_one_key(api_client, checkout):
         checkout,
         checkout_id,
         key="to_clear",
+    )
+
+
+def test_delete_public_metadata_for_warehouse(
+    staff_api_client, permission_manage_products, warehouse
+):
+    # given
+    warehouse.store_value_in_metadata({PUBLIC_KEY: PUBLIC_VALUE})
+    warehouse.save(update_fields=["metadata"])
+    warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
+
+    # when
+    response = execute_clear_public_metadata_for_item(
+        staff_api_client, permission_manage_products, warehouse_id, "Warehouse"
+    )
+
+    # then
+    assert item_without_public_metadata(
+        response["data"]["deleteMetadata"]["item"], warehouse, warehouse_id
+    )
+
+
+def test_delete_public_metadata_for_gift_card(
+    staff_api_client, permission_manage_gift_card, gift_card
+):
+    # given
+    gift_card.store_value_in_metadata({PUBLIC_KEY: PUBLIC_VALUE})
+    gift_card.save(update_fields=["metadata"])
+    gift_card_id = graphene.Node.to_global_id("GiftCard", gift_card.pk)
+
+    # when
+    response = execute_clear_public_metadata_for_item(
+        staff_api_client, permission_manage_gift_card, gift_card_id, "GiftCard"
+    )
+
+    # then
+    assert item_without_public_metadata(
+        response["data"]["deleteMetadata"]["item"], gift_card, gift_card_id
     )
 
 
@@ -1756,7 +1888,7 @@ def test_staff_update_private_metadata_empty_key(
     admin_id = graphene.Node.to_global_id("User", admin_user.pk)
 
     # when
-    response = response = execute_update_private_metadata_for_item(
+    response = execute_update_private_metadata_for_item(
         staff_api_client,
         permission_manage_staff,
         admin_id,
@@ -1835,13 +1967,9 @@ def test_add_private_metadata_for_order_by_id(
     order_id = graphene.Node.to_global_id("Order", order.pk)
 
     # when
-    with warnings.catch_warnings(record=True) as warns:
-        response = execute_update_private_metadata_for_item(
-            staff_api_client, permission_manage_orders, order_id, "Order"
-        )
-        expected_warning = "DEPRECATED. Use token for changing order metadata."
-
-        assert any([str(warning.message) == expected_warning for warning in warns])
+    response = execute_update_private_metadata_for_item(
+        staff_api_client, permission_manage_orders, order_id, "Order"
+    )
 
     # then
     assert item_contains_proper_private_metadata(
@@ -1873,13 +2001,9 @@ def test_add_private_metadata_for_draft_order_by_id(
     draft_order_id = graphene.Node.to_global_id("Order", draft_order.pk)
 
     # when
-    with warnings.catch_warnings(record=True) as warns:
-        response = execute_update_private_metadata_for_item(
-            staff_api_client, permission_manage_orders, draft_order_id, "Order"
-        )
-        expected_warning = "DEPRECATED. Use token for changing order metadata."
-
-        assert any([str(warning.message) == expected_warning for warning in warns])
+    response = execute_update_private_metadata_for_item(
+        staff_api_client, permission_manage_orders, draft_order_id, "Order"
+    )
 
     # then
     assert item_contains_proper_private_metadata(
@@ -2221,7 +2345,7 @@ def test_update_private_metadata_for_item(
     response = execute_update_private_metadata_for_item(
         staff_api_client,
         permission_manage_checkouts,
-        checkout_id,
+        checkout.token,
         "Checkout",
         value="NewMetaValue",
     )
@@ -2236,15 +2360,15 @@ def test_update_private_metadata_for_item(
 
 
 def test_update_private_metadata_for_non_exist_item(
-    staff_api_client, permission_manage_checkouts
+    staff_api_client, permission_manage_payments
 ):
     # given
-    checkout_id = "Checkout:" + str(uuid.uuid4())
-    checkout_id = base64.b64encode(str.encode(checkout_id)).decode("utf-8")
+    payment_id = "Payment: 0"
+    payment_id = base64.b64encode(str.encode(payment_id)).decode("utf-8")
 
     # when
     response = execute_update_private_metadata_for_item(
-        staff_api_client, permission_manage_checkouts, checkout_id, "Checkout"
+        staff_api_client, permission_manage_payments, payment_id, "Payment"
     )
 
     # then
@@ -2269,6 +2393,143 @@ def test_update_private_metadata_for_item_without_meta(api_client, address):
     errors = response["data"]["updatePrivateMetadata"]["errors"]
     assert errors[0]["field"] == "id"
     assert errors[0]["code"] == MetadataErrorCode.NOT_FOUND.name
+
+
+def test_update_private_metadata_for_payment_by_staff(
+    staff_api_client, permission_manage_payments, payment_with_private_metadata
+):
+    # given
+    payment_id = graphene.Node.to_global_id("Payment", payment_with_private_metadata.pk)
+
+    # when
+    response = execute_update_private_metadata_for_item(
+        staff_api_client,
+        permission_manage_payments,
+        payment_id,
+        "Payment",
+        value="NewMetaValue",
+    )
+
+    # then
+    assert item_contains_proper_private_metadata(
+        response["data"]["updatePrivateMetadata"]["item"],
+        payment_with_private_metadata,
+        payment_id,
+        value="NewMetaValue",
+    )
+
+
+def test_update_private_metadata_for_payment_by_app(
+    app_api_client, permission_manage_payments, payment_with_private_metadata
+):
+    # given
+    payment_id = graphene.Node.to_global_id("Payment", payment_with_private_metadata.pk)
+
+    # when
+    response = execute_update_private_metadata_for_item(
+        app_api_client,
+        permission_manage_payments,
+        payment_id,
+        "Payment",
+        value="NewMetaValue",
+    )
+
+    # then
+    assert item_contains_proper_private_metadata(
+        response["data"]["updatePrivateMetadata"]["item"],
+        payment_with_private_metadata,
+        payment_id,
+        value="NewMetaValue",
+    )
+
+
+def test_update_private_metadata_for_payment_by_staff_without_permission(
+    staff_api_client, payment_with_private_metadata
+):
+    # given
+    payment_id = graphene.Node.to_global_id("Payment", payment_with_private_metadata.pk)
+    variables = {
+        "id": payment_id,
+        "input": [{"key": PRIVATE_KEY, "value": "NewMetaValue"}],
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        UPDATE_PRIVATE_METADATA_MUTATION % "Payment", variables, permissions=None
+    )
+
+    # then
+    assert_no_permission(response)
+
+
+def test_update_private_metadata_for_payment_by_app_without_permission(
+    app_api_client, payment
+):
+    # given
+    payment_id = graphene.Node.to_global_id("Payment", payment.pk)
+    variables = {
+        "id": payment_id,
+        "input": [{"key": PRIVATE_KEY, "value": "NewMetaValue"}],
+    }
+
+    # when
+    response = app_api_client.post_graphql(
+        UPDATE_PRIVATE_METADATA_MUTATION % "Payment", variables, permissions=None
+    )
+
+    # then
+    assert_no_permission(response)
+
+
+def test_update_private_metadata_by_customer(user_api_client, payment):
+    # given
+    payment_id = graphene.Node.to_global_id("Payment", payment.pk)
+    variables = {
+        "id": payment_id,
+        "input": [{"key": PRIVATE_KEY, "value": "NewMetaValue"}],
+    }
+
+    # when
+    response = user_api_client.post_graphql(
+        UPDATE_PRIVATE_METADATA_MUTATION % "Payment", variables, permissions=None
+    )
+
+    # then
+    assert_no_permission(response)
+
+
+def test_add_private_metadata_for_warehouse(
+    staff_api_client, permission_manage_products, warehouse
+):
+    # given
+    warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
+
+    # when
+    response = execute_update_private_metadata_for_item(
+        staff_api_client, permission_manage_products, warehouse_id, "Warehouse"
+    )
+
+    # then
+    assert item_contains_proper_private_metadata(
+        response["data"]["updatePrivateMetadata"]["item"], warehouse, warehouse_id
+    )
+
+
+def test_add_private_metadata_for_gift_card(
+    staff_api_client, permission_manage_gift_card, gift_card
+):
+    # given
+    gift_card_id = graphene.Node.to_global_id("GiftCard", gift_card.pk)
+
+    # when
+    response = execute_update_private_metadata_for_item(
+        staff_api_client, permission_manage_gift_card, gift_card_id, "GiftCard"
+    )
+
+    # then
+    assert item_contains_proper_private_metadata(
+        response["data"]["updatePrivateMetadata"]["item"], gift_card, gift_card_id
+    )
 
 
 DELETE_PRIVATE_METADATA_MUTATION = """
@@ -2557,13 +2818,9 @@ def test_delete_private_metadata_for_order_by_id(
     order_id = graphene.Node.to_global_id("Order", order.pk)
 
     # when
-    with warnings.catch_warnings(record=True) as warns:
-        response = execute_clear_private_metadata_for_item(
-            staff_api_client, permission_manage_orders, order_id, "Order"
-        )
-        expected_warning = "DEPRECATED. Use token for changing order metadata."
-
-        assert any([str(warning.message) == expected_warning for warning in warns])
+    response = execute_clear_private_metadata_for_item(
+        staff_api_client, permission_manage_orders, order_id, "Order"
+    )
 
     # then
     assert item_without_private_metadata(
@@ -2599,13 +2856,9 @@ def test_delete_private_metadata_for_draft_order_by_id(
     draft_order_id = graphene.Node.to_global_id("Order", draft_order.pk)
 
     # when
-    with warnings.catch_warnings(record=True) as warns:
-        response = execute_clear_private_metadata_for_item(
-            staff_api_client, permission_manage_orders, draft_order_id, "Order"
-        )
-        expected_warning = "DEPRECATED. Use token for changing order metadata."
-
-        assert any([str(warning.message) == expected_warning for warning in warns])
+    response = execute_clear_private_metadata_for_item(
+        staff_api_client, permission_manage_orders, draft_order_id, "Order"
+    )
 
     # then
     assert item_without_private_metadata(
@@ -2969,15 +3222,15 @@ def test_delete_private_metadata_for_menu_item(
 
 
 def test_delete_private_metadata_for_non_exist_item(
-    staff_api_client, permission_manage_checkouts
+    staff_api_client, permission_manage_payments
 ):
     # given
-    checkout_id = "Checkout:" + str(uuid.uuid4())
-    checkout_id = base64.b64encode(str.encode(checkout_id)).decode("utf-8")
+    payment_id = "Payment: 0"
+    payment_id = base64.b64encode(str.encode(payment_id)).decode("utf-8")
 
     # when
     response = execute_clear_private_metadata_for_item(
-        staff_api_client, permission_manage_checkouts, checkout_id, "Checkout"
+        staff_api_client, permission_manage_payments, payment_id, "Payment"
     )
 
     # then
@@ -3016,7 +3269,7 @@ def test_delete_private_metadata_for_not_exist_key(
     response = execute_clear_private_metadata_for_item(
         staff_api_client,
         permission_manage_checkouts,
-        checkout_id,
+        checkout.token,
         "Checkout",
         key="Not-exits",
     )
@@ -3041,7 +3294,7 @@ def test_delete_private_metadata_for_one_key(
     response = execute_clear_private_metadata_for_item(
         staff_api_client,
         permission_manage_checkouts,
-        checkout_id,
+        checkout.token,
         "Checkout",
         key="to_clear",
     )
@@ -3055,59 +3308,6 @@ def test_delete_private_metadata_for_one_key(
         checkout,
         checkout_id,
         key="to_clear",
-    )
-
-
-def test_add_public_metadata_for_warehouse(
-    staff_api_client, permission_manage_products, warehouse
-):
-    # given
-    warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
-
-    # when
-    response = execute_update_public_metadata_for_item(
-        staff_api_client, permission_manage_products, warehouse_id, "Warehouse"
-    )
-
-    # then
-    assert item_contains_proper_public_metadata(
-        response["data"]["updateMetadata"]["item"], warehouse, warehouse_id
-    )
-
-
-def test_delete_public_metadata_for_warehouse(
-    staff_api_client, permission_manage_products, warehouse
-):
-    # given
-    warehouse.store_value_in_metadata({PUBLIC_KEY: PUBLIC_VALUE})
-    warehouse.save(update_fields=["metadata"])
-    warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
-
-    # when
-    response = execute_clear_public_metadata_for_item(
-        staff_api_client, permission_manage_products, warehouse_id, "Warehouse"
-    )
-
-    # then
-    assert item_without_public_metadata(
-        response["data"]["deleteMetadata"]["item"], warehouse, warehouse_id
-    )
-
-
-def test_add_private_metadata_for_warehouse(
-    staff_api_client, permission_manage_products, warehouse
-):
-    # given
-    warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
-
-    # when
-    response = execute_update_private_metadata_for_item(
-        staff_api_client, permission_manage_products, warehouse_id, "Warehouse"
-    )
-
-    # then
-    assert item_contains_proper_private_metadata(
-        response["data"]["updatePrivateMetadata"]["item"], warehouse, warehouse_id
     )
 
 
@@ -3127,6 +3327,25 @@ def test_delete_private_metadata_for_warehouse(
     # then
     assert item_without_private_metadata(
         response["data"]["deletePrivateMetadata"]["item"], warehouse, warehouse_id
+    )
+
+
+def test_delete_private_metadata_for_gift_card(
+    staff_api_client, permission_manage_gift_card, gift_card
+):
+    # given
+    gift_card.store_value_in_private_metadata({PRIVATE_KEY: PRIVATE_VALUE})
+    gift_card.save(update_fields=["private_metadata"])
+    gift_card_id = graphene.Node.to_global_id("GiftCard", gift_card.pk)
+
+    # when
+    response = execute_clear_private_metadata_for_item(
+        staff_api_client, permission_manage_gift_card, gift_card_id, "GiftCard"
+    )
+
+    # then
+    assert item_without_private_metadata(
+        response["data"]["deletePrivateMetadata"]["item"], gift_card, gift_card_id
     )
 
 

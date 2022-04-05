@@ -2,8 +2,9 @@ import graphene
 
 from saleor.graphql.account.types import User
 
-from saleor.graphql.product.types import ProductType, Product
-from ..core.fields import FilterInputConnectionField
+from saleor.graphql.product.types import (Product, ProductCountableConnection, ProductType,
+                                          ProductTypeCountableConnection)
+from ..core.fields import FilterConnectionField
 from ..core.validators import validate_one_of_args_is_in_query
 
 from .resolvers import (
@@ -23,8 +24,8 @@ class MetadataQueries(graphene.ObjectType):
         metadataValue=graphene.String()
     )
 
-    product_types_with_metadata = FilterInputConnectionField(
-        ProductType,
+    product_types_with_metadata = FilterConnectionField(
+        ProductTypeCountableConnection,
         filter=ProductTypeMetadataFilterInput(
             description="Filtering options for product types with metadata."
         ),
@@ -47,8 +48,8 @@ class MetadataQueries(graphene.ObjectType):
         metadataValue=graphene.String()
     )
 
-    products_with_metadata = FilterInputConnectionField(
-        Product,
+    products_with_metadata = FilterConnectionField(
+        ProductCountableConnection,
         filter=ProductMetadataFilterInput(
             description="Filtering options for products with metadata."
         ),

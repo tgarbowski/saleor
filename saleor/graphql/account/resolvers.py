@@ -16,6 +16,7 @@ from ...core.tracing import traced_resolver
 from ...payment import gateway
 from ...payment.utils import fetch_customer_id
 from ..core.utils import from_global_id_or_error
+from ..meta.resolvers import resolve_metadata
 from ..utils import format_permissions_for_display, get_user_or_app_from_context
 from .types import Address, AddressValidationData, ChoiceValue, User
 from .utils import (
@@ -71,7 +72,44 @@ def resolve_user(info, id=None, email=None):
             requester, [AccountPermissions.MANAGE_USERS, OrderPermissions.MANAGE_ORDERS]
         ):
             return models.User.objects.customers().filter(**filter_kwargs).first()
-    return PermissionDenied()
+    return PermissionDenied(
+        permissions=[
+            AccountPermissions.MANAGE_STAFF,
+            AccountPermissions.MANAGE_USERS,
+            OrderPermissions.MANAGE_ORDERS,
+        ]
+    )
+
+
+@traced_resolver
+def resolve_users(info, ids=None, emails=None):
+    requester = get_user_or_app_from_context(info.context)
+    if not requester:
+        return models.User.objects.none()
+
+    if requester.has_perms(
+        [AccountPermissions.MANAGE_STAFF, AccountPermissions.MANAGE_USERS]
+    ):
+        qs = models.User.objects
+    elif requester.has_perm(AccountPermissions.MANAGE_STAFF):
+        qs = models.User.objects.staff()
+    elif requester.has_perm(AccountPermissions.MANAGE_USERS):
+        qs = models.User.objects.customers()
+    elif requester.id:
+        # If user has no access to all users, we can only return themselves, but
+        # only if they are authenticated and one of requested users
+        qs = models.User.objects.filter(id=requester.id)
+    else:
+        qs = models.User.objects.none()
+
+    if ids:
+        ids = {from_global_id_or_error(id, User, raise_error=True)[1] for id in ids}
+
+    if ids and emails:
+        return qs.filter(Q(id__in=ids) | Q(email__in=emails))
+    elif ids:
+        return qs.filter(id__in=ids)
+    return qs.filter(email__in=emails)
 
 
 @traced_resolver
@@ -184,6 +222,7 @@ def prepare_graphql_payment_sources_type(payment_sources):
                     "brand": src.credit_card_info.brand,
                     "first_digits": src.credit_card_info.first_4,
                 },
+                "metadata": resolve_metadata(src.metadata),
             }
         )
     return sources

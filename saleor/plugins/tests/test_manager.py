@@ -1,5 +1,6 @@
 import json
 from decimal import Decimal
+from functools import partial
 from unittest import mock
 
 import pytest
@@ -10,6 +11,8 @@ from prices import Money, TaxedMoney
 from ...checkout.fetch import fetch_checkout_info, fetch_checkout_lines
 from ...core.prices import quantize_price
 from ...core.taxes import TaxType, zero_taxed_money
+from ...discount.utils import fetch_catalogue_info
+from ...graphql.discount.mutations import convert_catalogue_info_to_global_ids
 from ...payment.interface import PaymentGateway
 from ...product.models import Product
 from ..base_plugin import ExternalAccessTokens
@@ -551,21 +554,50 @@ def test_manager_apply_taxes_to_product(product, plugins, price, channel_USD):
     assert TaxedMoney(expected_price, expected_price) == taxed_price
 
 
-@pytest.mark.parametrize(
-    "plugins, price_amount",
-    [(["saleor.plugins.tests.sample_plugins.PluginSample"], "1.0"), ([], "10.0")],
-)
-def test_manager_apply_taxes_to_shipping(
-    shipping_method, address, plugins, price_amount, channel_USD
-):
-    shipping_price = shipping_method.channel_listings.get(
-        channel_id=channel_USD.id
-    ).price
-    expected_price = Money(price_amount, "USD")
-    taxed_price = PluginsManager(plugins=plugins).apply_taxes_to_shipping(
-        shipping_price, address, channel_slug=channel_USD.slug
+def test_manager_sale_created(sale):
+    plugins = ["saleor.plugins.tests.sample_plugins.PluginSample"]
+
+    current_catalogue = convert_catalogue_info_to_global_ids(fetch_catalogue_info(sale))
+    sale_returned, current_catalogue_returned = PluginsManager(
+        plugins=plugins
+    ).sale_created(sale, current_catalogue)
+
+    assert sale == sale_returned
+    assert current_catalogue == current_catalogue_returned
+
+
+def test_manager_sale_updated(sale):
+    plugins = ["saleor.plugins.tests.sample_plugins.PluginSample"]
+
+    previous_catalogue = convert_catalogue_info_to_global_ids(
+        fetch_catalogue_info(sale)
     )
-    assert TaxedMoney(expected_price, expected_price) == taxed_price
+    current_catalogue = convert_catalogue_info_to_global_ids(fetch_catalogue_info(sale))
+    (
+        sale_returned,
+        previous_catalogue_returned,
+        current_catalogue_returned,
+    ) = PluginsManager(plugins=plugins).sale_updated(
+        sale, previous_catalogue, current_catalogue
+    )
+
+    assert sale == sale_returned
+    assert current_catalogue == current_catalogue_returned
+    assert previous_catalogue == previous_catalogue_returned
+
+
+def test_manager_sale_deleted(sale):
+    plugins = ["saleor.plugins.tests.sample_plugins.PluginSample"]
+
+    previous_catalogue = convert_catalogue_info_to_global_ids(
+        fetch_catalogue_info(sale)
+    )
+    sale_returned, previous_catalogue_returned = PluginsManager(
+        plugins=plugins
+    ).sale_created(sale, previous_catalogue)
+
+    assert sale == sale_returned
+    assert previous_catalogue == previous_catalogue_returned
 
 
 @pytest.mark.parametrize(
@@ -1004,6 +1036,36 @@ def test_run_check_payment_balance_not_implemented(channel_USD):
 
     manager = PluginsManager(plugins=plugins)
     assert not manager.check_payment_balance({}, "main")
+
+
+def test_create_plugin_manager_initializes_requestor_lazily(channel_USD):
+    def fake_request_getter(mock):
+        return mock()
+
+    user_mock = mock.MagicMock()
+    user_mock.return_value.id = "some id"
+    user_mock.return_value.name = "some name"
+
+    plugins = ["saleor.plugins.tests.sample_plugins.ActivePlugin"]
+
+    manager = PluginsManager(
+        plugins=plugins, requestor_getter=partial(fake_request_getter, user_mock)
+    )
+    user_mock.assert_not_called()
+
+    plugin = manager.all_plugins.pop()
+
+    assert plugin.requestor.id == "some id"
+    assert plugin.requestor.name == "some name"
+
+    user_mock.assert_called_once()
+
+
+def test_manager_delivery_retry(event_delivery):
+    plugins = ["saleor.plugins.tests.sample_plugins.PluginSample"]
+    manager = PluginsManager(plugins=plugins)
+    delivery_retry = manager.event_delivery_retry(event_delivery=event_delivery)
+    assert delivery_retry
 
 
 @mock.patch(

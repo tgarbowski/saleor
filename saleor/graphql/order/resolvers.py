@@ -3,11 +3,8 @@ from ...core.tracing import traced_resolver
 from ...order import OrderStatus, models
 from ...order.events import OrderEvents
 from ...order.models import OrderEvent
-from ...order.utils import get_valid_shipping_methods_for_order, sum_order_totals
-from ..channel.dataloaders import ChannelByIdLoader
+from ...order.utils import sum_order_totals
 from ..channel.utils import get_default_channel_slug_or_graphql_error
-from ..shipping.dataloaders import ShippingMethodChannelListingByChannelSlugLoader
-from ..shipping.utils import annotate_active_shipping_methods
 from ..utils.filters import filter_by_period
 
 ORDER_SEARCH_FIELDS = ("id", "discount_name", "token", "user_email", "user__email")
@@ -61,48 +58,3 @@ def resolve_order_by_token(token):
         .filter(token=token)
         .first()
     )
-
-
-def _resolve_order_shipping_methods(
-    root: models.Order,
-    info,
-    shipping_method_channel_listings,
-):
-    # TODO: We should optimize it in/after PR#5819
-    cache_key = "__fetched_shipping_methods"
-    if hasattr(root, cache_key):
-        return getattr(root, cache_key)
-
-    available = get_valid_shipping_methods_for_order(
-        root, shipping_method_channel_listings
-    )
-    manager = info.context.plugins
-
-    excluded_shipping_methods = manager.excluded_shipping_methods_for_order(
-        root, available
-    )
-    annotate_active_shipping_methods(
-        available,
-        excluded_shipping_methods,
-    )
-
-    setattr(root, cache_key, available)
-    return getattr(root, cache_key)
-
-
-def resolve_order_shipping_methods(root: models.Order, info, include_active_only=False):
-    # TODO: We should optimize it in/after PR#5819
-    def with_channel(channel):
-        def with_listings(channel_listings):
-            instances = _resolve_order_shipping_methods(root, info, channel_listings)
-            if include_active_only:
-                instances = [instance for instance in instances if instance.active]
-            return instances
-
-        return (
-            ShippingMethodChannelListingByChannelSlugLoader(info.context)
-            .load(channel.slug)
-            .then(with_listings)
-        )
-
-    return ChannelByIdLoader(info.context).load(root.channel_id).then(with_channel)

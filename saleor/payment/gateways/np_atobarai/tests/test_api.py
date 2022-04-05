@@ -4,17 +4,16 @@ from unittest.mock import ANY, Mock, patch
 
 import pytest
 import requests
+from graphene import Node
 
-from .....order import OrderEvents
 from .... import PaymentError
 from .. import PaymentStatus, api, const
-from ..api_helpers import format_price, get_goods_with_discount, get_refunded_goods
-from ..api_types import NPResponse
+from ..api_helpers import format_price, get_goods_with_refunds
+from ..api_types import NPResponse, PaymentResult
 from ..errors import (
     NO_PSP_REFERENCE,
     NO_TRACKING_NUMBER,
     NP_CONNECTION_ERROR,
-    PAYMENT_DOES_NOT_EXIST,
     SHIPPING_COMPANY_CODE_INVALID,
 )
 from ..plugin import NPAtobaraiGatewayPlugin
@@ -27,9 +26,9 @@ def test_refund_payment(
     # given
     plugin = np_atobarai_plugin()
     payment_data = np_payment_data
+    payment_data.amount = payment_dummy.captured_amount
     psp_reference = "18121200001"
-    payment_dummy.psp_reference = psp_reference
-    payment_dummy.save(update_fields=["psp_reference"])
+    payment_data.psp_reference = psp_reference
     response = Mock(
         spec=requests.Response,
         status_code=200,
@@ -53,7 +52,7 @@ def test_refund_payment_no_order(np_atobarai_plugin, np_payment_data, payment_du
     payment_dummy.save(update_fields=["order", "captured_amount"])
 
     # then
-    with pytest.raises(PaymentError, match=rf"Order.*{payment_dummy.id}.*"):
+    with pytest.raises(PaymentError):
         # when
         plugin.refund_payment(payment_data, None)
 
@@ -65,6 +64,7 @@ def test_refund_payment_payment_not_created(
     # given
     plugin = np_atobarai_plugin()
     payment_data = np_payment_data
+    payment_data.amount = payment_dummy.captured_amount
     response = Mock(
         spec=requests.Response,
         status_code=200,
@@ -175,7 +175,9 @@ def test_refund_payment_partial_refund_reregister_transaction(
     psp_reference = "psp_reference"
     payment_dummy.psp_reference = psp_reference
     payment_dummy.save(update_fields=["captured_amount", "psp_reference"])
-    mocked_change_transaction.return_value = None
+    mocked_change_transaction.return_value = PaymentResult(
+        status=PaymentStatus.FOR_REREGISTRATION
+    )
     new_psp_reference = "new_psp_reference"
     response = Mock(
         spec=requests.Response,
@@ -215,7 +217,7 @@ def test_report_fulfillment(mocked_request, config, fulfillment, payment_dummy):
     mocked_request.return_value = response
 
     # when
-    _, errors, already_captured = api.report_fulfillment(
+    errors, already_captured = api.report_fulfillment(
         config, payment_dummy, fulfillment
     )
 
@@ -243,7 +245,7 @@ def test_report_fulfillment_invalid_shipping_company_code(
     )
 
     # when
-    _, errors, already_captured = api.report_fulfillment(
+    errors, already_captured = api.report_fulfillment(
         config, payment_dummy, fulfillment
     )
 
@@ -257,7 +259,7 @@ def test_report_fulfillment_no_psp_reference(
     _mocked_request, config, fulfillment, payment_dummy
 ):
     # when
-    _, errors, already_captured = api.report_fulfillment(
+    errors, already_captured = api.report_fulfillment(
         config, payment_dummy, fulfillment
     )
 
@@ -277,7 +279,7 @@ def test_report_fulfillment_no_tracking_number(
     fulfillment.tracking_number = ""
 
     # when
-    _, errors, already_captured = api.report_fulfillment(
+    errors, already_captured = api.report_fulfillment(
         config, payment_dummy, fulfillment
     )
 
@@ -303,7 +305,7 @@ def test_report_fulfillment_np_errors(
     mocked_request.return_value = response
 
     # when
-    _, errors, already_captured = api.report_fulfillment(
+    errors, already_captured = api.report_fulfillment(
         config, payment_dummy, fulfillment
     )
 
@@ -327,7 +329,7 @@ def test_report_fulfillment_connection_errors(
     mocked_request.return_value = response
 
     # when
-    _, errors, already_captured = api.report_fulfillment(
+    errors, already_captured = api.report_fulfillment(
         config, payment_dummy, fulfillment
     )
 
@@ -353,7 +355,7 @@ def test_report_fulfillment_already_captured(
     mocked_request.return_value = response
 
     # when
-    _, _, already_captured = api.report_fulfillment(config, payment_dummy, fulfillment)
+    _, already_captured = api.report_fulfillment(config, payment_dummy, fulfillment)
 
     # then
     assert already_captured
@@ -378,7 +380,7 @@ def test_tracking_number_updated(
 ):
     # given
     plugin = np_atobarai_plugin()
-    result = ("", [], False)
+    result = ([], False)
     mocked_report_fulfillment.return_value = result
     order = fulfillment.order
     order.payments.add(payment_np)
@@ -387,7 +389,10 @@ def test_tracking_number_updated(
     plugin.tracking_number_updated(fulfillment, None)
 
     # then
-    mocked_notify_dashboard.assert_called_once_with(order, "Captured payment")
+    payment_graphql_id = Node.to_global_id("Payment", payment_np.id)
+    mocked_notify_dashboard.assert_called_once_with(
+        order, f"Payment with id {payment_graphql_id} was captured"
+    )
     assert not caplog.record_tuples
 
 
@@ -404,7 +409,7 @@ def test_tracking_number_updated_errors(
     # given
     errors = ["error1", "error2"]
     plugin = np_atobarai_plugin()
-    result = ("", errors, False)
+    result = (errors, False)
     mocked_report_fulfillment.return_value = result
     order = fulfillment.order
     order.payments.add(payment_np)
@@ -413,11 +418,16 @@ def test_tracking_number_updated_errors(
     plugin.tracking_number_updated(fulfillment, None)
 
     # then
-    mocked_notify_dashboard.assert_called_once_with(order, "Capture Error for payment")
+    payment_graphql_id = Node.to_global_id("Payment", payment_np.id)
+    error = ", ".join(errors)
+    mocked_notify_dashboard.assert_called_once_with(
+        order, f"Error: Cannot capture payment with id {payment_graphql_id} ({error})"
+    )
     assert len(caplog.records) == 1
     assert caplog.records[0].levelno == logging.WARNING
     assert caplog.records[0].message == (
-        f"Could not capture payment in NP Atobarai: {', '.join(errors)}"
+        f"Could not capture payment with id {payment_graphql_id} "
+        f"in NP Atobarai: {error}"
     )
 
 
@@ -433,7 +443,7 @@ def test_tracking_number_updated_already_captured(
 ):
     # given
     plugin = np_atobarai_plugin()
-    result = ("", [], True)
+    result = ([], True)
     mocked_report_fulfillment.return_value = result
     order = fulfillment.order
     order.payments.add(payment_np)
@@ -442,12 +452,17 @@ def test_tracking_number_updated_already_captured(
     plugin.tracking_number_updated(fulfillment, None)
 
     # then
+    payment_graphql_id = Node.to_global_id("Payment", payment_np.id)
     mocked_notify_dashboard.assert_called_once_with(
-        order, "Error: Payment was already captured"
+        order,
+        f"Error: Payment with id {payment_graphql_id} was already captured",
     )
     assert len(caplog.records) == 1
     assert caplog.records[0].levelno == logging.WARNING
-    assert caplog.records[0].message == "Payment was already captured"
+    assert (
+        caplog.records[0].message
+        == f"Payment with id {payment_graphql_id} was already captured"
+    )
 
 
 @patch("saleor.payment.gateways.np_atobarai.notify_dashboard")
@@ -467,12 +482,12 @@ def test_tracking_number_updated_no_payments(
     plugin.tracking_number_updated(fulfillment, None)
 
     # then
-    mocked_notify_dashboard.assert_called_once_with(order, "Capture Error for payment")
+    mocked_notify_dashboard.assert_called_once_with(
+        order, "No active payments for this order"
+    )
     assert len(caplog.records) == 1
     assert caplog.records[0].levelno == logging.WARNING
-    assert caplog.records[0].message == (
-        "Could not capture payment in NP Atobarai: No active payments for this order"
-    )
+    assert caplog.records[0].message == ("No active payments for this order")
 
 
 @patch("saleor.payment.gateways.np_atobarai.api_helpers.requests.request")
@@ -480,7 +495,6 @@ def test_change_transaction_success(
     mocked_request, config, payment_dummy, np_payment_data
 ):
     # given
-    refund_data = None
     response = Mock(
         spec=requests.Response,
         status_code=200,
@@ -499,7 +513,7 @@ def test_change_transaction_success(
 
     # when
     payment_response = api.change_transaction(
-        config, payment_dummy, np_payment_data, refund_data
+        config, payment_dummy, np_payment_data, Mock(), Decimal("12.34")
     )
 
     # then
@@ -512,7 +526,6 @@ def test_change_transaction_pending(
     mocked_request, mocked_cancel, config, payment_dummy, np_payment_data
 ):
     # given
-    refund_data = None
     transaction_id = "123"
     response = Mock(
         spec=requests.Response,
@@ -536,7 +549,7 @@ def test_change_transaction_pending(
 
     # when
     payment_response = api.change_transaction(
-        config, payment_dummy, np_payment_data, refund_data
+        config, payment_dummy, np_payment_data, Mock(), Decimal("12.34")
     )
 
     # then
@@ -549,7 +562,6 @@ def test_change_transaction_post_fulfillment(
     mocked_request, config, payment_dummy, np_payment_data
 ):
     # given
-    refund_data = None
     response = Mock(
         spec=requests.Response,
         status_code=200,
@@ -559,11 +571,11 @@ def test_change_transaction_post_fulfillment(
 
     # when
     payment_response = api.change_transaction(
-        config, payment_dummy, np_payment_data, refund_data
+        config, payment_dummy, np_payment_data, Mock(), Decimal("12.34")
     )
 
     # then
-    assert payment_response is None
+    assert payment_response.status == PaymentStatus.FOR_REREGISTRATION
 
 
 @patch("saleor.payment.gateways.np_atobarai.api_helpers.requests.request")
@@ -571,7 +583,6 @@ def test_change_transaction_failed(
     mocked_request, config, payment_dummy, np_payment_data
 ):
     # given
-    refund_data = None
     response = Mock(
         spec=requests.Response,
         status_code=200,
@@ -581,58 +592,12 @@ def test_change_transaction_failed(
 
     # when
     payment_response = api.change_transaction(
-        config, payment_dummy, np_payment_data, refund_data
+        config, payment_dummy, np_payment_data, Mock(), Decimal("12.34")
     )
 
     # then
     assert payment_response.status == PaymentStatus.FAILED
     assert payment_response.errors
-
-
-@patch("saleor.payment.gateways.np_atobarai.api.np_request")
-def test_change_transaction_refunded_goods(
-    mocked_request, config, payment_dummy, np_payment_data
-):
-    # given
-    refund_data = {i: i for i in range(1, 4)}
-    mocked_request.return_value = NPResponse(
-        result={
-            "authori_result": "00",
-            "np_transaction_id": "123123123",
-        },
-        error_codes=[],
-    )
-
-    # when
-    api.change_transaction(config, payment_dummy, np_payment_data, refund_data)
-
-    # then
-    data = mocked_request.call_args[1]["json"]
-    goods = data["transactions"][0]["goods"]
-    assert goods == get_refunded_goods(config, refund_data, np_payment_data)
-
-
-@patch("saleor.payment.gateways.np_atobarai.api.np_request")
-def test_change_transaction_goods_with_discount(
-    mocked_request, config, payment_dummy, np_payment_data
-):
-    # given
-    refund_data = None
-    mocked_request.return_value = NPResponse(
-        result={
-            "authori_result": "00",
-            "np_transaction_id": "123123123",
-        },
-        error_codes=[],
-    )
-
-    # when
-    api.change_transaction(config, payment_dummy, np_payment_data, refund_data)
-
-    # then
-    data = mocked_request.call_args[1]["json"]
-    goods = data["transactions"][0]["goods"]
-    assert goods == get_goods_with_discount(config, np_payment_data)
 
 
 @patch("saleor.payment.gateways.np_atobarai.api.report")
@@ -647,7 +612,6 @@ def test_reregister_transaction_success(
     np_payment_data,
 ):
     # given
-    refund_data = None
     tracking_number = "123"
     shipping_company_code = "50000"
     payment_dummy.psp_reference = "123"
@@ -659,25 +623,29 @@ def test_reregister_transaction_success(
         },
         error_codes=[],
     )
+    mocked_report.return_value = NPResponse(result={}, error_codes=[])
 
     # when
+    goods, billed_amount = get_goods_with_refunds(
+        config, payment_dummy, np_payment_data
+    )
     payment_response = api.reregister_transaction_for_partial_return(
         config,
         payment_dummy,
         np_payment_data,
         shipping_company_code,
         tracking_number,
-        refund_data,
+        goods,
+        billed_amount,
     )
 
     # then
     mocked_cancel.assert_called_once_with(config, payment_dummy.psp_reference)
-    billed_amount = format_price(
-        payment_dummy.captured_amount - np_payment_data.amount, np_payment_data.currency
-    )
-    goods = get_goods_with_discount(config, np_payment_data)
     mocked_register.assert_called_once_with(
-        config, np_payment_data, billed_amount, goods
+        config,
+        np_payment_data,
+        int(format_price(billed_amount, np_payment_data.currency)),
+        goods,
     )
     mocked_report.assert_called_once_with(
         config, shipping_company_code, new_psp_reference, tracking_number
@@ -689,7 +657,13 @@ def test_reregister_transaction_success(
 def test_reregister_transaction_no_psp_reference(payment_dummy, np_payment_data):
     # when
     payment_response = api.reregister_transaction_for_partial_return(
-        Mock(), payment_dummy, np_payment_data, Mock(), Mock(), Mock()
+        Mock(),
+        payment_dummy,
+        np_payment_data,
+        Mock(),
+        Mock(),
+        Mock(),
+        Decimal("12.34"),
     )
 
     # then
@@ -708,12 +682,54 @@ def test_reregister_transaction_cancel_error(
 
     # when
     payment_response = api.reregister_transaction_for_partial_return(
-        config, payment_dummy, np_payment_data, Mock(), Mock(), Mock()
+        config, payment_dummy, np_payment_data, Mock(), Mock(), Mock(), Decimal("12.34")
     )
 
     # then
     assert payment_response.status == PaymentStatus.FAILED
     assert payment_response.errors == [f"TC#{code}" for code in error_codes]
+
+
+@patch("saleor.payment.gateways.np_atobarai.api.report")
+@patch("saleor.payment.gateways.np_atobarai.api.register")
+@patch("saleor.payment.gateways.np_atobarai.api.cancel")
+def test_reregister_transaction_report_error(
+    mocked_cancel,
+    mocked_register,
+    mocked_report,
+    config,
+    payment_dummy,
+    np_payment_data,
+):
+    # given
+    tracking_number = "123"
+    shipping_company_code = "50000"
+    payment_dummy.psp_reference = "123"
+    new_psp_reference = "234"
+    error_codes = ["1", "2", "3"]
+    mocked_cancel.return_value = NPResponse(result={}, error_codes=[])
+    mocked_register.return_value = NPResponse(
+        result={
+            "np_transaction_id": new_psp_reference,
+        },
+        error_codes=[],
+    )
+    mocked_report.return_value = NPResponse(result={}, error_codes=error_codes)
+
+    # when
+    payment_response = api.reregister_transaction_for_partial_return(
+        config,
+        payment_dummy,
+        np_payment_data,
+        shipping_company_code,
+        tracking_number,
+        Mock(),
+        Decimal("12.34"),
+    )
+
+    # then
+    assert payment_response.status == PaymentStatus.FAILED
+    assert payment_response.errors == [f"FR#{code}" for code in error_codes]
 
 
 @patch("saleor.payment.gateways.np_atobarai.api.register")
@@ -733,12 +749,7 @@ def test_reregister_transaction_general_error(
 
     # when
     payment_response = api.reregister_transaction_for_partial_return(
-        config,
-        payment_dummy,
-        np_payment_data,
-        Mock(),
-        Mock(),
-        Mock(),
+        config, payment_dummy, np_payment_data, Mock(), Mock(), Mock(), Decimal("12.34")
     )
 
     # then
@@ -763,7 +774,7 @@ def test_register_transaction_pending(
     mocked_cancel.return_value = NPResponse(result={}, error_codes=[])
 
     # when
-    payment_response = api.register_transaction(None, config, np_payment_data)
+    payment_response = api.register_transaction(config, np_payment_data)
 
     # then
     mocked_register.assert_called_once()
@@ -775,7 +786,7 @@ def test_register_transaction_pending(
 @patch("saleor.payment.gateways.np_atobarai.api.cancel")
 @patch("saleor.payment.gateways.np_atobarai.api.register")
 def test_register_transaction_pending_unrecoverable(
-    mocked_register, mocked_cancel, order, config, np_payment_data, caplog
+    mocked_register, mocked_cancel, config, np_payment_data, caplog
 ):
     # given
     transaction_id = "123123123"
@@ -790,7 +801,7 @@ def test_register_transaction_pending_unrecoverable(
     mocked_cancel.return_value = NPResponse(result={}, error_codes=cancel_errors)
 
     # when
-    payment_response = api.register_transaction(order, config, np_payment_data)
+    payment_response = api.register_transaction(config, np_payment_data)
 
     # then
     mocked_register.assert_called_once()
@@ -798,17 +809,14 @@ def test_register_transaction_pending_unrecoverable(
     assert payment_response.status == PaymentStatus.PENDING
     assert payment_response.errors == [f"TR#{e}" for e in errors]
     assert caplog.record_tuples == [(ANY, logging.ERROR, ANY)]
-    event = order.events.first()
-    assert event.type == OrderEvents.EXTERNAL_SERVICE_NOTIFICATION
 
 
 def test_cancel_transaction_no_payment(np_payment_data):
     # given
-    payment_id = -1
-    np_payment_data.payment_id = payment_id
+    np_payment_data.psp_reference = ""
 
     # when
     payment_response = api.cancel_transaction(Mock(), np_payment_data)
 
     # then
-    assert payment_response.errors == [f"TC#{PAYMENT_DOES_NOT_EXIST}"]
+    assert payment_response.errors == [f"TC#{NO_PSP_REFERENCE}"]

@@ -1,4 +1,5 @@
 """Checkout-related ORM models."""
+from datetime import date
 from operator import attrgetter
 from typing import TYPE_CHECKING, Iterable, Optional
 from uuid import uuid4
@@ -6,6 +7,7 @@ from uuid import uuid4
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.db.models.deletion import SET_NULL
 from django.utils.encoding import smart_str
 from django_countries.fields import Country, CountryField
 from django_prices.models import MoneyField
@@ -44,7 +46,7 @@ class Checkout(ModelWithMetadata):
         related_name="checkouts",
         on_delete=models.CASCADE,
     )
-    email = models.EmailField()
+    email = models.EmailField(blank=True, null=True)
     token = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     channel = models.ForeignKey(
         Channel,
@@ -67,6 +69,13 @@ class Checkout(ModelWithMetadata):
     )
     shipping_method = models.ForeignKey(
         ShippingMethod,
+        blank=True,
+        null=True,
+        related_name="checkouts",
+        on_delete=models.SET_NULL,
+    )
+    collection_point = models.ForeignKey(
+        "warehouse.Warehouse",
         blank=True,
         null=True,
         related_name="checkouts",
@@ -107,7 +116,7 @@ class Checkout(ModelWithMetadata):
     def __iter__(self):
         return iter(self.lines.all())
 
-    def get_customer_email(self) -> str:
+    def get_customer_email(self) -> Optional[str]:
         return self.user.email if self.user else self.email
 
     def is_shipping_required(self) -> bool:
@@ -116,9 +125,9 @@ class Checkout(ModelWithMetadata):
 
     def get_total_gift_cards_balance(self) -> Money:
         """Return the total balance of the gift cards assigned to the checkout."""
-        balance = self.gift_cards.aggregate(models.Sum("current_balance_amount"))[
-            "current_balance_amount__sum"
-        ]
+        balance = self.gift_cards.active(date=date.today()).aggregate(  # type: ignore
+            models.Sum("current_balance_amount")
+        )["current_balance_amount__sum"]
         if balance is None:
             return zero_money(currency=self.currency)
         return Money(balance, self.currency)
