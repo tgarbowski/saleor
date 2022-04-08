@@ -31,7 +31,8 @@ from ..enums import PostalCodeRuleInclusionTypeEnum, ShippingMethodTypeEnum
 from ..types import ShippingMethodPostalCodeRule, ShippingMethodType, ShippingZone
 from ....plugins.dpd.api import DpdApi
 from ....plugins.dpd.utils import get_dpd_fid
-
+from saleor.plugins.inpost.plugin import create_shipping_information, create_inpost_shipment
+from dataclasses import asdict
 
 class ShippingPostalCodeRulesCreateInputRange(graphene.InputObjectType):
     start = graphene.String(
@@ -827,3 +828,51 @@ class DpdProtocolCreate(BaseMutation):
         return DpdProtocolCreate(
             protocol=data
         )
+
+
+class PackageInput(graphene.InputObjectType):
+    weight = graphene.Float(description="Weight", required=True)
+    width = graphene.Int(description="Width")
+    length = graphene.Int(description="Length")
+    height = graphene.Int(description="Height")
+
+
+class PackageCreateInput(graphene.InputObjectType):
+    packageData = graphene.List(PackageInput, required=True)
+    fulfillment = graphene.String(required=True, description="Order fullfilment record ID")
+
+
+class PackageCreate(BaseMutation):
+    package = graphene.types.generic.GenericScalar()
+
+    class Arguments:
+        input = PackageCreateInput(
+            required=True,
+            description=(
+                "Client-side generated data required to create dpd package."
+            ),
+        )
+
+    class Meta:
+        description = "Creates a new shipping."
+        permissions = (ShippingPermissions.MANAGE_SHIPPING,)
+        error_type_class = ShippingError
+        error_type_field = "shipping_errors"
+
+    @classmethod
+    def perform_mutation(cls, _root, info, **data):
+        from saleor.order.models import Order
+        order = Order.objects.get(pk=136)
+        shipping = create_shipping_information(order=order)
+        # TODO: handle generic courier
+        if shipping.courier == "DPD":
+            # TODO: handle dpd package create
+            pass
+        if not shipping.courier == "Inpost":
+            # TODO: handle inpost package create
+            inpost_shipment = create_inpost_shipment(
+                shipping=shipping,
+                package=data['input']['packageData']
+            )
+
+        return PackageCreate(package=inpost_shipment)
