@@ -13,6 +13,7 @@ class InpostAddress:
     country_code: str
     building_number: str = None
     id: str = None
+    line1: str = None
 
 @dataclass
 class InpostReceiver:
@@ -25,13 +26,14 @@ class InpostReceiver:
 
 @dataclass
 class InpostDimension:
+    """Unit: mm"""
     length: str
     width: str
     height: str
-    unit: str
 
 @dataclass
 class InpostWeight:
+    """Unit: kg"""
     amount: str
     unit: str
 
@@ -42,7 +44,7 @@ class InpostParcel:
     dimensions: InpostDimension = None
     weight: InpostWeight = None
     tracking_number: str = None
-    is_non_standard: bool = None
+    is_non_standard: bool = False
 
 @dataclass
 class InpostShipment:
@@ -52,6 +54,7 @@ class InpostShipment:
     custom_attributes: dict = None
     additional_services: List[str] = None
     cod: dict = None
+    service: str = None
 
 @dataclass
 class UserData:

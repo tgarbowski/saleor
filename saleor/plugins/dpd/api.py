@@ -178,7 +178,7 @@ class DpdApi():
             outputLabelTypePayload,
             labelVariant,
             self.auth_payload
-        )
+        )['documentData']
 
     def generate_protocol(self,
         senderData,

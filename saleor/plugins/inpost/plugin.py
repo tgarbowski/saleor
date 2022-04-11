@@ -72,7 +72,11 @@ def create_shipping_information(order: "Order"):
     site_settings = SiteSettings.objects.first()
     sender = AddressData(**site_settings.company_address.as_data())
     receiver_address = AddressData(**order.shipping_address.as_data())
-    #shipping_method = ShippingMethodData(**order.shipping_method.as_data())
+    shipping_method = ShippingMethodData(
+        id='',
+        name=order.shipping_method_name,
+        price=order.shipping_price_gross,
+    )
     courier = order.shipping_method.metadata["courier"]
 
     receiver = UserData(
@@ -83,21 +87,24 @@ def create_shipping_information(order: "Order"):
     return Shipping(
         receiver=receiver,
         sender=sender,
-        shipping_method=None,
+        shipping_method=shipping_method,
         courier=courier,
     )
 
 
-def create_inpost_shipment(shipping: Shipping, package):
-    receiver_address = InpostAddress(
+def create_inpost_address(shipping: Shipping) -> InpostAddress:
+    inpost_address = InpostAddress(
         city=shipping.receiver.address.city,
         post_code=shipping.receiver.address.postal_code,
         country_code=shipping.receiver.address.country,
         street=shipping.receiver.address.street_address_1,
-        # TODO: parse building number
-        building_number='30',
-        id='30'
+        line1=shipping.receiver.address.street_address_2
     )
+    return inpost_address
+
+
+def create_inpost_receiver(shipping: Shipping) -> InpostReceiver:
+    receiver_address = create_inpost_address(shipping=shipping)
 
     receiver = InpostReceiver(
         first_name=shipping.receiver.address.first_name,
@@ -107,26 +114,45 @@ def create_inpost_shipment(shipping: Shipping, package):
         adress=receiver_address
     )
 
+    return receiver
+
+
+def create_inpost_package(package):
     parcels = []
 
     for parcel in package:
         dimensions = InpostDimension(
             length=parcel.length,
             width=parcel.width,
-            height=parcel.height,
-            unit='mm'
+            height=parcel.height
         )
         p = InpostParcel(
-            weight=InpostWeight(amount="10.0", unit="kg"),
+            weight=InpostWeight(amount=parcel.weight, unit="kg"),
             dimensions=dimensions
         )
         parcels.append(p)
 
+    return parcels
+
+
+def create_inpost_shipment(shipping: Shipping, package):
+    receiver = create_inpost_receiver(shipping=shipping)
+    parcels = create_inpost_package(package=package)
+
     inpost_shipment = InpostShipment(
         receiver=receiver,
-        parcels=parcels
+        parcels=parcels,
+        service="inpost_locker_standard",
+        custom_attributes={"target_point": "KRA012"}
     )
 
     inpost_api = InpostApi()
     response = inpost_api.create_package(package=inpost_shipment)
+    return response
+
+
+def generate_inpost_label(package_id: str):
+    inpost_api = InpostApi()
+    response = inpost_api.get_label(shipment_id=package_id)
+    print('response', response)
     return response

@@ -17,10 +17,14 @@ class InpostApi:
         return configuration
 
     def get_label(self, shipment_id):
-        url = f'{self.config.api_url}shipments/{shipment_id}/label'
-        headers = {"Authorization": f'Bearer {self.config.access_token}'}
+        api_url = self.config.get('api_url')
+        access_token = self.config.get('access_token')
+
+        url = f'{api_url}shipments/{shipment_id}/label'
+        headers = {"Authorization": f'Bearer {access_token}'}
         response = requests.get(url=url, headers=headers)
-        return response
+
+        return response.content
 
     def create_package(self, package: InpostShipment):
         organization_id = self.config.get('organization_id')
