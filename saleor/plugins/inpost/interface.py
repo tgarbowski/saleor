@@ -65,7 +65,10 @@ class UserData:
 @dataclass
 class Shipping:
     courier: str
+    courier_service: str
     shipping_method: ShippingMethodData
     receiver: UserData
     sender: AddressData
+    order_metadata: dict
+    shipping_method_metadata: dict
 

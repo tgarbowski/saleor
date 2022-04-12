@@ -14,7 +14,6 @@ from .interface import (
     InpostShipment, Shipping, UserData
 )
 from .api import InpostApi
-from dataclasses import asdict
 
 
 WEBHOOK_PATH = "/webhooks"
@@ -78,6 +77,9 @@ def create_shipping_information(order: "Order"):
         price=order.shipping_price_gross,
     )
     courier = order.shipping_method.metadata["courier"]
+    courier_service = order.shipping_method.metadata.get("courier_service")
+    shipping_method_metadata = order.shipping_method.metadata
+    order_metadata = order.metadata
 
     receiver = UserData(
         address=receiver_address,
@@ -89,6 +91,9 @@ def create_shipping_information(order: "Order"):
         sender=sender,
         shipping_method=shipping_method,
         courier=courier,
+        courier_service=courier_service,
+        order_metadata=order_metadata,
+        shipping_method_metadata=shipping_method_metadata
     )
 
 
@@ -122,9 +127,9 @@ def create_inpost_package(package):
 
     for parcel in package:
         dimensions = InpostDimension(
-            length=parcel.length,
-            width=parcel.width,
-            height=parcel.height
+            length=parcel.sizeX,
+            width=parcel.sizeY,
+            height=parcel.sizeZ
         )
         p = InpostParcel(
             weight=InpostWeight(amount=parcel.weight, unit="kg"),
@@ -135,24 +140,71 @@ def create_inpost_package(package):
     return parcels
 
 
-def create_inpost_shipment(shipping: Shipping, package):
+def save_package_data_to_fulfillment(fulfillment, parcels, package_id):
+    new_parcels = []
+
+    for parcel in parcels:
+        new_parcels.append(
+            {
+                "id": parcel['id'],
+                "weight": parcel['weight']['amount'],
+                "sizeX": parcel['dimensions']['length'],
+                "sizeY": parcel['dimensions']['width'],
+                "sizeZ": parcel['dimensions']['height']
+            }
+        )
+
+    package_data = {
+        "package": {
+            "id": package_id,
+            "parcels": new_parcels
+        }
+    }
+    fulfillment.store_value_in_private_metadata(package_data)
+    # TODO: get proper tracking number
+    fulfillment.tracking_number = 123
+    fulfillment.save()
+
+
+def create_custom_attributes(shipping: Shipping):
+    locker_id = shipping.order_metadata.get("locker_id")
+
+    if locker_id:
+        custom_attributes = {
+            "target_point": locker_id
+        }
+    else:
+        custom_attributes = None
+
+    return custom_attributes
+
+
+def create_inpost_shipment(shipping: Shipping, package, fulfillment):
     receiver = create_inpost_receiver(shipping=shipping)
     parcels = create_inpost_package(package=package)
+    custom_attributes = create_custom_attributes(shipping=shipping)
+    service = shipping.courier_service
 
     inpost_shipment = InpostShipment(
         receiver=receiver,
         parcels=parcels,
-        service="inpost_locker_standard",
-        custom_attributes={"target_point": "KRA012"}
+        service=service,
+        custom_attributes=custom_attributes
     )
 
     inpost_api = InpostApi()
     response = inpost_api.create_package(package=inpost_shipment)
+
+    save_package_data_to_fulfillment(
+        fulfillment=fulfillment,
+        parcels=response.get('parcels'),
+        package_id=response.get('id')
+    )
+
     return response
 
 
 def generate_inpost_label(package_id: str):
     inpost_api = InpostApi()
     response = inpost_api.get_label(shipment_id=package_id)
-    print('response', response)
     return response

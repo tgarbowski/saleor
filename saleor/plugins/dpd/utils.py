@@ -1,18 +1,5 @@
-from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.inpost.plugin import Shipping
 from .api import DpdApi
-
-
-def get_dpd_config():
-    manager = get_plugins_manager()
-    dpd_config = manager.get_plugin('Dpd').config
-
-    return dpd_config
-
-
-def get_dpd_fid():
-    dpd_config = get_dpd_config()
-    return dpd_config.master_fid
 
 
 def create_dpd_receiver(shipping: Shipping):
@@ -23,12 +10,13 @@ def create_dpd_receiver(shipping: Shipping):
         'company': shipping.receiver.address.company_name,
         'countryCode': shipping.receiver.address.country,
         'email': shipping.receiver.email,
-        'phone': shipping.receiver.address.phone
+        'phone': shipping.receiver.address.phone,
+        'name': 'asd'
     }
     return receiver
 
 
-def create_dpd_sender(shipping: Shipping):
+def create_dpd_sender(shipping: Shipping, fid: str):
     receiver = {
         'city': shipping.sender.city,
         'postalCode': shipping.sender.postal_code,
@@ -38,9 +26,10 @@ def create_dpd_sender(shipping: Shipping):
         # TODO: email
         'email': '',
         'phone': shipping.sender.phone,
-        'fid': get_dpd_fid()
+        'fid': fid
     }
     return receiver
+
 
 def create_dpd_package(package):
     parcels = []
@@ -57,29 +46,9 @@ def create_dpd_package(package):
     return parcels
 
 
-def create_dpd_shipment(shipping: Shipping, package):
-    receiver = create_dpd_receiver(shipping=shipping)
-    sender = create_dpd_sender(shipping=shipping)
-    package_data = create_dpd_package(package=package)
-
-    dpd_api = DpdApi()
-
-    package = dpd_api.generate_package_shipment(
-        packageData=package_data,
-        receiverData=receiver,
-        senderData=sender,
-        #servicesData=data['input'].get('services')
-    )
-    '''
-    if package.Status != 'OK':
-        return DpdPackageCreate(
-            status=package.Status
-        )
-    '''
-    package = package.Packages.Package[0]
-    parcels = package.Parcels.Parcel
-    parcel_ids = [parcel.ParcelId for parcel in package.Parcels.Parcel]
-    waybills = [parcel.Waybill for parcel in package.Parcels.Parcel]
+def prepare_package_info_from_dpd_api_response(response_package, package):
+    pack = response_package.Packages.Package[0]
+    parcels = pack.Parcels.Parcel
     new_parcels = []
 
     for parcel, response_parcel in zip(package, parcels):
@@ -95,13 +64,55 @@ def create_dpd_shipment(shipping: Shipping, package):
         )
 
     json_package = {
-        "status": package.Status,
-        "id": package.PackageId,
+        "status": pack.Status,
+        "id": pack.PackageId,
         "parcels": new_parcels,
     }
+    return json_package
 
-    fulfillment_id = data['input']['fulfillment']
-    fulfillment = graphene.Node.get_node_from_global_id(info, fulfillment_id, Fulfillment)
+
+def save_package_data_to_fulfillment(fulfillment, json_package, tracking_number):
     fulfillment.store_value_in_private_metadata({'package': json_package})
-    fulfillment.tracking_number = package.PackageId
+    fulfillment.tracking_number = tracking_number
     fulfillment.save()
+
+
+def create_dpd_shipment(shipping: Shipping, package, fulfillment):
+    dpd_api = DpdApi()
+
+    receiver = create_dpd_receiver(shipping=shipping)
+    sender = create_dpd_sender(shipping=shipping, fid=dpd_api.API_FID)
+    package_data = create_dpd_package(package=package)
+
+    response_package = dpd_api.generate_package_shipment(
+        packageData=package_data,
+        receiverData=receiver,
+        senderData=sender,
+        # servicesData=data['input'].get('services')
+    )
+    '''
+    if package.Status != 'OK':
+        return DpdPackageCreate(
+            status=package.Status
+        )
+    '''
+    json_package = prepare_package_info_from_dpd_api_response(
+        response_package=response_package,
+        package=package
+    )
+
+    save_package_data_to_fulfillment(
+        fulfillment=fulfillment,
+        json_package=json_package,
+        tracking_number=response_package.Packages.Package[0].PackageId
+    )
+
+    return response_package
+
+
+def generate_dpd_label(package_id: str):
+    DPD_ApiInstance = DpdApi()
+    label = DPD_ApiInstance.generate_label(
+        packageId=package_id
+    )
+    return label['documentData']

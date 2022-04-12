@@ -5,7 +5,7 @@ import graphene
 from django.core.exceptions import ValidationError
 from django.db.utils import IntegrityError
 
-from ...order.types import Fulfillment
+from ...order.types import Fulfillment, Order
 from ....core.permissions import ShippingPermissions
 from ....core.tracing import traced_atomic_transaction
 from ....product import models as product_models
@@ -30,11 +30,8 @@ from ...utils.validators import check_for_duplicates
 from ..enums import PostalCodeRuleInclusionTypeEnum, ShippingMethodTypeEnum
 from ..types import ShippingMethodPostalCodeRule, ShippingMethodType, ShippingZone
 from ....plugins.dpd.api import DpdApi
-from ....plugins.dpd.utils import get_dpd_fid
 from saleor.plugins.inpost.plugin import create_shipping_information, create_inpost_shipment, generate_inpost_label
-from saleor.plugins.dpd.utils import create_dpd_shipment
-from dataclasses import asdict
-from saleor.order.models import Order
+from saleor.plugins.dpd.utils import create_dpd_shipment, generate_dpd_label
 
 
 class ShippingPostalCodeRulesCreateInputRange(graphene.InputObjectType):
@@ -688,7 +685,7 @@ class DpdProtocolCreate(BaseMutation):
     def perform_mutation(cls, _root, info, **data):
         DPD_ApiInstance = DpdApi()
 
-        data['input']['senderData']['fid'] = get_dpd_fid()
+        data['input']['senderData']['fid'] = DPD_ApiInstance.API_FID
 
         protocol = DPD_ApiInstance.generate_protocol(
             waybills=data['input'].get('waybills'),
@@ -734,27 +731,36 @@ class PackageCreate(BaseMutation):
 
     @classmethod
     def perform_mutation(cls, _root, info, **data):
-        order = Order.objects.get(pk=136)
-        shipping = create_shipping_information(order=order)
+        fulfillment_id = data['input']['fulfillment']
+        order_id = data['input']['order']
         package = data['input']['packageData']
+
+        order = graphene.Node.get_node_from_global_id(info, order_id, Order)
+        fulfillment = graphene.Node.get_node_from_global_id(info, fulfillment_id, Fulfillment)
+        shipping = create_shipping_information(order=order)
+        courier = order.shipping_method.metadata.get("courier")
         # TODO: handle generic courier
-        if shipping.courier == "DPD":
+        if courier == "DPD":
             shipment = create_dpd_shipment(
                 shipping=shipping,
-                package=package
+                package=package,
+                fulfillment=fulfillment
             )
-        if shipping.courier == "Inpost":
+            package_id = shipment.Packages.Package[0].PackageId
+        if courier == "INPOST":
             shipment = create_inpost_shipment(
                 shipping=shipping,
-                package=package
+                package=package,
+                fulfillment=fulfillment
             )
-
-        return PackageCreate(package=shipment)
+            package_id = shipment['id']
+        return PackageCreate(packageId=package_id)
 
 
 
 class LabelCreateInput(graphene.InputObjectType):
     package_id = graphene.Int(required=True)
+    order = graphene.String(required=True, description="Order ID")
 
 
 class LabelCreate(BaseMutation):
@@ -776,20 +782,16 @@ class LabelCreate(BaseMutation):
 
     @classmethod
     def perform_mutation(cls, _root, info, **data):
-        order = Order.objects.get(pk=136)
+        order_id = data['input']['order']
+        order = graphene.Node.get_node_from_global_id(info, order_id, Order)
         courier = order.shipping_method.metadata.get("courier")
         package_id = data['input']['package_id']
 
         if courier == "DPD":
-            DPD_ApiInstance = DpdApi()
-            label = DPD_ApiInstance.generate_label(
-                packageId=package_id
-            )
+            label = generate_dpd_label(package_id=package_id)
 
-        if courier == "Inpost":
-            label = generate_inpost_label(
-                package_id=package_id
-            )
+        if courier == "INPOST":
+            label = generate_inpost_label(package_id=package_id)
 
         label_b64 = base64.b64encode(label).decode('ascii')
 
