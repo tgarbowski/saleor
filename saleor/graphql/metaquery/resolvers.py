@@ -17,6 +17,11 @@ def resolve_product_type_by_metadata(privateMetadataKey=None, metadataKey=None,
     return qs.first()
 
 
+def resolve_product_types_by_metadata():
+    qs = ProductType.objects.all()
+    return qs
+
+
 def resolve_user_by_metadata(privateMetadataKey=None, metadataKey=None,
                                      privateMetadataValue=None, metadataValue=None):
     json_dict = {}
