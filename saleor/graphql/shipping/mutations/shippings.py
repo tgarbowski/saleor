@@ -632,32 +632,6 @@ class ShippingPriceRemoveProductFromExclude(BaseMutation):
         )
 
 
-class PackageDataInput(graphene.InputObjectType):
-    weight = graphene.Float(description="Weight", required=True)
-    content = graphene.String(description="Content")
-    customerData1 = graphene.String(description="Customer Data")
-    sizeX = graphene.Int(description="Size X")
-    sizeY = graphene.Int(description="Size Y")
-    sizeZ = graphene.Int(description="Size Z")
-
-
-class ServiceDataInput(graphene.InputObjectType):
-    dox = graphene.Boolean(description="Envelope up to 0,5 kg")
-
-
-class DpdCreatePackageInput(graphene.InputObjectType):
-    reference = graphene.String()
-    thirdPartyFID = graphene.Int(description="Third party FID")
-    langCode = graphene.String(description="Language Code")
-    packageData = graphene.List(PackageDataInput, required=True)
-    fulfillment = graphene.ID(required=True, description="Order fullfilment record ID")
-    services = ServiceDataInput()
-
-
-class DpdCreateLabelInput(graphene.InputObjectType):
-    packageId = graphene.Int(required=True)
-
-
 class DpdCreateProtocolInput(graphene.InputObjectType):
     waybills = graphene.List(graphene.String)
     packages = graphene.List(graphene.Int)
@@ -713,7 +687,7 @@ class PackageCreateInput(graphene.InputObjectType):
 
 
 class PackageCreate(BaseMutation):
-    packageId = graphene.types.generic.GenericScalar()
+    packageId = graphene.Field(graphene.String, description='Package ID')
 
     class Arguments:
         input = PackageCreateInput(
@@ -724,7 +698,7 @@ class PackageCreate(BaseMutation):
         )
 
     class Meta:
-        description = "Creates a new shipping."
+        description = "Creates a new package."
         permissions = (ShippingPermissions.MANAGE_SHIPPING,)
         error_type_class = ShippingError
         error_type_field = "shipping_errors"

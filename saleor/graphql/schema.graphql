@@ -2807,6 +2807,7 @@ type LabelCreate {
 
 input LabelCreateInput {
   packageId: Int!
+  order: String!
 }
 
 enum LanguageCodeEnum {
@@ -4805,7 +4806,7 @@ type OrderVoid {
 }
 
 type PackageCreate {
-  packageId: GenericScalar
+  packageId: String
   shippingErrors: [ShippingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
   errors: [ShippingError!]!
 }

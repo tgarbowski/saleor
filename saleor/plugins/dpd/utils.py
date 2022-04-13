@@ -17,7 +17,7 @@ def create_dpd_receiver(shipping: Shipping):
 
 
 def create_dpd_sender(shipping: Shipping, fid: str):
-    receiver = {
+    sender = {
         'city': shipping.sender.city,
         'postalCode': shipping.sender.postal_code,
         'address': shipping.sender.street_address_1,
@@ -28,7 +28,7 @@ def create_dpd_sender(shipping: Shipping, fid: str):
         'phone': shipping.sender.phone,
         'fid': fid
     }
-    return receiver
+    return sender
 
 
 def create_dpd_package(package):
