@@ -62,6 +62,7 @@ class AddressData:
     country: str
     country_area: str
     phone: str
+    vat_id: str
 
 
 class StorePaymentMethodEnum(str, Enum):

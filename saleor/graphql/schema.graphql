@@ -131,6 +131,7 @@ type Address implements Node {
   phone: String
   isDefaultShippingAddress: Boolean
   isDefaultBillingAddress: Boolean
+  vatId: String
 }
 
 type AddressCreate {
@@ -159,6 +160,7 @@ input AddressInput {
   country: CountryCode
   countryArea: String
   phone: String
+  vatId: String
 }
 
 type AddressSetDefault {
