@@ -46,6 +46,7 @@ class AddressInput(graphene.InputObjectType):
     country = CountryCodeEnum(description="Country.")
     country_area = graphene.String(description="State or province.")
     phone = graphene.String(description="Phone number.")
+    vat_id = graphene.String(description="VAT ID")
 
 
 @federated_entity("id")
@@ -70,6 +71,7 @@ class Address(ModelObjectType):
     is_default_billing_address = graphene.Boolean(
         required=False, description="Address is user's default billing address."
     )
+    vat_id = graphene.String(required=False)
 
     class Meta:
         description = "Represents user address data."

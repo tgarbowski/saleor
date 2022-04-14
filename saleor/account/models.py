@@ -68,6 +68,7 @@ class Address(models.Model):
     country = CountryField()
     country_area = models.CharField(max_length=128, blank=True)
     phone = PossiblePhoneNumberField(blank=True, default="", db_index=True)
+    vat_id = models.CharField(max_length=256, blank=True)
 
     objects = models.Manager.from_queryset(AddressQueryset)()
 
