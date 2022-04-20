@@ -210,7 +210,7 @@
     </div>
     <div class="section-invoice-info section-right">
       <div class="content-padded">
-        <span class="header-title">INFORMACJE O FAKTURZE</span>
+        <span class="header-title">Informacje o fakturze</span>
         <span class="header-category">Numer faktury:</span>
         <div class="padded-font-sm"></div>
         <span class="header-item">{{ invoice.number }}</span>
@@ -233,8 +233,8 @@
         <span class="header-title">ADRES ROZLICZENIOWY</span>
         <br />
         <span class="normal-text">
-          {{ order.billing_address.first_name }} {{
-          order.billing_address.last_name }}
+          {{ order.billing_address.first_name }} 
+          {{ order.billing_address.last_name }}
         </span>
         <br />
         <span class="normal-text"
@@ -264,8 +264,8 @@
         <span class="header-title">ADRES WYSYŁKI</span>
         <br />
         <span class="normal-text">
-          {{ order.shipping_address.first_name }} {{
-          order.shipping_address.last_name }}
+          {{ order.shipping_address.first_name }}
+          {{ order.shipping_address.last_name }}
         </span>
         <br />
         <span class="normal-text"
@@ -320,20 +320,24 @@
     </div>
     <div class="content-padded">
       <span class="header-title">ZAMAWIANE PRZEDMIOTY</span>
-      {% include "invoices/invoice_products_table.html" with
-      products=products_first_page %} {% if not rest_of_products|length %} {% if
-      products_first_page|length == 4 %}
-      <div class="page-break"></div>
-      {% endif %} {% include "invoices/invoice_summary_table.html" with
-      order=order %} {% else %} {% for product_set in rest_of_products %}
-      <div class="page-break"></div>
-      {% include "invoices/invoice_products_table.html" with
-      products=product_set %} {% if forloop.last %} {% if product_set|length >
-      11 %}
-      <div class="page-break"></div>
-      {% endif %} {% include "invoices/invoice_summary_table.html" with
-      order=order gift_cards_payment=gift_cards_payment %} {% endif %} {% endfor
-      %} {% endif %}
-    </div>
+      {% include "invoices/invoice_products_table.html" with products=products_first_page %}
+      {% if not rest_of_products|length %}
+          {% if products_first_page|length == 4 %}
+              <div class="page-break"></div>
+          {% endif %}
+          {% include "invoices/invoice_summary_table.html" with order=order %}
+      {% else %}
+          {% for product_set in rest_of_products %}
+              <div class="page-break"></div>
+              {% include "invoices/invoice_products_table.html" with products=product_set %}
+              {% if forloop.last %}
+                  {% if product_set|length > 11 %}
+                      <div class="page-break"></div>
+                  {% endif %}
+                  {% include "invoices/invoice_summary_table.html" with order=order gift_cards_payment=gift_cards_payment %}
+              {% endif %}
+          {% endfor %}
+      {% endif %}
+  </div>
   </body>
 </html>
