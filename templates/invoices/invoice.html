@@ -183,6 +183,10 @@
     <div class="section-header section-left">
       <div class="content-padded">
         <span class="normal-text"
+          >{{ order.billing_address.vat_id }}</span
+        >
+        <br />
+        <span class="normal-text"
           >{{ order.billing_address.company_name }}</span
         >
         <br />
@@ -229,7 +233,7 @@
       </div>
     </div>
     <div class="section-left">
-      <div class="content-tight-padded padded-top">
+      <br class="content-tight-padded padded-top">
         <span class="header-title">ADRES ROZLICZENIOWY</span>
         <br />
         <span class="normal-text">
@@ -247,6 +251,8 @@
         >
         <br />
         {% endif %}
+        <span class="normal-text">{{ order.billing_address.vat_id }}</span>
+        <br />
         <span class="normal-text">{{ order.billing_address.country }}</span>
         <br />
         <span class="normal-text">{{ order.billing_address.city }}</span>
@@ -278,6 +284,8 @@
         >
         <br />
         {% endif %}
+        <span class="normal-text">{{ order.shipping_address.vat_id }}</span>
+        <br />
         <span class="normal-text">{{ order.shipping_address.country }}</span>
         <br />
         <span class="normal-text">{{ order.shipping_address.city }}</span>
