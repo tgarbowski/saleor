@@ -287,6 +287,11 @@ class DraftOrderCreate(ModelMutation, I18nMixin):
     def _refresh_lines_unit_price(cls, info, instance, cleaned_input, new_instance):
         if new_instance:
             # It is a new instance, all new lines have already updated prices.
+            update_order_prices(
+                instance,
+                info.context.plugins,
+                info.context.site.settings.include_taxes_in_prices,
+            )
             return
         shipping_address = cleaned_input.get("shipping_address")
         if shipping_address and instance.is_shipping_required():
