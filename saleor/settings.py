@@ -401,6 +401,8 @@ OPENEXCHANGERATES_API_KEY = os.environ.get("OPENEXCHANGERATES_API_KEY")
 
 GOOGLE_ANALYTICS_TRACKING_ID = os.environ.get("GOOGLE_ANALYTICS_TRACKING_ID")
 
+API_URI = os.environ.get("API_URI", "http://localhost:8000/graphql/")
+
 
 def get_host():
     from django.contrib.sites.models import Site
@@ -579,6 +581,10 @@ if APP_ENVIRONMENT in ['development']:
         'refresh_token_task': {
             'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
             'schedule': 1800.0
+        },
+        'save_allegro_orders_task': {
+            'task': 'saleor.plugins.allegro.tasks.save_allegro_orders_task',
+            'schedule': 600.0
         },
         "delete-empty-allocations": {
             "task": "saleor.warehouse.tasks.delete_empty_allocations_task",

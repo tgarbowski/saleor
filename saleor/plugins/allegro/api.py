@@ -124,6 +124,15 @@ class AllegroAPI:
 
         return product
 
+    def get_orders(self, statuses, updated_at_from):
+        order_statuses_dict = {"status": statuses}
+        order_statuses_params = urllib.parse.urlencode(order_statuses_dict, True)
+
+        endpoint = f'order/checkout-forms?{order_statuses_params}&updatedAt.gte={updated_at_from}Z'
+
+        response = self.get_request(endpoint=endpoint)
+        return response.json()
+
     def publish_to_allegro(self, allegro_product):
 
         endpoint = 'sale/offers'
