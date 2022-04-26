@@ -29,7 +29,7 @@ class InvoicingPlugin(BasePlugin):
     CONFIG_STRUCTURE = {
         "begin_number": {
             "type": ConfigurationTypeField.STRING,
-            "label": "Redirect URL np: https://allegro.pl.allegrosandbox.pl/auth/oauth",
+            "label": "First invoice number if no invoices in database",
         }}
 
     def __init__(self, *args, **kwargs):
@@ -48,10 +48,8 @@ class InvoicingPlugin(BasePlugin):
         previous_value: Any,
     ) -> Any:
         invoice_number = generate_invoice_number(begin_number=self.config.begin_number)
-        if number is None or number is "":
+        if not number:
             invoice.update_invoice(number=invoice_number)
-        else:
-            invoice.update_invoice(number=number)
         file_content, creation_date = generate_invoice_pdf(invoice)
         invoice.created = creation_date
         slugified_invoice_number = slugify(invoice_number)
