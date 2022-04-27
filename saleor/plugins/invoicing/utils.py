@@ -18,31 +18,30 @@ MAX_PRODUCTS_WITHOUT_TABLE = 4
 MAX_PRODUCTS_PER_PAGE = 13
 
 
-def make_full_invoice_number(number=None, month=None, year=None):
+def make_full_invoice_number(number=None, year=None, begin_number=None):
     now = datetime.now()
-    current_month = int(now.strftime("%m"))
     current_year = int(now.strftime("%Y"))
-    month_and_year = now.strftime("%m/%Y")
-
-    if month == current_month and year == current_year:
+    if not begin_number:
+        return f"FVAT-{begin_number}/{current_year}"
+    if number is not None and current_year == year:
         new_number = (number or 0) + 1
-        return f"{new_number}/{month_and_year}"
-    return f"1/{month_and_year}"
+        return f"FVAT-{new_number}/{current_year}"
+    return f"FVAT-1/{current_year}"
 
 
 def parse_invoice_dates(invoice):
-    match = re.match(r"^(\d+)\/(\d+)\/(\d+)", invoice.number)
-    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+    match = re.match(r"^(.....)(\d+)\/(\d+)", invoice.number)
+    return int(match.group(2)), int(match.group(3))
 
 
-def generate_invoice_number():
+def generate_invoice_number(begin_number):
     last_invoice = Invoice.objects.filter(number__isnull=False).last()
     if not last_invoice or not last_invoice.number:
-        return make_full_invoice_number()
+        return make_full_invoice_number(begin_number=begin_number)
 
     try:
-        number, month, year = parse_invoice_dates(last_invoice)
-        return make_full_invoice_number(number, month, year)
+        number, year = parse_invoice_dates(last_invoice)
+        return make_full_invoice_number(number=number, year=year)
     except (IndexError, ValueError, AttributeError):
         return make_full_invoice_number()
 

@@ -1,14 +1,21 @@
 from typing import Any, Optional
 from uuid import uuid4
 
+from dataclasses import dataclass
+
 from django.core.files.base import ContentFile
 from django.utils.text import slugify
 
 from ...core import JobStatus
 from ...invoice.models import Invoice
 from ...order.models import Order
-from ..base_plugin import BasePlugin
+from ..base_plugin import BasePlugin, ConfigurationTypeField
 from .utils import generate_invoice_number, generate_invoice_pdf
+
+
+@dataclass
+class InvoiceConfiguration:
+    begin_number: str
 
 
 class InvoicingPlugin(BasePlugin):
@@ -17,6 +24,21 @@ class InvoicingPlugin(BasePlugin):
     DEFAULT_ACTIVE = True
     PLUGIN_DESCRIPTION = "Built-in saleor plugin that handles invoice creation."
     CONFIGURATION_PER_CHANNEL = False
+    DEFAULT_CONFIGURATION = [{"name": "begin_number",
+                              "value": "1"}]
+    CONFIG_STRUCTURE = {
+        "begin_number": {
+            "type": ConfigurationTypeField.STRING,
+            "label": "First invoice number if no invoices in database",
+        }}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        configuration = {item["name"]: item["value"] for item in self.configuration}
+
+        self.config = InvoiceConfiguration(
+            begin_number=configuration["begin_number"])
 
     def invoice_request(
         self,
@@ -25,8 +47,9 @@ class InvoicingPlugin(BasePlugin):
         number: Optional[str],
         previous_value: Any,
     ) -> Any:
-        invoice_number = generate_invoice_number()
-        invoice.update_invoice(number=invoice_number)
+        invoice_number = generate_invoice_number(begin_number=self.config.begin_number)
+        if not number:
+            invoice.update_invoice(number=invoice_number)
         file_content, creation_date = generate_invoice_pdf(invoice)
         invoice.created = creation_date
         slugified_invoice_number = slugify(invoice_number)
