@@ -171,22 +171,17 @@
                               color: #000000;
                             "
                           >
-                            {{#if order.order_details_url}} {% blocktrans
-                            trimmed context "Order confirmation e-mail text with
-                            payment details" %} Dziękujemy za Twoje zamówienie.
+                            {{#if order.order_details_url}} Dziękujemy za Twoje zamówienie.
                             Poniżej lista zamówionych produktów. Aby zobaczyć
                             szczegóły płatności odwiedź:
                             <a href="{{ order_details_url }}"
                               >{{ order_details_url }}</a
                             >
-                            {% endblocktrans %} visit:
                             <a href="{{order.order_details_url}}"
                               >{{order.order_details_url}}</a
                             >
-                            {{else}}{% blocktrans trimmed context "Order
-                            confirmation e-mail text" %} Dziękujemy za Twoje
-                            zamówienie. Poniżej lista zamówionych produktów. {%
-                            endblocktrans %} {{/if}}
+                            {{else}}Dziękujemy za Twoje
+                            zamówienie. Poniżej lista zamówionych produktów. {{/if}}
                           </div>
                         </td>
                       </tr>
@@ -595,9 +590,8 @@
                               color: #000000;
                             "
                           >
-                            {% blocktrans trimmed context "Base email text" %}
                             To jest automatycznie wygenerowany e-mail, prosimy
-                            na niego nie odpowiadać. {% endblocktrans %}
+                            na niego nie odpowiadać.
                           </div>
                         </td>
                       </tr>
@@ -681,8 +675,7 @@
                               color: #000000;
                             "
                           >
-                            {% blocktrans trimmed context "Base email footer" %}
-                            Z poważaniem, {{ site_name }} {% endblocktrans %}
+                            Z poważaniem, {{ site_name }}
                           </div>
                         </td>
                       </tr>
