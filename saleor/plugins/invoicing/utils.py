@@ -19,13 +19,21 @@ MAX_PRODUCTS_PER_PAGE = 13
 
 
 def make_full_invoice_number(number=None, year=None, begin_number=None):
+    print("\n\n\n", number, year, begin_number, "\n\n\n")
+    if begin_number:
+        print("begin number is true")
+    if not begin_number:
+        print("begin number is false")
     now = datetime.now()
     current_year = int(now.strftime("%Y"))
-    if not begin_number:
+    if begin_number:
+        print("\n\n\ngenerowanie po begin_number")
         return f"FVAT-{begin_number}/{current_year}"
     if number is not None and current_year == year:
+        print("\n\n\ngenerowanie po number i year")
         new_number = (number or 0) + 1
         return f"FVAT-{new_number}/{current_year}"
+    print("\n\n\ngenerowanie bez danych")
     return f"FVAT-1/{current_year}"
 
 
@@ -41,6 +49,7 @@ def generate_invoice_number(begin_number):
 
     try:
         number, year = parse_invoice_dates(last_invoice)
+        print("\n\n\n", number, year, "\n\n\n")
         return make_full_invoice_number(number=number, year=year)
     except (IndexError, ValueError, AttributeError):
         return make_full_invoice_number()
