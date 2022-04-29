@@ -12,7 +12,6 @@ class GlsApi():
 
     def __init__(self):
         self.set_config()
-        self.API_URL = "https://ade-test.gls-poland.com/adeplus/pm1/ade_webapi2.php?wsdl"
         self.init_zeep()
         self.session_id = self.create_session()
 
@@ -20,7 +19,7 @@ class GlsApi():
         self.config = get_gls_config()
 
     def init_zeep(self):
-        self.client = zeep.Client(self.API_URL)
+        self.client = zeep.Client(self.config.api_url)
         self.factory = self.client.type_factory('ns0')
         self.service = self.client.service
 

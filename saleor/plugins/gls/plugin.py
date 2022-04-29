@@ -7,7 +7,6 @@ from ..base_plugin import BasePlugin, ConfigurationTypeField
 class GlsConfiguration:
     username: str
     password: str
-    integrator: str
     api_url: str
 
 
@@ -19,7 +18,6 @@ class GlsPlugin(BasePlugin):
     DEFAULT_CONFIGURATION = [
         {"name": "Username", "value": None},
         {"name": "Password", "value": None},
-        {"name": "Integrator", "value": None},
         {"name": "Api url", "value": None},
     ]
     PLUGIN_DESCRIPTION = (
@@ -31,12 +29,8 @@ class GlsPlugin(BasePlugin):
             "label": "Username",
         },
         "Password": {
-            "type": ConfigurationTypeField.STRING,
+            "type": ConfigurationTypeField.SECRET,
             "label": "Password",
-        },
-        "Integrator": {
-            "type": ConfigurationTypeField.STRING,
-            "label": "Integrator",
         },
         "Api url": {
             "type": ConfigurationTypeField.STRING,
@@ -50,6 +44,5 @@ class GlsPlugin(BasePlugin):
         self.config = GlsConfiguration(
             username=configuration["Username"],
             password=configuration["Password"],
-            integrator=configuration["Integrator"],
             api_url=configuration["Api url"],
         )
