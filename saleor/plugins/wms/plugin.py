@@ -68,9 +68,22 @@ class WMSPlugin(BasePlugin):
             previous_value,
     ):
         with transaction.atomic():
-            test = wms_document_create(order)
-            print("\n\n\n\n\n", test, "\n\n\n\n")
-            wms_positions_create(order)
+            wms_document = wms_document_create(order)
+            wms_positions_bulk_create(order, wms_document_id=wms_document.id)
+
+
+def wms_document_generate_number():
+    now = datetime.now()
+    current_year = int(now.strftime("%Y"))
+
+    last_wms_document = WmsDocument.objects.filter().last()
+    match = re.search("(\d+)/(\d+)", last_wms_document.number)
+    if match:
+        number, year = int(match.group(1)), int(match.group(2))
+        if current_year == year and number:
+            new_number = number + 1
+            return f"WZ-{new_number}/{current_year}"
+    return f"WZ-1/{current_year}"
 
 
 def wms_document_create(order: "Order"):
@@ -90,23 +103,6 @@ def wms_document_create(order: "Order"):
     )
 
 
-def wms_document_generate_number():
-    now = datetime.now()
-    current_year = int(now.strftime("%Y"))
-
-    last_wms_document = WmsDocument.objects.filter().last()
-    match = re.search("(\d+)/(\d+)", last_wms_document.number)
-    if match:
-        number, year = int(match.group(1)), int(match.group(2))
-        if current_year == year and number:
-            new_number = number + 1
-            return f"WZ-{new_number}/{current_year}"
-    return f"WZ-1/{current_year}"
-
-
-
-
-
 def wms_create_position(order_line: "OrderLine", wms_document):
     quantity = order_line.quantity
     product_variant = order_line.variant
@@ -119,20 +115,15 @@ def wms_create_position(order_line: "OrderLine", wms_document):
     )
 
 
-def wms_positions_bulk_create(wms_positions_bulk):
-    return WmsDocPosition.objects.bulk_create(
-        wms_positions_bulk
-    )
-
-
-def wms_positions_create(order: "Order"):
-    new_wms_document = WmsDocument.objects.filter().last()
+def wms_positions_bulk_create(order: "Order", wms_document_id: str):
     order_lines = OrderLine.objects.filter(order=order)
-    wms_positions_bulk = []
+    wms_positions = []
     for order_line in order_lines:
         wms_position = wms_create_position(
             order_line=order_line,
-            wms_document=new_wms_document
+            wms_document=wms_document_id
         )
-        wms_positions_bulk.append(wms_position)
-    wms_positions_bulk_create(wms_positions_bulk)
+        wms_positions.append(wms_position)
+    return WmsDocPosition.objects.bulk_create(
+        wms_positions
+    )
