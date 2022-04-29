@@ -32,6 +32,7 @@ from ..types import ShippingMethodPostalCodeRule, ShippingMethodType, ShippingZo
 from ....plugins.dpd.api import DpdApi
 from saleor.plugins.inpost.plugin import create_shipping_information, create_inpost_shipment, generate_inpost_label
 from saleor.plugins.dpd.utils import create_dpd_shipment, generate_dpd_label
+from saleor.plugins.gls.utils import create_gls_shipment, generate_gls_label
 
 
 class ShippingPostalCodeRulesCreateInputRange(graphene.InputObjectType):
@@ -728,6 +729,14 @@ class PackageCreate(BaseMutation):
                 fulfillment=fulfillment
             )
             package_id = shipment['id']
+        if courier == "GLS":
+            package_id = create_gls_shipment(
+                shipping=shipping,
+                package=package,
+                fulfillment=fulfillment,
+                order=order
+            )
+
         return PackageCreate(packageId=package_id)
 
 
@@ -763,11 +772,14 @@ class LabelCreate(BaseMutation):
 
         if courier == "DPD":
             label = generate_dpd_label(package_id=package_id)
+            label_b64 = base64.b64encode(label).decode('ascii')
 
         if courier == "INPOST":
             label = generate_inpost_label(package_id=package_id)
+            label_b64 = base64.b64encode(label).decode('ascii')
 
-        label_b64 = base64.b64encode(label).decode('ascii')
+        if courier == "GLS":
+            label_b64 = generate_gls_label(package_id=package_id)
 
         return LabelCreate(
             label=label_b64
