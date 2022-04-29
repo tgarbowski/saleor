@@ -21,7 +21,8 @@ MAX_PRODUCTS_PER_PAGE = 13
 def make_full_invoice_number(number=None, year=None, begin_number=None):
     now = datetime.now()
     current_year = int(now.strftime("%Y"))
-    if not begin_number:
+
+    if begin_number:
         return f"FVAT-{begin_number}/{current_year}"
     if number is not None and current_year == year:
         new_number = (number or 0) + 1
