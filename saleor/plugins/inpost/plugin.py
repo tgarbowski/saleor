@@ -75,6 +75,7 @@ def create_shipping_information(order: "Order"):
         id='',
         name=order.shipping_method_name,
         price=order.shipping_price_gross,
+        metadata=order.shipping_method.metadata
     )
     courier = order.shipping_method.metadata["courier"]
     courier_service = order.shipping_method.metadata.get("courier_service")
@@ -161,8 +162,7 @@ def save_package_data_to_fulfillment(fulfillment, parcels, package_id):
         }
     }
     fulfillment.store_value_in_private_metadata(package_data)
-    # TODO: get proper tracking number
-    fulfillment.tracking_number = 123
+    fulfillment.tracking_number = parcels[0]['id']
     fulfillment.save()
 
 

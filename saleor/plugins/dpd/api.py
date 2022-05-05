@@ -161,7 +161,7 @@ class DpdApi():
         dpdServicesParamsPayload.session = sessionPayload
 
         outputDocFormatDSPEnumPayload = self.get_from_factory(
-            'outputDocFormatDSPEnumV1')('PDF')
+            'outputDocFormatDSPEnumV1')('ZPL')
 
         outputDocPageFormatDSPEnumPayload = self.get_from_factory(
             'outputDocPageFormatDSPEnumV1')('LBL_PRINTER')

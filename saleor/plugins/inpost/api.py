@@ -20,7 +20,7 @@ class InpostApi:
         api_url = self.config.get('api_url')
         access_token = self.config.get('access_token')
 
-        url = f'{api_url}shipments/{shipment_id}/label'
+        url = f'{api_url}shipments/{shipment_id}/label?format=zpl'
         headers = {"Authorization": f'Bearer {access_token}'}
         response = requests.get(url=url, headers=headers)
 
