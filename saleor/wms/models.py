@@ -8,6 +8,7 @@ from saleor.product.models import ProductVariant
 from saleor.account.models import User
 from saleor.warehouse.models import Warehouse
 from saleor.core.permissions import WMSPermissions
+from saleor.order.models import Order
 
 
 class WmsDeliverer(models.Model):
@@ -56,13 +57,21 @@ class WmsDocument(models.Model):
     recipient = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
-        related_name="wms_recipient"
+        related_name="wms_recipient",
+        null=True
     )
+    recipient_email = models.EmailField(blank=True, default="")
     deliverer = models.ForeignKey(
         WmsDeliverer,
         blank=True,
         null=True,
         related_name="wms_deliverer",
+        on_delete=models.SET_NULL
+    )
+    order = models.ForeignKey(
+        Order,
+        blank=True,
+        null=True,
         on_delete=models.SET_NULL
     )
     number = models.CharField(max_length=255, unique=True, blank=True)
