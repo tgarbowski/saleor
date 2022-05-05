@@ -84,7 +84,7 @@ ACCOUNT_CHANGE_EMAIL_CONFIRM_DEFAULT_SUBJECT = "Zmiana adresu e-mail"
 ACCOUNT_CHANGE_EMAIL_REQUEST_DEFAULT_SUBJECT = "Zmiana adresu e-mail"
 ACCOUNT_PASSWORD_RESET_DEFAULT_SUBJECT = "Reset hasła"
 INVOICE_READY_DEFAULT_SUBJECT = "Faktura"
-ORDER_CONFIRMATION_DEFAULT_SUBJECT = "Szcegóły zamówienia #{{ order.number }}"
+ORDER_CONFIRMATION_DEFAULT_SUBJECT = "Szczegóły zamówienia #{{ order.number }}"
 ORDER_CONFIRMED_DEFAULT_SUBJECT = "Zamówienie #{{ order.number }} zostało potwierdzone"
 ORDER_FULFILLMENT_CONFIRMATION_DEFAULT_SUBJECT = (
     "Twoje zamówienie {{ order.number }} zostało zrealizowane"
