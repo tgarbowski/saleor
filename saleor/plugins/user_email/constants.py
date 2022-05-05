@@ -92,7 +92,7 @@ ORDER_FULFILLMENT_CONFIRMATION_DEFAULT_SUBJECT = (
 ORDER_FULFILLMENT_UPDATE_DEFAULT_SUBJECT = (
     "Aktualizacja wysyłki dla zamówienia {{ order.number }}"
 )
-ORDER_PAYMENT_CONFIRMATION_DEFAULT_SUBJECT = "Szczegóły płatności zamówienia {{ order.number }} payment details"
+ORDER_PAYMENT_CONFIRMATION_DEFAULT_SUBJECT = "Szczegóły płatności zamówienia {{ order.number }}"
 ORDER_CANCELED_DEFAULT_SUBJECT = "Zamówienie {{ order.number }} zostało anulowane"
 ORDER_REFUND_CONFIRMATION_DEFAULT_SUBJECT = "Zamówienie {{ order.number }} zostało zwrócone"
 SEND_GIFT_CARD_DEFAULT_SUBJECT = "Karta podarunkowa do {{ site_name }}"
