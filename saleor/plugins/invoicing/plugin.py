@@ -28,8 +28,7 @@ class InvoicingPlugin(BasePlugin):
     DEFAULT_CONFIGURATION = [{"name": "begin_number",
                               "value": "1"},
                              {"name": "prefix",
-                              "value": "FVAT-"}
-                             ]
+                              "value": "FVAT-"}]
     CONFIG_STRUCTURE = {
         "begin_number": {
             "type": ConfigurationTypeField.STRING,
@@ -38,8 +37,7 @@ class InvoicingPlugin(BasePlugin):
         "prefix": {
             "type": ConfigurationTypeField.STRING,
             "label": "Invoice prefix",
-        }
-    }
+        }}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
