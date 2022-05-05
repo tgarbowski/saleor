@@ -16,6 +16,7 @@ from .utils import generate_invoice_number, generate_invoice_pdf
 @dataclass
 class InvoiceConfiguration:
     begin_number: str
+    prefix: str
 
 
 class InvoicingPlugin(BasePlugin):
@@ -25,12 +26,20 @@ class InvoicingPlugin(BasePlugin):
     PLUGIN_DESCRIPTION = "Built-in saleor plugin that handles invoice creation."
     CONFIGURATION_PER_CHANNEL = False
     DEFAULT_CONFIGURATION = [{"name": "begin_number",
-                              "value": "1"}]
+                              "value": "1"},
+                             {"name": "prefix",
+                              "value": "FVAT-"}
+                             ]
     CONFIG_STRUCTURE = {
         "begin_number": {
             "type": ConfigurationTypeField.STRING,
             "label": "First invoice number if no invoices in database",
-        }}
+        },
+        "prefix": {
+            "type": ConfigurationTypeField.STRING,
+            "label": "Invoice prefix",
+        }
+    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -38,7 +47,8 @@ class InvoicingPlugin(BasePlugin):
         configuration = {item["name"]: item["value"] for item in self.configuration}
 
         self.config = InvoiceConfiguration(
-            begin_number=configuration["begin_number"])
+            begin_number=configuration["begin_number"],
+            prefix=configuration["prefix"])
 
     def invoice_request(
         self,
@@ -47,7 +57,9 @@ class InvoicingPlugin(BasePlugin):
         number: Optional[str],
         previous_value: Any,
     ) -> Any:
-        invoice_number = generate_invoice_number(begin_number=self.config.begin_number)
+        invoice_number = generate_invoice_number(
+            begin_number=self.config.begin_number,
+            prefix=self.config.prefix)
         if not number:
             invoice.update_invoice(number=invoice_number)
         file_content, creation_date = generate_invoice_pdf(invoice)
