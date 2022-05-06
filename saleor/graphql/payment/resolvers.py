@@ -16,7 +16,6 @@ def resolve_payments(info):
 
 
 def resolve_generate_payment_url(info, **kwargs):
-    print(kwargs)
     value, payment_id = from_global_id_or_error(
         kwargs["payment_id"], only_type=Payment
     )

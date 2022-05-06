@@ -9,6 +9,11 @@ from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from ..utils import get_supported_currencies
 from .utils import get_client_token
 from . import GatewayConfig, process_payment
+from saleor.payment.utils import price_to_minor_unit
+from ... import TransactionKind
+from .utils import refund_payment_request
+from .webhooks import handle_webhook
+from ...interface import GatewayResponse, PaymentData, TokenConfig
 
 
 logger = logging.getLogger(__name__)
@@ -16,11 +21,6 @@ logger = logging.getLogger(__name__)
 GATEWAY_NAME = "PayU"
 WEBHOOK_PATH = "/webhooks"
 ADDITIONAL_ACTION_PATH = "/additional-actions"
-
-from .webhooks import handle_webhook
-
-if TYPE_CHECKING:
-    from ...interface import GatewayResponse, PaymentData, TokenConfig
 
 
 def require_active_plugin(fn):
@@ -155,3 +155,29 @@ class PayuGatewayPlugin(BasePlugin):
     @require_active_plugin
     def token_is_required_as_payment_input(self, previous_value):
         return False
+
+    @require_active_plugin
+    def refund_payment(
+            self, payment_information: "PaymentData", previous_value
+    ) -> "GatewayResponse":
+        # TODO: verify payment_id/token
+        payment_id = payment_information.payment_id
+        refund_amount = price_to_minor_unit(
+            payment_information.amount, payment_information.currency
+        )
+
+        refund, error = refund_payment_request(
+            config=self.config,
+            payment_id=payment_id,
+            amount_to_refund=refund_amount,
+        )
+
+        return GatewayResponse(
+            is_success=True if not error else False,
+            action_required=False,
+            kind=TransactionKind.REFUND,
+            amount=payment_information.amount,
+            currency=payment_information.currency,
+            transaction_id=refund['refund']['refundId'] if not error else "",
+            error=error
+        )
