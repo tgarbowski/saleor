@@ -52,7 +52,8 @@ class WmsDocument(models.Model):
     created_by = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
-        related_name="wms_created_by"
+        related_name="wms_created_by",
+        null=True
     )
     recipient = models.ForeignKey(
         User,

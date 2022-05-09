@@ -29,4 +29,9 @@ class Migration(migrations.Migration):
             name='recipient',
             field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='wms_recipient', to=settings.AUTH_USER_MODEL),
         ),
+        migrations.AlterField(
+            model_name='wmsdocument',
+            name='created_by',
+            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='wms_created_by', to='account.user'),
+        ),
     ]
