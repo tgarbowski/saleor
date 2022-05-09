@@ -60,34 +60,39 @@ class WMSPlugin(BasePlugin):
         super().__init__(*args, **kwargs)
         configuration = {item["name"]: item["value"] for item in self.configuration}
 
-    def fulfillment_canceled(
+    def order_fully_paid(
         self,
-        fulfillment,
+        order,
         previous_value,
     ):
-        # check if there is already a wms document and delete if true
-        wms_document = WmsDocument.objects.filter(order_id=fulfillment.order_id)
+        # Check if there is already a wms document and delete if true
+        wms_document = WmsDocument.objects.filter(order=order)
         if wms_document:
-            wms_document.delete()
+            return
+        # Create GRN document
+        with transaction.atomic():
+            wms_document = wms_document_create(
+                order=order,
+                document_type='GRN'
+            )
+            wms_document.save()
+            wms_positions_bulk_create(order=order, wms_document_id=wms_document.id)
 
     def order_fulfilled(
         self,
         order,
         previous_value,
     ):
-        user_id = self.requestor.id
-        # Check if there is already a wms document and delete if true
-        wms_document = WmsDocument.objects.filter(order=order)
+        wms_document = WmsDocument.objects.get(order=order)
+
         if wms_document:
-            wms_document.delete()
-        # Create GRN document
-        with transaction.atomic():
-            wms_document = wms_document_create(
-                order=order,
-                document_type='GRN',
-                created_by_id=user_id
-            )
-            wms_positions_bulk_create(order=order, wms_document_id=wms_document.id)
+            with transaction.atomic():
+                # recreate positions
+                WmsDocPosition.objects.filter(document=wms_document).delete()
+                wms_positions_bulk_create(order=order, wms_document_id=wms_document.id)
+                # set document status to approved
+                wms_document.status = "APPROVED"
+                wms_document.save()
 
 
 def wms_document_generate_number():
@@ -106,8 +111,7 @@ def wms_document_generate_number():
 
 def wms_document_create(
     order: "Order",
-    document_type: str,
-    created_by_id: int
+    document_type: str
 ):
     warehouse = Warehouse.objects.filter().first()
     number = wms_document_generate_number()
@@ -115,8 +119,7 @@ def wms_document_create(
     return WmsDocument.objects.create(
         document_type=document_type,
         number=number,
-        status='APPROVED',
-        created_by_id=created_by_id,
+        status='DRAFT',
         recipient_email=order.user_email,
         warehouse=warehouse,
         location='',
