@@ -49,13 +49,10 @@ def set_payment_token(payment_id):
     return token
 
 
-def generate_payu_redirect_url(config, payment_information: "PaymentData"):
+def generate_payu_redirect_url(config, payment_information: "PaymentData") -> str:
     authorization_token = generate_authorization_token(config)
     url = f'{config.connection_params["api_url"]}/api/v2_1/orders'
-    headers = CaseInsensitiveDict()
-    headers["Content-Type"] = "application/json"
-    headers["Accept"] = "application/json"
-    headers["Authorization"] = f'Bearer {authorization_token["access_token"]}'
+    headers = {"Authorization": f'Bearer {authorization_token["access_token"]}'}
     # Set unique payment token
     payment_id = payment_information.payment_id
     payment_token = set_payment_token(payment_id)
@@ -84,8 +81,42 @@ def generate_payu_redirect_url(config, payment_information: "PaymentData"):
             }  # TO DO DOSTAC PRODUKTY
         ]
     }
-    resp = requests.post(url, headers=headers,
-                         data=str(data).replace("'", '"').encode("utf-8"),
-                         allow_redirects=False)
-    redirect_url = json.loads(resp.content.decode("utf-8"))["redirectUri"]
+    response = requests.post(url=url, headers=headers, json=data, allow_redirects=False)
+    # save payu order id to db
+    payment = Payment.objects.get(pk=payment_information.payment_id)
+    payment.store_value_in_private_metadata(
+        {"payu_order_id": response.json()["orderId"]}
+    )
+    payment.save()
+
+    redirect_url = response.json()["redirectUri"]
     return redirect_url
+
+
+def get_payu_order_id(payment_id: int) -> str:
+    payment = Payment.objects.get(pk=payment_id)
+    payu_order_id = payment.get_value_from_private_metadata("payu_order_id")
+    return payu_order_id
+
+
+def refund_payment_request(config: "GatewayConfig", payment_id: int, amount_to_refund: str):
+    authorization_token = generate_authorization_token(config)
+    payu_order_id = get_payu_order_id(payment_id=payment_id)
+
+    url = f'{config.connection_params["api_url"]}/api/v2_1/orders/{payu_order_id}/refunds'
+    headers = {"Authorization": f'Bearer {authorization_token["access_token"]}'}
+
+    payload = {
+        "refund": {
+            "description": "Refund",
+            "amount": int(amount_to_refund)
+        }
+    }
+
+    response = requests.post(url=url, json=payload, headers=headers)
+
+    if response.status_code == 200:
+        return response.json(), None
+    else:
+        error = response.json().get('status').get('codeLiteral') or 'unexpected_error'
+        return response.json(), error
