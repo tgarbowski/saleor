@@ -75,3 +75,30 @@ def wms_products_report(start_date, end_date):
         product['product_id'] = graphene.Node.to_global_id('Product', product['product_id'])
 
     return accepted_and_released
+
+
+def generate_warehouse_list(order_ids):
+    from saleor.order.models import Order, OrderLine
+
+    order_lines = OrderLine.objects.filter(order__in=order_ids).select_related('variant')
+    warehouse_list = []
+
+    for order_line in order_lines:
+        warehouse_list.append(
+            {
+                "location": order_line.variant.private_metadata.get("location"),
+                "sku": order_line.variant.sku,
+                "name": order_line.variant.product.name
+            }
+        )
+
+    # product_variant.private_metadata.location
+    # wms_document.number
+    # product_variant.sku
+    # product_variant.product.name
+    rendered_template = get_template('warehouse_picking_list.html').render(
+        {"warehouse_list": warehouse_list}
+    )
+    file = HTML(string=rendered_template).write_pdf()
+    encoded_file = base64.b64encode(file).decode('utf-8')
+    return encoded_file
