@@ -1,4 +1,6 @@
 import base64
+from typing import List
+
 import graphene
 from weasyprint import HTML
 
@@ -6,6 +8,7 @@ from django.db.models import Sum, Count, Q, F
 from django.template.loader import get_template
 
 from saleor.wms.models import WmsDocument, WmsDocPosition
+from saleor.order.models import OrderLine
 
 
 def create_pdf_document(document_id):
@@ -77,10 +80,13 @@ def wms_products_report(start_date, end_date):
     return accepted_and_released
 
 
-def generate_warehouse_list(order_ids):
-    from saleor.order.models import Order, OrderLine
+def generate_warehouse_list(order_ids: List[int]) -> str:
+    """Generates b64 encoded pdf warehouse list"""
+    order_lines = OrderLine.objects.filter(order__in=order_ids).select_related(
+        'variant', 'variant__product')
 
-    order_lines = OrderLine.objects.filter(order__in=order_ids).select_related('variant')
+    wms_documents = WmsDocument.objects.filter(order__in=order_ids)
+    order_document_mapping = {wms_document.order_id: wms_document.number for wms_document in wms_documents}
     warehouse_list = []
 
     for order_line in order_lines:
@@ -88,17 +94,35 @@ def generate_warehouse_list(order_ids):
             {
                 "location": order_line.variant.private_metadata.get("location"),
                 "sku": order_line.variant.sku,
-                "name": order_line.variant.product.name
+                "name": order_line.variant.product.name,
+                "number": order_document_mapping[order_line.order_id]
             }
         )
 
-    # product_variant.private_metadata.location
-    # wms_document.number
-    # product_variant.sku
-    # product_variant.product.name
+    warehouse_list = sort_warehouse_list_by_location(warehouse_list)
+
     rendered_template = get_template('warehouse_picking_list.html').render(
         {"warehouse_list": warehouse_list}
     )
     file = HTML(string=rendered_template).write_pdf()
     encoded_file = base64.b64encode(file).decode('utf-8')
     return encoded_file
+
+
+def sort_warehouse_list_by_location(warehouse_list):
+    """
+    example locations: #L07K22, #R04K490, #R6K093
+    1. Sort by L/R
+    2. sort by part between L/R - K
+    3. sort by part after K
+    """
+    # By part after K
+    warehouse_list.sort(key=lambda d: (int(d['location'].split("K")[1])))
+    # By part between L/R - K
+    warehouse_list.sort(
+        key=lambda d: int(''.join(filter(str.isdigit, d['location'].split("K")[0])))
+    )
+    # By L/R
+    warehouse_list.sort(key=lambda d: d['location'][1])
+
+    return warehouse_list
