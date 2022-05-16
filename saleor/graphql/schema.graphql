@@ -6170,6 +6170,7 @@ input PublishableChannelListingInput {
 }
 
 type Query {
+  warehouseListPdf(orderIds: [ID!], filters: OrderFilterInput): String
   wmsDeliverers(filter: WmsDelivererFilterInput, before: String, after: String, first: Int, last: Int): WMSDelivererCountableConnection
   wmsDeliverer(id: ID): WmsDeliverer
   wmsDocPositions(filter: WmsDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WMSDocPositionCountableConnection
