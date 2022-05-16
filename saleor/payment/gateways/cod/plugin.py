@@ -30,6 +30,7 @@ class CodGatewayPlugin(BasePlugin):
     PLUGIN_ID = "salingo.payments.cod"
     PLUGIN_NAME = GATEWAY_NAME
     DEFAULT_ACTIVE = False
+    CONFIGURATION_PER_CHANNEL = False
     DEFAULT_CONFIGURATION = [
         {"name": "Store customers card", "value": False},
         {"name": "Automatic payment capture", "value": False},
