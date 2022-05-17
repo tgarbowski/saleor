@@ -5,7 +5,7 @@
     <title>Invoice</title>
     <style>
       @page {
-        margin: 0.5cm;
+        margin: 1cm;
         size: A4;
       }
       .thick {
@@ -31,8 +31,10 @@
       .bottom {
         margin-top: 20px;
       }
-      table, tr, td, th { border: 1px solid }
-
+      table, tr, td, th {
+      border: 1px solid;
+      break-inside: avoid;
+      }
       html {
         color: #14213d;
         font-family: Source Sans Pro;
@@ -47,14 +49,18 @@
       html table th {
         border-bottom: .2mm solid #a9a;
         color: #a9a;
-        font-size: 10pt;
+        font-size: 11pt;
         font-weight: 400;
         padding-bottom: .25cm;
+        padding-top: .25cm;
         text-transform: uppercase;
       }
 
       html table td {
-        padding-top: 7mm;
+        padding-top: 2mm;
+        padding-bottom: 2mm;
+        padding-right: 1mm;
+        padding-left: 1mm;
       }
       html table th, html table td {
         text-align: center;
@@ -84,8 +90,16 @@
             {% for position in warehouse_list %}
               <tr>
                 <td class="text-left-i">{{ forloop.counter }}</td>
+                {% if position.location %}
                 <td class="number">{{ position.location }}</td>
+                {% else %}
+                <td class="number">-</td>
+                {% endif %}
+                {% if position.number %}
                 <td class="number">{{ position.number }}</td>
+                {% else %}
+                <td class="number">-</td>
+                {% endif %}
                 <td class="number">{{ position.sku }}</td>
                 <td class="number">{{ position.name }}</td>
               </tr>
