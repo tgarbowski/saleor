@@ -12,6 +12,7 @@ from ..core.types.common import InvoiceError
 from ..order.types import Order
 from .types import Invoice
 from .utils import is_event_active_for_any_plugin
+from saleor.order import OrderStatus
 
 
 class InvoiceRequest(ModelMutation):
@@ -36,7 +37,7 @@ class InvoiceRequest(ModelMutation):
 
     @staticmethod
     def clean_order(order):
-        if order.is_draft() or order.is_unconfirmed():
+        if order.is_draft() or order.is_unconfirmed() or order.status != OrderStatus.FULFILLED:
             raise ValidationError(
                 {
                     "orderId": ValidationError(
