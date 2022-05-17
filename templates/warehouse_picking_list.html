@@ -31,7 +31,10 @@
       .bottom {
         margin-top: 20px;
       }
-      table, tr, td, th { border: 1px solid }
+      table, tr, td, th {
+      border: 1px solid;
+      break-inside: avoid;
+      }
 
       html {
         color: #14213d;
@@ -57,6 +60,8 @@
       html table td {
         padding-top: 2mm;
         padding-bottom: 2mm;
+        padding-right: 1mm;
+        padding-left: 1mm;
       }
       html table th, html table td {
         text-align: center;
