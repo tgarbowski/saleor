@@ -696,7 +696,9 @@ BUILTIN_PLUGINS = [
     "saleor.plugins.allegro_global.plugin.AllegroGlobalPlugin",
     "saleor.plugins.inpost.plugin.InpostPlugin",
     "saleor.plugins.gls.plugin.GlsPlugin",
-    "saleor.plugins.product_listing.plugin.ProductListingPlugin"
+    "saleor.plugins.product_listing.plugin.ProductListingPlugin",
+    "saleor.plugins.printservers.plugin.PrintserversPlugin",
+    "saleor.payment.gateways.cod.plugin.CodGatewayPlugin"
 ]
 
 # Plugin discovery
