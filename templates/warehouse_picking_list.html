@@ -91,8 +91,16 @@
             {% for position in warehouse_list %}
               <tr>
                 <td class="text-left-i">{{ forloop.counter }}</td>
+                {% if position.location %}
                 <td class="number">{{ position.location }}</td>
+                {% else %}
+                <td class="number">-</td>
+                {% endif %}
+                {% if position.number %}
                 <td class="number">{{ position.number }}</td>
+                {% else %}
+                <td class="number">-</td>
+                {% endif %}
                 <td class="number">{{ position.sku }}</td>
                 <td class="number">{{ position.name }}</td>
               </tr>
