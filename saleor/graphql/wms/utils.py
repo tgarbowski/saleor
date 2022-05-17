@@ -90,12 +90,15 @@ def generate_warehouse_list(order_ids: List[int]) -> str:
     warehouse_list = []
 
     for order_line in order_lines:
+        number = order_document_mapping.get(order_line.order_id)
+        if not number:
+            number = "---"
         warehouse_list.append(
             {
                 "location": order_line.variant.private_metadata.get("location"),
                 "sku": order_line.variant.sku,
                 "name": order_line.variant.product.name,
-                "number": order_document_mapping.get(order_line.order_id)
+                "number": number
             }
         )
 
