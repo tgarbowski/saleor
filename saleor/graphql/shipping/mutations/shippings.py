@@ -705,6 +705,38 @@ class PackageCreate(BaseMutation):
         error_type_field = "shipping_errors"
 
     @classmethod
+    def validate_dimensions(cls, package, courier):
+        """
+        inpost paczkomat: A/B/C - max 41 X 38 X 64 cm, waga zawsze 25kg
+        dpd kurier standard krajowy: max wymiar 150cm, suma wymiarow <= 300cm, 31,5kg
+        gls pobranie: max wymiary 200cm, suma wymiarów < 300 cm, 31,5kg
+        """
+        for parcel in package:
+            dimensions = [parcel['sizeX'], parcel['sizeY'], parcel['sizeZ']]
+            dimensions_sum = sum(dimensions)
+            weight = parcel['weight']
+            max_dimension = max(dimensions)
+
+            dimensions_error = ValidationError(
+                {
+                    "dimensions": ValidationError(
+                        "Wrong weight/dimensions",
+                        code=ShippingErrorCode.INVALID.value,
+                    )
+                }
+            )
+
+            if courier == "INPOST":
+                if max_dimension > 64 or weight > 25:
+                     raise dimensions_error
+            if courier == "DPD":
+                if max_dimension > 150 or weight > 31.5 or dimensions_sum > 300:
+                    raise dimensions_error
+            if courier == "GLS":
+                if max_dimension > 200 or weight > 31.5 or dimensions_sum > 300:
+                    raise dimensions_error
+
+    @classmethod
     def perform_mutation(cls, _root, info, **data):
         fulfillment_id = data['input']['fulfillment']
         order_id = data['input']['order']
@@ -714,6 +746,7 @@ class PackageCreate(BaseMutation):
         fulfillment = graphene.Node.get_node_from_global_id(info, fulfillment_id, Fulfillment)
         shipping = create_shipping_information(order=order)
         courier = order.shipping_method.metadata.get("courier")
+        cls.validate_dimensions(package, courier)
         # TODO: handle generic courier
         if courier == "DPD":
             shipment = create_dpd_shipment(
