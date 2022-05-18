@@ -2242,6 +2242,24 @@ enum ExportScope {
   FILTER
 }
 
+input ExtReceiptInput {
+  receiptNumber: String
+  metadata: GenericScalar
+}
+
+type ExtReceiptRequest {
+  payload: GenericScalar
+  invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [InvoiceError!]!
+  invoice: Invoice
+}
+
+type ExtReceiptUpdate {
+  invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [InvoiceError!]!
+  invoice: Invoice
+}
+
 type ExternalAuthentication {
   id: String!
   name: String
@@ -3919,6 +3937,8 @@ input MoveProductInput {
 }
 
 type Mutation {
+  extReceiptRequest(orderId: ID!): ExtReceiptRequest
+  extReceiptUpdate(id: ID!, input: ExtReceiptInput!): ExtReceiptUpdate
   wmsDocumentCreate(input: WmsDocumentInput!): WmsDocumentCreate
   wmsDocumentUpdate(id: ID!, input: WmsDocumentInput!): WmsDocumentUpdate
   wmsDocumentDelete(id: ID!): WmsDocumentDelete

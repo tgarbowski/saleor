@@ -31,12 +31,16 @@ def make_full_invoice_number(number=None, year=None, begin_number=None, prefix=N
 
 
 def parse_invoice_dates(invoice):
-    match = re.search(r"(\d+)/(\d+)", invoice.number)
-    return int(match.group(1)), int(match.group(2))
+    match = re.search(r"(\d+)/", invoice.number)
+    number = int(match.group(1))
+    year = int(invoice.number.rsplit('/', 1)[-1])
+
+    return number, year
 
 
 def generate_invoice_number(begin_number, prefix):
-    last_invoice = Invoice.objects.filter(number__isnull=False).last()
+    last_invoice = Invoice.objects.filter(number__isnull=False, order__metadata__invoice=True).last()
+
     if not last_invoice or not last_invoice.number:
         return make_full_invoice_number(begin_number=begin_number, prefix=prefix)
 

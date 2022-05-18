@@ -12,6 +12,8 @@ from ..core.types.common import InvoiceError
 from ..order.types import Order
 from .types import Invoice
 from .utils import is_event_active_for_any_plugin
+from saleor.order import OrderStatus
+from saleor.graphql.salingo.utils import get_receipt_payload
 
 
 class InvoiceRequest(ModelMutation):
@@ -36,7 +38,7 @@ class InvoiceRequest(ModelMutation):
 
     @staticmethod
     def clean_order(order):
-        if order.is_draft() or order.is_unconfirmed():
+        if order.is_draft() or order.is_unconfirmed() or order.status != OrderStatus.FULFILLED:
             raise ValidationError(
                 {
                     "orderId": ValidationError(
@@ -75,9 +77,12 @@ class InvoiceRequest(ModelMutation):
                 }
             )
 
+        invoice_positions = get_receipt_payload(order)
+
         shallow_invoice = models.Invoice.objects.create(
             order=order,
             number=data.get("number"),
+            private_metadata=invoice_positions
         )
 
         invoice = info.context.plugins.invoice_request(
@@ -227,9 +232,22 @@ class InvoiceDelete(ModelDeleteMutation):
         error_type_class = InvoiceError
         error_type_field = "invoice_errors"
 
+    @staticmethod
+    def clean_order(order):
+        if order.status == OrderStatus.FULFILLED:
+            raise ValidationError(
+                {
+                    "orderId": ValidationError(
+                        "Cannot delete an invoice for fulfilled order.",
+                        code=InvoiceErrorCode.INVALID_STATUS,
+                    )
+                }
+            )
+
     @classmethod
     def perform_mutation(cls, _root, info, **data):
         invoice = cls.get_instance(info, **data)
+        cls.clean_order(invoice.order)
         response = super().perform_mutation(_root, info, **data)
         events.invoice_deleted_event(
             user=info.context.user, app=info.context.app, invoice_id=invoice.pk
