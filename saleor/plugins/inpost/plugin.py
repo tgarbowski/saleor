@@ -142,6 +142,7 @@ def create_inpost_package(package):
 
 
 def save_package_data_to_fulfillment(fulfillment, parcels, package_id):
+    # length dimensions come in cm, inpost api requires mm
     new_parcels = []
 
     for parcel in parcels:
@@ -149,9 +150,9 @@ def save_package_data_to_fulfillment(fulfillment, parcels, package_id):
             {
                 "id": parcel['id'],
                 "weight": parcel['weight']['amount'],
-                "sizeX": parcel['dimensions']['length'],
-                "sizeY": parcel['dimensions']['width'],
-                "sizeZ": parcel['dimensions']['height']
+                "sizeX": parcel['dimensions']['length'] * 10,
+                "sizeY": parcel['dimensions']['width'] * 10,
+                "sizeZ": parcel['dimensions']['height'] * 10
             }
         )
 
