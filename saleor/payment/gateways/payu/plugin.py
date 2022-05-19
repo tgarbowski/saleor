@@ -36,7 +36,8 @@ def require_active_plugin(fn):
 class PayuGatewayPlugin(BasePlugin):
     PLUGIN_ID = "salingo.payments.payu"
     PLUGIN_NAME = GATEWAY_NAME
-    DEFAULT_ACTIVE = True
+    DEFAULT_ACTIVE = False
+    CONFIGURATION_PER_CHANNEL = False
     DEFAULT_CONFIGURATION = [
         {"name": "PayUEndpoint", "value": None},
         {"name": "Store customers card", "value": False},
@@ -139,14 +140,6 @@ class PayuGatewayPlugin(BasePlugin):
     def get_supported_currencies(self, previous_value):
         config = self._get_gateway_config()
         return get_supported_currencies(config, GATEWAY_NAME)
-
-    @require_active_plugin
-    def get_payment_config(self, previous_value):
-        config = self._get_gateway_config()
-        connection_params = []
-        for name, value in config.connection_params.items():
-            connection_params.append({"field": name, "value": value})
-        return [{"field": "store_customer_card", "value": config.store_customer}] + connection_params
 
     @require_active_plugin
     def get_payment_connection_params(self, previous_value):
