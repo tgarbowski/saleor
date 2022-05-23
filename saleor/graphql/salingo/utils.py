@@ -12,7 +12,7 @@ def get_receipt_payload(order):
         line = {
             "na": line_fulfilled.product_name,
             "il": line_fulfilled.quantity_fulfilled,
-            "vt": "23,00",
+            "vtp": "23,00",
             "pr": price_to_minor_unit(value=line_fulfilled.total_price_gross_amount,
                                       currency='PLN')
         }
@@ -21,7 +21,7 @@ def get_receipt_payload(order):
     shipping_position = {
         "na": "TRANSPORT Usługa transportowa",
         "il": 1,
-        "vt": "23,00",
+        "vtp": "23,00",
         "pr": price_to_minor_unit(value=order.shipping_price_gross_amount, currency='PLN')
     }
     lines_json.append(shipping_position)
