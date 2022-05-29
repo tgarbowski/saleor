@@ -10,7 +10,7 @@ from ...core import JobStatus
 from ...invoice.models import Invoice
 from ...order.models import Order
 from ..base_plugin import BasePlugin, ConfigurationTypeField
-from .utils import generate_invoice_number, generate_invoice_pdf
+from .utils import generate_invoice_number, generate_invoice_pdf, generate_correction_invoice_pdf
 
 
 @dataclass
@@ -72,3 +72,25 @@ class InvoicingPlugin(BasePlugin):
             update_fields=["created", "number", "invoice_file", "status", "updated_at"]
         )
         return invoice
+
+def invoice_correction_request(
+    order: "Order",
+    invoice: "Invoice",
+    number: Optional[str]
+    ) -> Any:
+        invoice_number = "88888"
+        if not number:
+            invoice.update_invoice(number=invoice_number)
+
+        file_content, creation_date = generate_correction_invoice_pdf(invoice, order)
+
+        invoice.created = creation_date
+        slugified_invoice_number = slugify(invoice_number)
+        invoice.invoice_file.save(
+            f"invoice-{slugified_invoice_number}-order-{order.id}-{uuid4()}.pdf",
+            ContentFile(file_content),
+        )
+        invoice.status = JobStatus.SUCCESS
+        invoice.save(
+            update_fields=["created", "number", "invoice_file", "status", "updated_at"]
+        )

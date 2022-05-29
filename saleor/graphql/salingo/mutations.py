@@ -12,9 +12,10 @@ from ..order.types import Order
 from ...order import events as order_events
 from saleor.order import OrderStatus
 from saleor.graphql.invoice.utils import is_event_active_for_any_plugin
-from .utils import get_receipt_payload
+from .utils import get_receipt_payload, get_invoice_correct_payload
 from ...core import JobStatus
 from graphene.types.generic import GenericScalar
+from saleor.plugins.invoicing.plugin import invoice_correction_request
 
 
 class ExtReceiptRequest(ModelMutation):
@@ -164,3 +165,42 @@ class ExtReceiptUpdate(ModelMutation):
             status=instance.status,
         )
         return ExtReceiptUpdate(invoice=instance)
+
+
+class ExtInvoiceCorrectionRequest(ModelMutation):
+    payload = GenericScalar()
+
+    class Arguments:
+        order_id = graphene.ID(
+            required=True, description="ID of the order related to invoice."
+        )
+
+    class Meta:
+        description = "Creates a ready to send invoice."
+        model = models.Invoice
+        object_type = Invoice
+        permissions = (OrderPermissions.MANAGE_ORDERS,)
+        error_type_class = InvoiceError
+        error_type_field = "invoice_errors"
+
+    @classmethod
+    def perform_mutation(cls, _root, info, **data):
+        order = cls.get_node_or_error(
+            info, data["order_id"], only_type=Order, field="orderId"
+        )
+        # TODO: dodaj walidacje jak z innych invoice mutacji
+        payload = {}
+        last_invoice = models.Invoice.objects.filter(order=order).last()
+
+        shallow_invoice = models.Invoice.objects.create(
+            order=order,
+            number=data.get("number"),
+            private_metadata={},
+            parent=last_invoice
+        )
+
+        invoice = invoice_correction_request(
+            order=order, invoice=shallow_invoice, number=data.get("number")
+        )
+
+        return ExtInvoiceCorrectionRequest(payload=payload, invoice=invoice)
