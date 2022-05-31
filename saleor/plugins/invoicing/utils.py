@@ -44,7 +44,7 @@ def parse_invoice_dates(invoice):
 
 
 def generate_invoice_number(begin_number, prefix):
-    last_invoice = Invoice.objects.filter(number__isnull=False, order__metadata__invoice=True).last()
+    last_invoice = Invoice.objects.filter(number__isnull=False, order__metadata__invoice="true").last()
 
     if not last_invoice or not last_invoice.number:
         return make_full_invoice_number(begin_number=begin_number, prefix=prefix)
