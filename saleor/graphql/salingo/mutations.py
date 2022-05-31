@@ -15,6 +15,7 @@ from saleor.graphql.invoice.utils import is_event_active_for_any_plugin
 from .utils import get_receipt_payload
 from ...core import JobStatus
 from graphene.types.generic import GenericScalar
+from saleor.plugins.invoicing.plugin import invoice_correction_request
 
 
 class ExtReceiptRequest(ModelMutation):
@@ -164,3 +165,66 @@ class ExtReceiptUpdate(ModelMutation):
             status=instance.status,
         )
         return ExtReceiptUpdate(invoice=instance)
+
+
+class ExtInvoiceCorrectionRequest(ModelMutation):
+    order = graphene.Field(Order, description="Order related to an invoice.")
+
+    class Arguments:
+        order_id = graphene.ID(
+            required=True, description="ID of the order related to invoice."
+        )
+
+    class Meta:
+        description = "Creates a correction invoice."
+        model = models.Invoice
+        object_type = Invoice
+        permissions = (OrderPermissions.MANAGE_ORDERS,)
+        error_type_class = InvoiceError
+        error_type_field = "invoice_errors"
+
+    @staticmethod
+    def clean_order(order):
+        if order.status not in [OrderStatus.RETURNED, OrderStatus.PARTIALLY_RETURNED]:
+            raise ValidationError(
+                {
+                    "orderId": ValidationError(
+                        "Correction can only by created when order is returned or partially returned.",
+                        code=InvoiceErrorCode.INVALID_STATUS,
+                    )
+                }
+            )
+        has_any_invoice = models.Invoice.objects.filter(order=order).exists()
+        if not has_any_invoice:
+            raise ValidationError(
+                {
+                    "orderId": ValidationError(
+                        "Correction can only be created for orders with at least 1 invoice.",
+                        code=InvoiceErrorCode.NOT_READY,
+                    )
+                }
+            )
+
+    @classmethod
+    def perform_mutation(cls, _root, info, **data):
+        order = cls.get_node_or_error(
+            info, data["order_id"], only_type=Order, field="orderId"
+        )
+        cls.clean_order(order)
+        last_invoice = models.Invoice.objects.filter(order=order).last()
+        last_correction_invoice = models.Invoice.objects.filter(
+            parent__isnull=False).last()
+
+        shallow_invoice = models.Invoice.objects.create(
+            order=order,
+            private_metadata={},
+            parent=last_invoice
+        )
+
+        invoice = invoice_correction_request(
+            order=order,
+            invoice=shallow_invoice,
+            last_correction_invoice=last_correction_invoice
+        )
+
+        return ExtInvoiceCorrectionRequest(invoice=invoice, order=order)

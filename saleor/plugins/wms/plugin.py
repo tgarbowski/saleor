@@ -73,7 +73,7 @@ class WMSPlugin(BasePlugin):
         with transaction.atomic():
             wms_document = wms_document_create(
                 order=order,
-                document_type='GRN'
+                document_type='GIN'
             )
             wms_document.save()
             wms_positions_bulk_create(order=order, wms_document_id=wms_document.id)
