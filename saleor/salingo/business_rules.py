@@ -465,6 +465,10 @@ class Resolvers:
         return cls.get_products_custom_dict(channel='allegro', cursor=cursor)
 
     @classmethod
+    def resolve_fashion4you(cls, cursor):
+        return cls.get_products_custom_dict(channel='fashion4you', cursor=cursor)
+
+    @classmethod
     def get_products_custom_dict(cls, channel, cursor, filters={}):
         LIMIT = 10000
 
