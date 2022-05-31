@@ -1,8 +1,11 @@
 import graphene
 
 from saleor.wms import models
+from saleor.order.models import Order
 from .types import WmsDeliverer, WmsDocPosition, WmsDocument
-from .utils import create_pdf_document, wms_products_report, wms_actions_report
+from .utils import create_pdf_document, wms_products_report, wms_actions_report, \
+    generate_encoded_pdf_documents, generate_encoded_pdf_document
+from ..order.filters import OrderFilter
 
 
 def resolve_wms_documents(info, **_kwargs):
@@ -38,9 +41,18 @@ def resolve_wms_deliverer(info, **_kwargs):
 
 
 def resolve_wms_document_pdf(info, **_kwargs):
-    document_id = graphene.Node.from_global_id(_kwargs['id'])[1]
-    file = create_pdf_document(document_id)
+    wmsdocument_id = graphene.Node.to_global_id("WmsDocument", _kwargs['id'])
+    document_id = graphene.Node.from_global_id(wmsdocument_id)[1]
+    file = generate_encoded_pdf_document(document_id)
+    return file
 
+
+def resolve_wms_documents_list_pdf(info, **_kwargs):
+    all_orders = Order.objects.all()
+    filtered_orders = OrderFilter(
+        data=_kwargs['filters'], queryset=all_orders
+    ).qs
+    file = generate_encoded_pdf_documents(filtered_orders)
     return file
 
 
