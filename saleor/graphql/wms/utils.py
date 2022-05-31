@@ -1,4 +1,5 @@
 import base64
+import code128
 from typing import List
 
 import graphene
@@ -29,7 +30,7 @@ def create_pdf_document(document_id):
                 "quantity": position.quantity
             }
         )
-
+    barcode = code128.svg(data="#" + str(document.order.id), height=50, thickness=2)
     if isinstance(deliverer, dict):
         deliverer = ', '.join([f'{key}: {value}' for key, value in deliverer.items()])
     rendered_template = get_template('warehouse_document.html').render(
@@ -45,7 +46,8 @@ def create_pdf_document(document_id):
             'recipient_city': document.order.shipping_address.city,
             'recipient_postal_code': document.order.shipping_address.postal_code,
             'shipping_method': document.order.shipping_method,
-            'barcode': "#" + str(document.order.id)
+            'barcode': barcode
+            # 'barcode': "#" + str(document.order.id)
         }
     )
     file = HTML(string=rendered_template).render()

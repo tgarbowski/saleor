@@ -34,16 +34,14 @@
       .bottom {
         margin-top: 20px;
       }
+      .barcode{
+        text-align: center;
+      }
       .column {
         float: left;
         width: 50%;
         padding-bottom: 15px;
         margin: 0;
-      }
-      .barcode{
-        font-family: 'Libre Barcode 39 Extended Text', cursive;
-        text-align: center;
-        font-size: 70px;
       }
       table, tr, td, th {
         border: 1px solid;
@@ -80,7 +78,7 @@
   <body>
     <div class="warehouse_document">
       <div class="header">
-        <div class="barcode">*{{barcode}}*</div>
+        <div class="barcode">{{barcode | safe}}</div>
         <h4>{{ document.number }}</h4>
       </div>
       <div class="row">
