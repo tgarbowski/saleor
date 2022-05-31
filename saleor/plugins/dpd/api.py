@@ -2,7 +2,7 @@ import enum
 
 import zeep
 
-from .utils import get_dpd_config
+from saleor.plugins.manager import get_plugins_manager
 
 
 class GenerationPolicy(enum.Enum):
@@ -161,7 +161,7 @@ class DpdApi():
         dpdServicesParamsPayload.session = sessionPayload
 
         outputDocFormatDSPEnumPayload = self.get_from_factory(
-            'outputDocFormatDSPEnumV1')('PDF')
+            'outputDocFormatDSPEnumV1')('ZPL')
 
         outputDocPageFormatDSPEnumPayload = self.get_from_factory(
             'outputDocPageFormatDSPEnumV1')('LBL_PRINTER')
@@ -223,3 +223,9 @@ class DpdApi():
             outputDocPageFormatDSPEnumPayload,
             self.auth_payload
         )
+
+
+def get_dpd_config():
+    manager = get_plugins_manager()
+    config = manager.get_plugin(plugin_id='Dpd').config
+    return config

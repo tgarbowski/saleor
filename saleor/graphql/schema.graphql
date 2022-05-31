@@ -131,6 +131,7 @@ type Address implements Node {
   phone: String
   isDefaultShippingAddress: Boolean
   isDefaultBillingAddress: Boolean
+  vatId: String
 }
 
 type AddressCreate {
@@ -159,6 +160,7 @@ input AddressInput {
   country: CountryCode
   countryArea: String
   phone: String
+  vatId: String
 }
 
 type AddressSetDefault {
@@ -1988,48 +1990,6 @@ type Domain {
   url: String!
 }
 
-input DpdCreateLabelInput {
-  packageId: Int!
-}
-
-input DpdCreatePackageInput {
-  reference: String
-  thirdPartyFID: Int
-  langCode: String
-  packageData: [PackageDataInput]!
-  senderData: SenderDataInput!
-  receiverData: ReceiverDataInput!
-  fulfillment: ID!
-  services: ServiceDataInput
-}
-
-input DpdCreateProtocolInput {
-  waybills: [String]
-  packages: [Int]
-  senderData: SenderDataInput!
-}
-
-type DpdLabelCreate {
-  label: String
-  shippingErrors: [ShippingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
-  errors: [ShippingError!]!
-}
-
-type DpdPackageCreate {
-  packageId: Int
-  parcelIds: [Int]
-  waybills: [String]
-  status: String
-  shippingErrors: [ShippingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
-  errors: [ShippingError!]!
-}
-
-type DpdProtocolCreate {
-  protocol: String
-  shippingErrors: [ShippingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
-  errors: [ShippingError!]!
-}
-
 type DraftOrderBulkDelete {
   count: Int!
   orderErrors: [OrderError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
@@ -2280,6 +2240,31 @@ enum ExportScope {
   ALL
   IDS
   FILTER
+}
+
+type ExtInvoiceCorrectionRequest {
+  order: Order
+  invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [InvoiceError!]!
+  invoice: Invoice
+}
+
+input ExtReceiptInput {
+  receiptNumber: String
+  metadata: GenericScalar
+}
+
+type ExtReceiptRequest {
+  payload: GenericScalar
+  invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [InvoiceError!]!
+  invoice: Invoice
+}
+
+type ExtReceiptUpdate {
+  invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [InvoiceError!]!
+  invoice: Invoice
 }
 
 type ExternalAuthentication {
@@ -2839,6 +2824,17 @@ enum JobStatusEnum {
   SUCCESS
   FAILED
   DELETED
+}
+
+type LabelCreate {
+  label: String
+  shippingErrors: [ShippingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ShippingError!]!
+}
+
+input LabelCreateInput {
+  packageId: Int!
+  order: String!
 }
 
 enum LanguageCodeEnum {
@@ -3948,6 +3944,9 @@ input MoveProductInput {
 }
 
 type Mutation {
+  extReceiptRequest(orderId: ID!): ExtReceiptRequest
+  extReceiptUpdate(id: ID!, input: ExtReceiptInput!): ExtReceiptUpdate
+  extInvoiceCorrectionRequest(orderId: ID!): ExtInvoiceCorrectionRequest
   wmsDocumentCreate(input: WmsDocumentInput!): WmsDocumentCreate
   wmsDocumentUpdate(id: ID!, input: WmsDocumentInput!): WmsDocumentUpdate
   wmsDocumentDelete(id: ID!): WmsDocumentDelete
@@ -3988,9 +3987,8 @@ type Mutation {
   shippingZoneDelete(id: ID!): ShippingZoneDelete
   shippingZoneBulkDelete(ids: [ID]!): ShippingZoneBulkDelete
   shippingZoneUpdate(id: ID!, input: ShippingZoneUpdateInput!): ShippingZoneUpdate
-  dpdPackageCreate(input: DpdCreatePackageInput!): DpdPackageCreate
-  dpdLabelCreate(input: DpdCreateLabelInput!): DpdLabelCreate
-  dpdProtocolCreate(input: DpdCreateProtocolInput!): DpdProtocolCreate
+  packageCreate(input: PackageCreateInput!): PackageCreate
+  labelCreate(input: LabelCreateInput!): LabelCreate
   productAttributeAssign(operations: [ProductAttributeAssignInput]!, productTypeId: ID!): ProductAttributeAssign
   productAttributeAssignmentUpdate(operations: [ProductAttributeAssignmentUpdateInput]!, productTypeId: ID!): ProductAttributeAssignmentUpdate
   productAttributeUnassign(attributeIds: [ID]!, productTypeId: ID!): ProductAttributeUnassign
@@ -4837,10 +4835,20 @@ type OrderVoid {
   errors: [OrderError!]!
 }
 
-input PackageDataInput {
+type PackageCreate {
+  packageId: String
+  shippingErrors: [ShippingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ShippingError!]!
+}
+
+input PackageCreateInput {
+  packageData: [PackageInput]!
+  fulfillment: String!
+  order: String!
+}
+
+input PackageInput {
   weight: Float!
-  content: String
-  customerData1: String
   sizeX: Int
   sizeY: Int
   sizeZ: Int
@@ -5688,7 +5696,7 @@ input ProductFilterInput {
   search: String
   allegroStatus: String
   updatedAt: DateTimeRangeInput
-  createdAt: DateRangeInput
+  created: DateRangeInput
   warehouseLocation: WarehouseLocationRangeInput
   metadata: [MetadataFilter]
   price: PriceRangeInput
@@ -6190,6 +6198,7 @@ input PublishableChannelListingInput {
 }
 
 type Query {
+  warehouseListPdf(orderIds: [ID!], filters: OrderFilterInput): String
   wmsDeliverers(filter: WmsDelivererFilterInput, before: String, after: String, first: Int, last: Int): WMSDelivererCountableConnection
   wmsDeliverer(id: ID): WmsDeliverer
   wmsDocPositions(filter: WmsDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WMSDocPositionCountableConnection
@@ -6284,16 +6293,6 @@ type Query {
   user(id: ID, email: String): User
   _entities(representations: [_Any]): [_Entity]
   _service: _Service
-}
-
-input ReceiverDataInput {
-  address: String!
-  city: String!
-  company: String!
-  countryCode: String!
-  email: String!
-  phone: String!
-  postalCode: String!
 }
 
 type ReducedRate {
@@ -6485,24 +6484,9 @@ type SelectedAttribute {
   values: [AttributeValue]!
 }
 
-input SenderDataInput {
-  address: String!
-  city: String!
-  company: String!
-  countryCode: String!
-  email: String!
-  fid: String
-  phone: String!
-  postalCode: String!
-}
-
 input SeoInput {
   title: String
   description: String
-}
-
-input ServiceDataInput {
-  dox: Boolean
 }
 
 type SetPassword {
@@ -7900,6 +7884,16 @@ enum WeightUnitsEnum {
 
 type WmsDeliverer implements Node {
   id: ID!
+  companyName: String
+  street: String
+  city: String
+  postalCode: String
+  email: String
+  vatId: String
+  phone: String
+  country: CountryCode
+  firstName: String
+  lastName: String
 }
 
 type WmsDelivererCreate {
@@ -7939,6 +7933,10 @@ type WmsDelivererUpdate {
 
 type WmsDocPosition implements Node {
   id: ID!
+  productVariant: ProductVariant
+  quantity: Int
+  weight: Float
+  document: WmsDocument
 }
 
 type WmsDocPositionCreate {
@@ -7972,6 +7970,17 @@ type WmsDocPositionUpdate {
 
 type WmsDocument implements Node {
   id: ID!
+  createdAt: DateTime
+  updatedAt: DateTime
+  warehouse: Warehouse
+  warehouseSecond: Warehouse
+  documentType: String
+  createdBy: User
+  recipient: User
+  deliverer: WmsDeliverer
+  number: String
+  status: String
+  location: String
 }
 
 type WmsDocumentCreate {
@@ -7993,11 +8002,14 @@ type WmsDocumentError {
 }
 
 input WmsDocumentFilterInput {
-  documentType: [WmsDocumentTypeFilter]
-  createdBy: String
-  status: [WmsDocumentStatusFilter]
-  location: String
   createdAt: DateRangeInput
+  documentType: [WmsDocumentTypeFilter]
+  status: [WmsDocumentStatusFilter]
+  warehouses: [ID]
+  createdBy: String
+  recipients: [ID]
+  deliverers: [ID]
+  location: String
   updatedAt: DateRangeInput
   search: String
 }

@@ -5,7 +5,7 @@ import graphene
 from django.core.exceptions import ValidationError
 from django.db.utils import IntegrityError
 
-from ...order.types import Fulfillment
+from ...order.types import Fulfillment, Order
 from ....core.permissions import ShippingPermissions
 from ....core.tracing import traced_atomic_transaction
 from ....product import models as product_models
@@ -30,7 +30,9 @@ from ...utils.validators import check_for_duplicates
 from ..enums import PostalCodeRuleInclusionTypeEnum, ShippingMethodTypeEnum
 from ..types import ShippingMethodPostalCodeRule, ShippingMethodType, ShippingZone
 from ....plugins.dpd.api import DpdApi
-from ....plugins.dpd.utils import get_dpd_fid
+from saleor.plugins.inpost.plugin import create_shipping_information, create_inpost_shipment, generate_inpost_label
+from saleor.plugins.dpd.utils import create_dpd_shipment, generate_dpd_label
+from saleor.plugins.gls.utils import create_gls_shipment, generate_gls_label
 
 
 class ShippingPostalCodeRulesCreateInputRange(graphene.InputObjectType):
@@ -631,167 +633,10 @@ class ShippingPriceRemoveProductFromExclude(BaseMutation):
         )
 
 
-class PackageDataInput(graphene.InputObjectType):
-    weight = graphene.Float(description="Weight", required=True)
-    content = graphene.String(description="Content")
-    customerData1 = graphene.String(description="Customer Data")
-    sizeX = graphene.Int(description="Size X")
-    sizeY = graphene.Int(description="Size Y")
-    sizeZ = graphene.Int(description="Size Z")
-
-
-class SenderDataInput(graphene.InputObjectType):
-    address = graphene.String(required=True)
-    city = graphene.String(required=True)
-    company = graphene.String(required=True)
-    countryCode = graphene.String(required=True)
-    email = graphene.String(required=True)
-    fid = graphene.String(required=False)
-    phone = graphene.String(required=True)
-    postalCode = graphene.String(required=True)
-
-
-class ReceiverDataInput(graphene.InputObjectType):
-    address = graphene.String(required=True)
-    city = graphene.String(required=True)
-    company = graphene.String(required=True)
-    countryCode = graphene.String(required=True)
-    email = graphene.String(required=True)
-    phone = graphene.String(required=True)
-    postalCode = graphene.String(required=True)
-
-
-class ServiceDataInput(graphene.InputObjectType):
-    dox = graphene.Boolean(description="Envelope up to 0,5 kg")
-
-
-class DpdCreatePackageInput(graphene.InputObjectType):
-    reference = graphene.String()
-    thirdPartyFID = graphene.Int(description="Third party FID")
-    langCode = graphene.String(description="Language Code")
-    packageData = graphene.List(PackageDataInput, required=True)
-    senderData = SenderDataInput(required=True, description="Sender data.")
-    receiverData = ReceiverDataInput(required=True)
-    fulfillment = graphene.ID(required=True, description="Order fullfilment record ID")
-    services = ServiceDataInput()
-
-
-class DpdCreateLabelInput(graphene.InputObjectType):
-    packageId = graphene.Int(required=True)
-
-
 class DpdCreateProtocolInput(graphene.InputObjectType):
     waybills = graphene.List(graphene.String)
     packages = graphene.List(graphene.Int)
-    senderData = SenderDataInput(required=True)
-
-
-class DpdPackageCreate(BaseMutation):
-    packageId = graphene.Int()
-    parcelIds = graphene.List(graphene.Int)
-    waybills = graphene.List(graphene.String)
-    status = graphene.String()
-
-    class Arguments:
-        input = DpdCreatePackageInput(
-            required=True,
-            description=(
-                "Client-side generated data required to create dpd package."
-            ),
-        )
-
-    class Meta:
-        description = "Creates a new shipping price."
-        permissions = (ShippingPermissions.MANAGE_SHIPPING,)
-        error_type_class = ShippingError
-        error_type_field = "shipping_errors"
-
-    @classmethod
-    def perform_mutation(cls, _root, info, **data):
-        DPD_ApiInstance = DpdApi()
-
-        data['input']['senderData']['fid'] = get_dpd_fid()
-
-        package = DPD_ApiInstance.generate_package_shipment(
-            packageData=data['input']['packageData'],
-            receiverData=data['input']['receiverData'],
-            senderData=data['input']['senderData'],
-            servicesData=data['input'].get('services')
-        )
-
-        if package.Status != 'OK':
-            return DpdPackageCreate(
-                status=package.Status
-            )
-
-        package = package.Packages.Package[0]
-        parcels = package.Parcels.Parcel
-        parcel_ids = [parcel.ParcelId for parcel in package.Parcels.Parcel]
-        waybills = [parcel.Waybill for parcel in package.Parcels.Parcel]
-        new_parcels = []
-
-        for parcel, response_parcel in zip(data['input']['packageData'], parcels):
-            new_parcels.append(
-                {
-                    "id": response_parcel.ParcelId,
-                    "waybill": response_parcel.Waybill,
-                    "weight": parcel['weight'],
-                    "sizeX": parcel['sizeX'],
-                    "sizeY": parcel['sizeY'],
-                    "sizeZ": parcel['sizeZ']
-                }
-            )
-
-        json_package = {
-            "status": package.Status,
-            "id": package.PackageId,
-            "parcels": new_parcels,
-        }
-
-        fulfillment_id = data['input']['fulfillment']
-        fulfillment = graphene.Node.get_node_from_global_id(info, fulfillment_id, Fulfillment)
-        fulfillment.store_value_in_private_metadata({'package': json_package})
-        fulfillment.tracking_number = package.PackageId
-        fulfillment.save()
-
-        return DpdPackageCreate(
-            packageId=package.PackageId,
-            parcelIds=parcel_ids,
-            waybills=waybills,
-            status=package.Status
-        )
-
-
-class DpdLabelCreate(BaseMutation):
-    label = graphene.Field(graphene.String, description='B64 label representation')
-
-    class Arguments:
-        input = DpdCreateLabelInput(
-            required=True,
-            description=(
-                "Client-side generated data required to create dpd label."
-            ),
-        )
-
-    class Meta:
-        description = "Creates a new shipping price."
-        permissions = (ShippingPermissions.MANAGE_SHIPPING,)
-        error_type_class = ShippingError
-        error_type_field = "shipping_errors"
-
-    @classmethod
-    def perform_mutation(cls, _root, info, **data):
-        DPD_ApiInstance = DpdApi()
-
-        label = DPD_ApiInstance.generate_label(
-            packageId=data['input']['packageId']
-        )
-
-        data = base64.b64encode(label['documentData']).decode('ascii')
-
-        return DpdLabelCreate(
-            label=data
-        )
+    #senderData = SenderDataInput(required=True)
 
 
 class DpdProtocolCreate(BaseMutation):
@@ -815,7 +660,7 @@ class DpdProtocolCreate(BaseMutation):
     def perform_mutation(cls, _root, info, **data):
         DPD_ApiInstance = DpdApi()
 
-        data['input']['senderData']['fid'] = get_dpd_fid()
+        data['input']['senderData']['fid'] = DPD_ApiInstance.API_FID
 
         protocol = DPD_ApiInstance.generate_protocol(
             waybills=data['input'].get('waybills'),
@@ -826,4 +671,149 @@ class DpdProtocolCreate(BaseMutation):
 
         return DpdProtocolCreate(
             protocol=data
+        )
+
+
+class PackageInput(graphene.InputObjectType):
+    weight = graphene.Float(description="Weight", required=True)
+    sizeX = graphene.Int(description="Width")
+    sizeY = graphene.Int(description="Length")
+    sizeZ = graphene.Int(description="Height")
+
+
+class PackageCreateInput(graphene.InputObjectType):
+    packageData = graphene.List(PackageInput, required=True)
+    fulfillment = graphene.String(required=True, description="Order fullfilment ID")
+    order = graphene.String(required=True, description="Order ID")
+
+
+class PackageCreate(BaseMutation):
+    packageId = graphene.Field(graphene.String, description='Package ID')
+
+    class Arguments:
+        input = PackageCreateInput(
+            required=True,
+            description=(
+                "Client-side generated data required to create dpd package."
+            ),
+        )
+
+    class Meta:
+        description = "Creates a new package."
+        permissions = (ShippingPermissions.MANAGE_SHIPPING,)
+        error_type_class = ShippingError
+        error_type_field = "shipping_errors"
+
+    @classmethod
+    def validate_dimensions(cls, package, courier):
+        """
+        inpost paczkomat: A/B/C - max 41 X 38 X 64 cm, waga zawsze 25kg
+        dpd kurier standard krajowy: max wymiar 150cm, suma wymiarow <= 300cm, 31,5kg
+        gls pobranie: max wymiary 200cm, suma wymiarów < 300 cm, 31,5kg
+        """
+        for parcel in package:
+            dimensions = [parcel['sizeX'], parcel['sizeY'], parcel['sizeZ']]
+            dimensions_sum = sum(dimensions)
+            weight = parcel['weight']
+            max_dimension = max(dimensions)
+
+            dimensions_error = ValidationError(
+                {
+                    "dimensions": ValidationError(
+                        "Wrong weight/dimensions",
+                        code=ShippingErrorCode.INVALID.value,
+                    )
+                }
+            )
+
+            if courier == "INPOST":
+                if max_dimension > 64 or weight > 25:
+                     raise dimensions_error
+            if courier == "DPD":
+                if max_dimension > 150 or weight > 31.5 or dimensions_sum > 300:
+                    raise dimensions_error
+            if courier == "GLS":
+                if max_dimension > 200 or weight > 31.5 or dimensions_sum > 300:
+                    raise dimensions_error
+
+    @classmethod
+    def perform_mutation(cls, _root, info, **data):
+        fulfillment_id = data['input']['fulfillment']
+        order_id = data['input']['order']
+        package = data['input']['packageData']
+
+        order = graphene.Node.get_node_from_global_id(info, order_id, Order)
+        fulfillment = graphene.Node.get_node_from_global_id(info, fulfillment_id, Fulfillment)
+        shipping = create_shipping_information(order=order)
+        courier = order.shipping_method.metadata.get("courier")
+        cls.validate_dimensions(package, courier)
+        # TODO: handle generic courier
+        if courier == "DPD":
+            shipment = create_dpd_shipment(
+                shipping=shipping,
+                package=package,
+                fulfillment=fulfillment
+            )
+            package_id = shipment.Packages.Package[0].PackageId
+        if courier == "INPOST":
+            shipment = create_inpost_shipment(
+                shipping=shipping,
+                package=package,
+                fulfillment=fulfillment
+            )
+            package_id = shipment['id']
+        if courier == "GLS":
+            package_id = create_gls_shipment(
+                shipping=shipping,
+                package=package,
+                fulfillment=fulfillment,
+                order=order
+            )
+
+        return PackageCreate(packageId=package_id)
+
+
+
+class LabelCreateInput(graphene.InputObjectType):
+    package_id = graphene.Int(required=True)
+    order = graphene.String(required=True, description="Order ID")
+
+
+class LabelCreate(BaseMutation):
+    label = graphene.Field(graphene.String, description='B64 label representation')
+
+    class Arguments:
+        input = LabelCreateInput(
+            required=True,
+            description=(
+                "Client-side generated data required to create shipping label."
+            ),
+        )
+
+    class Meta:
+        description = "Generates a shipping label."
+        permissions = (ShippingPermissions.MANAGE_SHIPPING,)
+        error_type_class = ShippingError
+        error_type_field = "shipping_errors"
+
+    @classmethod
+    def perform_mutation(cls, _root, info, **data):
+        order_id = data['input']['order']
+        order = graphene.Node.get_node_from_global_id(info, order_id, Order)
+        courier = order.shipping_method.metadata.get("courier")
+        package_id = data['input']['package_id']
+
+        if courier == "DPD":
+            label = generate_dpd_label(package_id=package_id)
+            label_b64 = base64.b64encode(label).decode('ascii')
+
+        if courier == "INPOST":
+            label = generate_inpost_label(package_id=package_id)
+            label_b64 = base64.b64encode(label).decode('ascii')
+
+        if courier == "GLS":
+            label_b64 = generate_gls_label(package_id=package_id)
+
+        return LabelCreate(
+            label=label_b64
         )

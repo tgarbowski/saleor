@@ -14,7 +14,8 @@ class DpdConfiguration:
 class DpdPlugin(BasePlugin):
     PLUGIN_NAME = "Dpd"
     PLUGIN_ID = "Dpd"
-    DEFAULT_ACTIVE = True
+    DEFAULT_ACTIVE = False
+    CONFIGURATION_PER_CHANNEL = False
     DEFAULT_CONFIGURATION = [
         {"name": "Username", "value": None},
         {"name": "Password", "value": None},

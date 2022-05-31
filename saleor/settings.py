@@ -401,6 +401,8 @@ OPENEXCHANGERATES_API_KEY = os.environ.get("OPENEXCHANGERATES_API_KEY")
 
 GOOGLE_ANALYTICS_TRACKING_ID = os.environ.get("GOOGLE_ANALYTICS_TRACKING_ID")
 
+API_URI = os.environ.get("API_URI", "http://localhost:8000/graphql/")
+
 
 def get_host():
     from django.contrib.sites.models import Site
@@ -580,6 +582,10 @@ if APP_ENVIRONMENT in ['development']:
             'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
             'schedule': 1800.0
         },
+        'save_allegro_orders_task': {
+            'task': 'saleor.plugins.allegro.tasks.save_allegro_orders_task',
+            'schedule': 600.0
+        },
         "delete-empty-allocations": {
             "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
             "schedule": timedelta(days=1),
@@ -688,6 +694,11 @@ BUILTIN_PLUGINS = [
     "saleor.plugins.salingo_pricing.plugin.SalingoPricingPlugin",
     "saleor.plugins.salingo_pricing_global.plugin.SalingoPricingGlobalPlugin",
     "saleor.plugins.allegro_global.plugin.AllegroGlobalPlugin",
+    "saleor.plugins.inpost.plugin.InpostPlugin",
+    "saleor.plugins.gls.plugin.GlsPlugin",
+    "saleor.plugins.product_listing.plugin.ProductListingPlugin",
+    "saleor.plugins.printservers.plugin.PrintserversPlugin",
+    "saleor.payment.gateways.cod.plugin.CodGatewayPlugin"
 ]
 
 # Plugin discovery

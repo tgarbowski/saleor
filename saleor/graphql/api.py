@@ -29,6 +29,7 @@ from .webhook.schema import WebhookMutations, WebhookQueries
 from .metaquery.schema import MetadataQueries
 from .wms.schema import (WmsDocumentQueries, WmsDocPositionQueries, WmsDocumentMutations,
                          WmsDelivererQueries)
+from .salingo.schema import ExternalQueries, ExternalMutations
 
 API_PATH = SimpleLazyObject(lambda: reverse("api"))
 
@@ -58,7 +59,8 @@ class Query(
     MetadataQueries,
     WmsDocumentQueries,
     WmsDocPositionQueries,
-    WmsDelivererQueries
+    WmsDelivererQueries,
+    ExternalQueries
 ):
     pass
 
@@ -86,7 +88,8 @@ class Mutation(
     ShopMutations,
     WarehouseMutations,
     WebhookMutations,
-    WmsDocumentMutations
+    WmsDocumentMutations,
+    ExternalMutations
 ):
     pass
 

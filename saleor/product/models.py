@@ -505,7 +505,7 @@ class ProductTranslation(SeoModelTranslation):
 class ProductVariantQueryset(models.QuerySet):
     def annotate_quantities(self):
         return self.annotate(
-            quantity=Coalesce(Sum("stocks__quantity"), 0),
+            quantity=Coalesce(Sum("stocks__quantity", distinct=True), 0),
             quantity_allocated=Coalesce(
                 Sum("stocks__allocations__quantity_allocated"), 0
             ),

@@ -186,11 +186,6 @@ class SumiPlugin(BasePlugin):
                          'produktu ' + str(
                     product_variant_stock.product_variant) + ', komunikat błędu: ' +
                          str(ex)}
-        try:
-            product_variant_stock.decrease_stock(1)
-        except:
-            return {'error': '002: stan magazynowy produktu ' + str(
-                product_variant_stock.product_variant) + ' wynosi 0'}
 
         return return_object
 

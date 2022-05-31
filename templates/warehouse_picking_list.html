@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Invoice</title>
+    <style>
+      @page {
+        margin: 1cm;
+        size: A4;
+      }
+      .thick {
+        font-weight: bold;
+        color: black;
+      }
+      .warehouse_document {
+        padding: 10px 10px 10px 10px;
+      }
+      .header {
+        margin-bottom: 20px;
+      }
+      h4 {
+        margin-bottom: 10px;
+        margin-top: 0px;
+        color: #696d73;
+        font-style: italic;
+        font-size: 20px;
+      }
+      .text-left-i{
+        text-align: left !important;
+      }
+      .bottom {
+        margin-top: 20px;
+      }
+      table, tr, td, th {
+      border: 1px solid;
+      break-inside: avoid;
+      }
+      html {
+        color: #14213d;
+        font-family: Source Sans Pro;
+        font-size: 11pt;
+        line-height: 1.6;
+      }
+
+      html table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      html table th {
+        border-bottom: .2mm solid #a9a;
+        color: #a9a;
+        font-size: 11pt;
+        font-weight: 400;
+        padding-bottom: .25cm;
+        padding-top: .25cm;
+        text-transform: uppercase;
+      }
+
+      html table td {
+        padding-top: 2mm;
+        padding-bottom: 2mm;
+        padding-right: 1mm;
+        padding-left: 1mm;
+      }
+      html table th, html table td {
+        text-align: center;
+      }
+      html table th:first-of-type, html table td:first-of-type {
+        text-align: center;
+      }
+      html table th:last-of-type, html table td:last-of-type {
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="warehouse_document">
+      <div id="list_table">
+        <table class="main-table">
+          <thead>
+            <tr>
+              <th class="text-left-i thick">Lp</th>
+              <th class="number thick">Lokalizacja</th>
+              <th class="number thick">WZ</th>
+              <th class="number thick">Kod towaru</th>
+              <th class="no_print1 number thick">Nazwa towaru</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for position in warehouse_list %}
+              <tr>
+                <td class="text-left-i">{{ forloop.counter }}</td>
+                {% if position.location %}
+                <td class="number">{{ position.location }}</td>
+                {% else %}
+                <td class="number">-</td>
+                {% endif %}
+                {% if position.number %}
+                <td class="number">{{ position.number }}</td>
+                {% else %}
+                <td class="number">-</td>
+                {% endif %}
+                <td class="number">{{ position.sku }}</td>
+                <td class="number">{{ position.name }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </body>
+</html>
+

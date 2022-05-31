@@ -1,5 +1,6 @@
 import graphene
 
+from ..order.schema import OrderFilterInput
 from ...core.permissions import WMSPermissions
 from ..decorators import permission_required
 from .mutations import (WmsDocumentCreate, WmsDocumentUpdate, WmsDocPositionCreate,
@@ -9,9 +10,9 @@ from .mutations import (WmsDocumentCreate, WmsDocumentUpdate, WmsDocPositionCrea
 from saleor.graphql.core.fields import FilterConnectionField
 from saleor.graphql.wms.resolvers import (resolve_wms_documents, resolve_wms_document,
                                           resolve_wms_doc_positions, resolve_wms_document_pdf,
-                                          resolve_wms_actions_report, resolve_wms_products_report,
-                                          resolve_wms_doc_position, resolve_wms_deliverers,
-                                          resolve_wms_deliverer)
+                                          resolve_wms_documents_list_pdf, resolve_wms_actions_report,
+                                          resolve_wms_products_report, resolve_wms_doc_position,
+                                          resolve_wms_deliverers, resolve_wms_deliverer)
 from .types import (WmsDeliverer, WmsDocPosition, WmsDocument, WMSDocumentCountableConnection,
                     WMSDocPositionCountableConnection, WMSDelivererCountableConnection)
 from .filters import WmsDocPositionFilterInput, WmsDocumentFilterInput, WmsDelivererFilterInput
@@ -52,6 +53,10 @@ class WmsDocumentQueries(graphene.ObjectType):
         id=graphene.ID(required=True)
     )
 
+    wms_documents_list_pdf = graphene.String(
+        filters=OrderFilterInput()
+    )
+
     wms_actions_report = GenericScalar(
         startDate=graphene.Argument(graphene.Date, required=True),
         endDate=graphene.Argument(graphene.Date, required=True)
@@ -74,6 +79,10 @@ class WmsDocumentQueries(graphene.ObjectType):
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_document_pdf(self, info, **kwargs):
         return resolve_wms_document_pdf(info, **kwargs)
+
+    @permission_required(WMSPermissions.MANAGE_WMS)
+    def resolve_wms_documents_list_pdf(self, info, **kwargs):
+        return resolve_wms_documents_list_pdf(info, **kwargs)
 
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_actions_report(self, info, **kwargs):
