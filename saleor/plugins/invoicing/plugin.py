@@ -127,7 +127,7 @@ def invoice_correction_request(
     else:
         correction_prefix = config.get("correction_receipt_prefix")
         correction_receipt_count = Invoice.objects.filter(
-            order__metadata__invoice=False,
+            order__metadata__invoice="false",
             parent__isnull=False
         ).count()
         correction_receipt_count -= 1
