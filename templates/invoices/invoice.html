@@ -194,7 +194,6 @@
     </div>
     <div class="section-invoice-info section-right">
       <div class="content-padded">
-        <span class="header-title">Informacje o fakturze</span>
         <span class="header-category">Numer faktury:</span>
         <div class="padded-font-sm"></div>
         <span class="header-item">{{ invoice.number }}</span>
@@ -231,8 +230,10 @@
         >
         <br />
         {% endif %}
+        {% if order.billing_address.vat_id %}
         <span class="normal-text">{{ order.billing_address.vat_id }}</span>
         <br />
+        {% endif %}
         <span class="normal-text">{{ order.billing_address.country }}</span>
         <br />
         <span class="normal-text">{{ order.billing_address.city }}</span>
