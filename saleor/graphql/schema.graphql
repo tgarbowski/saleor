@@ -2243,7 +2243,7 @@ enum ExportScope {
 }
 
 type ExtInvoiceCorrectionRequest {
-  payload: GenericScalar
+  order: Order
   invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
   errors: [InvoiceError!]!
   invoice: Invoice

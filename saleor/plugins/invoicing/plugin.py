@@ -149,3 +149,4 @@ def invoice_correction_request(
         invoice.save(
             update_fields=["created", "number", "invoice_file", "status", "updated_at"]
         )
+        return invoice

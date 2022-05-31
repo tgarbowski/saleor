@@ -168,7 +168,7 @@ class ExtReceiptUpdate(ModelMutation):
 
 
 class ExtInvoiceCorrectionRequest(ModelMutation):
-    payload = GenericScalar()
+    order = graphene.Field(Order, description="Order related to an invoice.")
 
     class Arguments:
         order_id = graphene.ID(
@@ -211,7 +211,6 @@ class ExtInvoiceCorrectionRequest(ModelMutation):
             info, data["order_id"], only_type=Order, field="orderId"
         )
         cls.clean_order(order)
-        payload = {}
         last_invoice = models.Invoice.objects.filter(order=order).last()
         last_correction_invoice = models.Invoice.objects.filter(
             parent__isnull=False).last()
@@ -228,4 +227,4 @@ class ExtInvoiceCorrectionRequest(ModelMutation):
             last_correction_invoice=last_correction_invoice
         )
 
-        return ExtInvoiceCorrectionRequest(payload=payload, invoice=invoice)
+        return ExtInvoiceCorrectionRequest(invoice=invoice, order=order)
