@@ -1,5 +1,6 @@
 from typing import Any, Optional
 from uuid import uuid4
+from distutils.util import strtobool
 
 from dataclasses import dataclass
 
@@ -113,40 +114,40 @@ def invoice_correction_request(
     order: "Order",
     invoice: "Invoice",
     last_correction_invoice: "Invoice"
-    ) -> Any:
-        config = get_plugin_configuration(plugin_id="mirumee.invoicing")
-        is_invoice = order.metadata.get("invoice")
+) -> "Invoice":
+    config = get_plugin_configuration(plugin_id="mirumee.invoicing")
+    is_invoice = bool(strtobool(order.metadata.get("invoice")))
 
-        if is_invoice:
-            correction_prefix = config.get("correction_invoice_prefix")
-            invoice_number = generate_correction_invoice_number(
-                prefix=correction_prefix,
-                last_correction_invoice=last_correction_invoice
-            )
-        else:
-            correction_prefix = config.get("correction_receipt_prefix")
-            correction_receipt_count = Invoice.objects.filter(
-                order__metadata__invoice=False,
-                parent__isnull=False
-            ).count()
-            correction_receipt_count -= 1
-            invoice_number = generate_correction_receipt_number(
-                prefix=correction_prefix,
-                correction_receipt_count=correction_receipt_count
-            )
-
-        invoice.update_invoice(number=invoice_number)
-
-        file_content, creation_date = generate_correction_invoice_pdf(invoice, order)
-
-        invoice.created = creation_date
-        slugified_invoice_number = slugify(invoice_number)
-        invoice.invoice_file.save(
-            f"invoice-{slugified_invoice_number}-order-{order.id}-{uuid4()}.pdf",
-            ContentFile(file_content),
+    if is_invoice:
+        correction_prefix = config.get("correction_invoice_prefix")
+        invoice_number = generate_correction_invoice_number(
+            prefix=correction_prefix,
+            last_correction_invoice=last_correction_invoice
         )
-        invoice.status = JobStatus.SUCCESS
-        invoice.save(
-            update_fields=["created", "number", "invoice_file", "status", "updated_at"]
+    else:
+        correction_prefix = config.get("correction_receipt_prefix")
+        correction_receipt_count = Invoice.objects.filter(
+            order__metadata__invoice=False,
+            parent__isnull=False
+        ).count()
+        correction_receipt_count -= 1
+        invoice_number = generate_correction_receipt_number(
+            prefix=correction_prefix,
+            correction_receipt_count=correction_receipt_count
         )
-        return invoice
+
+    invoice.update_invoice(number=invoice_number)
+
+    file_content, creation_date = generate_correction_invoice_pdf(invoice, order)
+
+    invoice.created = creation_date
+    slugified_invoice_number = slugify(invoice_number)
+    invoice.invoice_file.save(
+        f"invoice-{slugified_invoice_number}-order-{order.id}-{uuid4()}.pdf",
+        ContentFile(file_content),
+    )
+    invoice.status = JobStatus.SUCCESS
+    invoice.save(
+        update_fields=["created", "number", "invoice_file", "status", "updated_at"]
+    )
+    return invoice

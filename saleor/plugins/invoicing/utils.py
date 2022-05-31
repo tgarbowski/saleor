@@ -2,6 +2,7 @@ import os
 import re
 from datetime import datetime
 from decimal import Decimal
+from distutils.util import strtobool
 
 import pytz
 from django.conf import settings
@@ -147,7 +148,7 @@ def generate_correction_invoice_pdf(invoice, order):
     original_invoice_sumary = last_invoice.private_metadata.get("summary")['to']
     original_invoice_sumary = price_from_minor_unit(value=original_invoice_sumary, currency='PLN')
     final_summary = corrected_positions_summary - original_invoice_sumary
-    is_invoice = order.metadata.get("invoice")
+    is_invoice = bool(strtobool(order.metadata.get("invoice")))
 
     # Delivery position
     shipment_quantity = 1 if order.status != OrderStatus.RETURNED else 0
