@@ -125,13 +125,18 @@
       .summary-table {
         width: 100%;
         line-height: 1.8;
-        padding-top: 20px;
+        padding-top: 5px;
       }
 
       .row-category > td,
       .row-product > td {
         padding: 7px 0 7px 0;
         border-bottom: 2px solid #cee3ed;
+      }
+
+      .row-final-summary > td {
+        padding: 7px 0 7px 0;
+        border-top: 2px solid #cee3ed;
       }
 
       .cell-product {
@@ -214,8 +219,16 @@
     </div>
     <div class="section-invoice-info section-right">
       <div class="content-padded">
-        <span class="header-title">Informacje o fakturze</span>
-        <span class="header-category">Numer faktury:</span>
+        {% if is_invoice %}
+        <span class="header-title">Informacje o korekcie faktury</span>
+        {% else %}
+        <span class="header-title">Informacje o korekcie paragonu</span>
+        {% endif %}
+        {% if is_invoice %}
+        <span class="header-category">Numer korekty faktury:</span>
+        {% else %}
+        <span class="header-category">Numer korekty paragonu:</span>
+        {% endif %}
         <div class="padded-font-sm"></div>
         <span class="header-item">{{ invoice.number }}</span>
         <div class="padded-font"></div>
@@ -226,10 +239,6 @@
         <span class="header-category">Data:</span>
         <div class="padded-font-sm"></div>
         <span class="header-item">{{ creation_date }}</span>
-        <div class="padded-font"></div>
-        <span class="header-category">Kwota:</span>
-        <div class="padded-font-sm"></div>
-        <span class="header-item">{% price order.total_gross %}</span>
       </div>
     </div>
     <div class="section-left">
@@ -308,7 +317,13 @@
         <span class="header-title">METODA PŁATNOŚCI</span>
         <br />
         {% if order.get_last_payment %}
-        <span class="normal-text">{{ order.get_last_payment.gateway }}</span>
+          {% if order.get_last_payment.gateway == "salingo.payments.payu" %}
+            <span class="normal-text">PAYU</span>
+          {% elif order.get_last_payment.gateway == "salingo.payments.cod" %}
+            <span class="normal-text">Płatnośc za pobraniem</span>
+          {% else %}
+            <span class="normal-text">{{ order.get_last_payment.gateway }}</span>
+          {% endif %}
         {% else %}
         <span class="normal-text">Nieopłacone</span>
         {% endif %}
@@ -333,11 +348,11 @@
         <tbody>
           <tr class="summary-row">
             <td class="cell-summary">
-              <span class="normal-text-table"><b>Razem</b></span>
+              <span class="normal-text-table"><b>Razem wartość pierwotna:</b></span>
             </td>
             <td class="cell-quantity"></td>
             <td class="cell-total-price">
-              <span class="header-item"> {{ original_invoice_sumary }} </span>
+              <span class="header-item"> {{ original_invoice_sumary }} PLN </span>
             </td>
           </tr>
         </tbody>
@@ -346,19 +361,35 @@
     <div class="content-padded">
       <span class="header-title">Po korekcie</span>
       {% include "invoices/invoice_product_table_corrected.html" with products=merge_products shipment=shipment%}
+      <table class="summary-table">
+        <tbody>
+          <tr class="summary-row">
+            <td class="cell-summary">
+              <span class="normal-text-table"><b>Razem wartość po uwzględnieniu korekt:</b></span>
+            </td>
+            <td class="cell-quantity"></td>
+            <td class="cell-total-price">
+              <span class="header-item"> {{ corrected_positions_summary|floatformat:2 }} PLN</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-    <table class="summary-table">
-      <tbody>
-        <tr class="summary-row">
-          <td class="cell-summary">
-            <span class="normal-text-table"><b>Razem</b></span>
-          </td>
-          <td class="cell-quantity"></td>
-          <td class="cell-total-price">
-            <span class="header-item"> {{ corrected_positions_summary }} </span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+  <!-- final summary-->
+    <div class="content-padded">
+      <table class="summary-table">
+        <tbody>
+          <tr class="summary-row row-final-summary">
+            <td class="cell-summary">
+              <span class="normal-text-table"><b>Razem</b></span>
+            </td>
+            <td class="cell-quantity"></td>
+            <td class="cell-total-price">
+              <span class="header-item"> {{ final_summary|floatformat:2 }} PLN</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </body>
 </html>

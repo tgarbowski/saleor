@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytz
 from django.conf import settings
 from django.template.loader import get_template
-from prices import Money
+from prices import Money, TaxedMoney
 from weasyprint import HTML
 
 from ...giftcard import GiftCardEvents
@@ -15,6 +15,7 @@ from ...invoice.models import Invoice
 from saleor.graphql.salingo.utils import get_invoice_correct_payload
 from saleor.order.models import OrderLine
 from saleor.payment.utils import price_from_minor_unit, price_to_minor_unit
+from saleor.order import OrderStatus
 
 MAX_PRODUCTS_WITH_TABLE = 3
 MAX_PRODUCTS_WITHOUT_TABLE = 4
@@ -136,18 +137,24 @@ def generate_correction_invoice_pdf(invoice, order):
     # Calculate total price (corrected positions)
     positive_prices = [position['total_price'].gross.amount for position in merge_products]
     corrected_positions_summary = sum(positive_prices)
-    corrected_positions_summary += order.shipping_price_gross_amount
+
+    if order.status != OrderStatus.RETURNED:
+        corrected_positions_summary += order.shipping_price_gross_amount
 
     for position in original_invoice:
         position['pr'] = price_from_minor_unit(value=position['pr'], currency='PLN')
 
     original_invoice_sumary = last_invoice.private_metadata.get("summary")['to']
     original_invoice_sumary = price_from_minor_unit(value=original_invoice_sumary, currency='PLN')
+    final_summary = corrected_positions_summary - original_invoice_sumary
+    is_invoice = order.metadata.get("invoice")
 
     # Delivery position
+    shipment_quantity = 1 if order.status != OrderStatus.RETURNED else 0
     shipment = {
-        "quantity": 1,
-        "price": order.shipping_price_gross_amount,
+        "quantity": shipment_quantity,
+        "price": order.shipping_price_gross_amount * shipment_quantity,
+        "unit_price": order.shipping_price_gross_amount,
         "name": "TRANSPORT Usługa transportowa"
     }
 
@@ -178,14 +185,15 @@ def generate_correction_invoice_pdf(invoice, order):
             "merge_products": merge_products,
             "shipment": shipment,
             "original_invoice_sumary": original_invoice_sumary,
-            "corrected_positions_summary": corrected_positions_summary
+            "corrected_positions_summary": corrected_positions_summary,
+            "is_invoice": is_invoice,
+            "final_summary": final_summary
         }
     )
     return HTML(string=rendered_template).write_pdf(), creation_date
 
 
 def create_merge_products(fulfilled_products, not_fulfilled_products):
-    from prices import TaxedMoney, Money
     merge_products = []
     for fulfilled_product in fulfilled_products:
         merge_products.append(
@@ -204,8 +212,7 @@ def create_merge_products(fulfilled_products, not_fulfilled_products):
                 "product_sku": not_fulfilled_product.product_sku,
                 "unit_price": not_fulfilled_product.unit_price,
                 "quantity": 0,
-                "total_price": TaxedMoney(net=Money(amount=0, currency='PLN'),
-                                          gross=Money(amount=0, currency='PLN')),
+                "total_price": get_zero_taxed_money_pln(),
                 "name": not_fulfilled_product.product_name
             }
         )
@@ -242,3 +249,24 @@ def get_receipt_payload(merge_products, shipping, corrected_positions_summary):
         "summary": summary
     }
     return payload
+
+
+def generate_correction_invoice_number(prefix, last_correction_invoice):
+    try:
+        number, year = parse_invoice_dates(last_correction_invoice)
+        return make_full_invoice_number(number=number, year=year, prefix=prefix)
+    except (IndexError, ValueError, AttributeError):
+        return make_full_invoice_number(prefix=prefix)
+
+
+def generate_correction_receipt_number(prefix, correction_receipt_count):
+    now = datetime.now()
+    current_year = int(now.strftime("%Y"))
+    return make_full_invoice_number(number=correction_receipt_count, prefix=prefix, year=current_year)
+
+
+def get_zero_taxed_money_pln():
+    return TaxedMoney(
+        net=Money(amount=0, currency='PLN'),
+        gross=Money(amount=0, currency='PLN')
+    )

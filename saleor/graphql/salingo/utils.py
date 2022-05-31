@@ -1,14 +1,15 @@
 import operator
 import functools
 
-from django.db.models import F, Max, Q
+from django.db.models import Max, Q
 
 from saleor.payment.utils import price_to_minor_unit
 from saleor.order.models import FulfillmentLine, OrderLine
 
 
 def get_receipt_payload(order):
-    lines_fulfilled = OrderLine.objects.filter(order=order, quantity_fulfilled=F('quantity'))
+    fulfilled_order_lines_ids, not_fulfilled_order_lines_ids = get_invoice_correct_payload(order=order)
+    lines_fulfilled = OrderLine.objects.filter(id__in=fulfilled_order_lines_ids)
     lines_json = []
 
     for line_fulfilled in lines_fulfilled:

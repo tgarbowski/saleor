@@ -1,4 +1,5 @@
 {% load price from taxed_prices %}
+{% load prices %}
 <table class="products-table">
   <tbody>
     <tr class="row-category">
@@ -29,7 +30,7 @@
       </td>
       <td class="cell-price">
         <span class="normal-text-table cell-price-content"
-          >{% price product.unit_price.gross %}</span
+          >{{ product.unit_price.gross.amount|floatformat:2 }}</span
         >
       </td>
       <td class="cell-quantity">
@@ -39,7 +40,7 @@
       </td>
       <td class="cell-total-price">
         <span class="normal-text-table"
-          >{% price product.total_price.gross %}</span
+          >{{ product.total_price.gross.amount|floatformat:2 }}</span
         >
       </td>
     </tr>
@@ -54,7 +55,7 @@
       </td>
       <td class="cell-price">
         <span class="normal-text-table cell-price-content"
-          >{{ shipment.price }}</span
+          >{{ shipment.unit_price|floatformat:2 }}</span
         >
       </td>
       <td class="cell-quantity">
@@ -64,7 +65,7 @@
       </td>
       <td class="cell-total-price">
         <span class="normal-text-table"
-          >{{ shipment.price }}</span
+          >{{ shipment.price|floatformat:2 }}</span
         >
       </td>
     </tr>
