@@ -2,36 +2,77 @@ import base64
 from typing import List
 
 import graphene
-from weasyprint import HTML
-
 from django.db.models import Sum, Count, Q, F
 from django.template.loader import get_template
+from weasyprint import HTML
 
-from saleor.wms.models import WmsDocument, WmsDocPosition
 from saleor.order.models import Order, OrderLine
+from saleor.wms.models import WmsDocument, WmsDocPosition
 
 
 def create_pdf_document(document_id):
-    document = WmsDocument.objects.select_related('warehouse', 'created_by', 'recipient').get(pk=document_id)
+    document = WmsDocument.objects.\
+        select_related('warehouse', 'created_by', 'recipient',
+                       'order', 'order__shipping_address').\
+        get(pk=document_id)
     document_positions = WmsDocPosition.objects.select_related(
         'product_variant').filter(document=document_id)
     translated_document_type = translate_document_type(document.document_type)
     deliverer = document.deliverer
+    warehouse_positions = []
+    for position in document_positions:
+        warehouse_positions.append(
+            {
+                "location": position.product_variant.private_metadata.get("location"),
+                "sku": position.product_variant.sku,
+                "name": position,
+                "quantity": position.quantity
+            }
+        )
 
     if isinstance(deliverer, dict):
         deliverer = ', '.join([f'{key}: {value}' for key, value in deliverer.items()])
-
     rendered_template = get_template('warehouse_document.html').render(
         {
             'document': document,
             'translated_document_type': translated_document_type,
             'document_positions': document_positions,
-            'deliverer': deliverer
+            'deliverer': deliverer,
+            'warehouse_positions': warehouse_positions,
+            'recipient_first_name': document.order.shipping_address.first_name,
+            'recipient_last_name': document.order.shipping_address.last_name,
+            'recipient_address': document.order.shipping_address.street_address_1,
+            'recipient_city': document.order.shipping_address.city,
+            'recipient_postal_code': document.order.shipping_address.postal_code,
+            'shipping_method': document.order.shipping_method,
+            'barcode': "#" + str(document.order.id)
         }
     )
-    file = HTML(string=rendered_template).write_pdf()
-    encoded_file = base64.b64encode(file).decode('utf-8')
+    file = HTML(string=rendered_template).render()
+    return file
 
+
+def generate_encoded_pdf_document(document_id):
+    file = create_pdf_document(document_id)
+    val = []
+    for page in file.pages:
+        val.append(page)
+    pdf_file = file.copy(val).write_pdf()
+    encoded_file = base64.b64encode(pdf_file).decode('utf-8')
+    return encoded_file
+
+
+def generate_encoded_pdf_documents(orders: [Order]):
+    wmsdocuments = WmsDocument.objects.filter(order__in=orders)
+    docs = []
+    for wmsdocument in wmsdocuments:
+        docs.append(create_pdf_document(wmsdocument.id))
+    val = []
+    for doc in docs:
+        for page in doc.pages:
+            val.append(page)
+    file = docs[0].copy(val).write_pdf()
+    encoded_file = base64.b64encode(file).decode('utf-8')
     return encoded_file
 
 

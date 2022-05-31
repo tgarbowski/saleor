@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <title>Invoice</title>
+    <link href="https://fonts.googleapis.com/css?family=Libre+Barcode+39+Extended+Text" rel="stylesheet">
     <style>
       @page {
         margin: 0.5cm;
@@ -11,55 +12,59 @@
         font-weight: bold;
         color: black;
       }
-      .warehouse_document {
-        padding: 10px 10px 10px 10px;
-      }
       .header {
         margin-bottom: 20px;
       }
       h4 {
         margin-bottom: 10px;
         margin-top: 0px;
-        color: #696d73;
         font-style: italic;
         font-size: 20px;
+        text-align: center;
       }
       .text-left-i{
         text-align: left !important;
       }
+      .text-center-i{
+        text-align: center !important;
+      }
+      .text-right-i{
+        text-align: right !important;
+      }
       .bottom {
         margin-top: 20px;
       }
-      table {
-        border-collapse: collapse;
+      .column {
+        float: left;
+        width: 50%;
+        padding-bottom: 15px;
+        margin: 0;
       }
-      tr {
-        border: solid gray;
-        border-width: 1px 0;
+      .barcode{
+        font-family: 'Libre Barcode 39 Extended Text', cursive;
+        text-align: center;
+        font-size: 70px;
       }
-
+      table, tr, td, th {
+        border: 1px solid;
+        break-inside: avoid;
+        padding: 5px
+      }
       html {
         color: #14213d;
         font-family: Source Sans Pro;
         font-size: 11pt;
         line-height: 1.6;
       }
-
       html table {
         border-collapse: collapse;
         width: 100%;
       }
       html table th {
         border-bottom: .2mm solid #a9a;
-        color: #a9a;
         font-size: 10pt;
         font-weight: 400;
         padding-bottom: .25cm;
-        text-transform: uppercase;
-      }
-
-      html table td {
-        padding-top: 7mm;
       }
       html table th, html table td {
         text-align: center;
@@ -75,48 +80,40 @@
   <body>
     <div class="warehouse_document">
       <div class="header">
-        <h4>{{ translated_document_type }} nr {{ document.number }}</h4>
-        <div><span class="thick">Data wystawienia:</span> {{ document.created_at|date:"d-m-Y H:i" }}</div>
-        <div><span class="thick">Magazyn:</span> {{ document.warehouse }}</div>
-        {% if document.document_type == 'IWM' %}
-          <div><span class="thick">Do Magazynu:</span> Magazyn2</div>
-        {% endif %}
-        <div><span class="thick">Dostawca:</span>
-          {% if deliverer %}
-            {{ deliverer }}
-          {% endif %}
-        </div>
-        <div><span class="thick">Odbiorca:</span>
-          {% if document.recipient %}
-            {{ document.recipient }}
-          {% endif %}
-        </div>
+        <div class="barcode">*{{barcode}}*</div>
+        <h4>{{ document.number }}</h4>
+      </div>
+      <div class="row">
+        <div class="column">{{recipient_first_name}} {{ recipient_last_name }}<br>
+        {{recipient_address}}<br>
+        {{recipient_postal_code}} {{recipient_city}}</div>
+        <div class="column text-right-i">{{shipping_method}}</div>
       </div>
       <div id="list_table">
         <table class="main-table">
           <thead style="background-color: #dde3ed;">
             <tr>
-              <th class="text-left-i thick">Produkt</th>
-              <th class="number thick">Ilość</th>
-              <th class="number thick">Waga</th>
-              <th class="no_print1 number thick">Jednostka</th>
+              <th class="text-center-i thick">Lp</th>
+              <th class="text-left-i thick">Lokalizacja</th>
+              <th class="text-left-i thick">Kod towaru</th>
+              <th class="text-left-i thick">Nazwa towaru</th>
+              <th class="text-right-i thick">Ilość</th>
+              <th class="text-left-i thick">Stat.</th>
             </tr>
           </thead>
           <tbody>
-            {% for position in document_positions %}
+            {% for position in warehouse_positions %}
               <tr>
-                <td class="text-left-i">{{ forloop.counter }}. {{ position }}</td>
-                <td class="number">{{ position.quantity }}</td>
-                <td class="number">{{ position.weight }}</td>
-                <td class="number">kg</td>
+                <td class="text-center-i">{{ forloop.counter }}</td>
+                <td class="text-left-i">{{ position.location }}</td>
+                <td class="text-left-i">{{ position.sku }}</td>
+                <td class="text-left-i">{{ position.name }}</td>
+                <td class="text-right-i">{{ position.quantity }}</td>
+                <td class="text-left-i">DSP</td>
              </tr>
             {% endfor %}
           </tbody>
         </table>
-      </div>
-      <div class="bottom">
-        <div><span class="thick">Utworzył:</span> {{ document.created_by }}</div>
-        <div><span class="thick">Data aktualizacji:</span> {{ document.updated_at|date:"d-m-Y H:i" }}</div>
       </div>
     </div>
   </body>
