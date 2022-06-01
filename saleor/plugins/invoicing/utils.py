@@ -44,7 +44,11 @@ def parse_invoice_dates(invoice):
 
 
 def generate_invoice_number(begin_number, prefix):
-    last_invoice = Invoice.objects.filter(number__isnull=False, order__metadata__invoice="true").last()
+    last_invoice = Invoice.objects.filter(
+        number__isnull=False,
+        order__metadata__invoice="true",
+        parent__isnull=True
+    ).last()
 
     if not last_invoice or not last_invoice.number:
         return make_full_invoice_number(begin_number=begin_number, prefix=prefix)
@@ -258,12 +262,6 @@ def generate_correction_invoice_number(prefix, last_correction_invoice):
         return make_full_invoice_number(number=number, year=year, prefix=prefix)
     except (IndexError, ValueError, AttributeError):
         return make_full_invoice_number(prefix=prefix)
-
-
-def generate_correction_receipt_number(prefix, correction_receipt_count):
-    now = datetime.now()
-    current_year = int(now.strftime("%Y"))
-    return make_full_invoice_number(number=correction_receipt_count, prefix=prefix, year=current_year)
 
 
 def get_zero_taxed_money_pln():

@@ -12,7 +12,7 @@ from ...invoice.models import Invoice
 from ...order.models import Order
 from ..base_plugin import BasePlugin, ConfigurationTypeField
 from .utils import (generate_invoice_number, generate_invoice_pdf, generate_correction_invoice_pdf,
-                    generate_correction_invoice_number, generate_correction_receipt_number)
+                    generate_correction_invoice_number)
 from saleor.plugins.allegro.utils import get_plugin_configuration
 
 
@@ -112,28 +112,32 @@ class InvoicingPlugin(BasePlugin):
 
 def invoice_correction_request(
     order: "Order",
-    invoice: "Invoice",
-    last_correction_invoice: "Invoice"
+    invoice: "Invoice"
 ) -> "Invoice":
     config = get_plugin_configuration(plugin_id="mirumee.invoicing")
     is_invoice = bool(strtobool(order.metadata.get("invoice")))
 
     if is_invoice:
         correction_prefix = config.get("correction_invoice_prefix")
+        last_correction_invoice = Invoice.objects.filter(
+            parent__isnull=False,
+            number__isnull=False,
+            order__metadata__invoice="true"
+        ).last()
         invoice_number = generate_correction_invoice_number(
             prefix=correction_prefix,
             last_correction_invoice=last_correction_invoice
         )
     else:
         correction_prefix = config.get("correction_receipt_prefix")
-        correction_receipt_count = Invoice.objects.filter(
-            order__metadata__invoice="false",
-            parent__isnull=False
-        ).count()
-        correction_receipt_count -= 1
-        invoice_number = generate_correction_receipt_number(
+        last_correction_invoice = Invoice.objects.filter(
+            parent__isnull=False,
+            number__isnull=False,
+            order__metadata__invoice="false"
+        ).last()
+        invoice_number = generate_correction_invoice_number(
             prefix=correction_prefix,
-            correction_receipt_count=correction_receipt_count
+            last_correction_invoice=last_correction_invoice
         )
 
     invoice.update_invoice(number=invoice_number)
