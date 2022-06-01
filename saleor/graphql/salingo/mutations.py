@@ -212,8 +212,6 @@ class ExtInvoiceCorrectionRequest(ModelMutation):
         )
         cls.clean_order(order)
         last_invoice = models.Invoice.objects.filter(order=order).last()
-        last_correction_invoice = models.Invoice.objects.filter(
-            parent__isnull=False).last()
 
         shallow_invoice = models.Invoice.objects.create(
             order=order,
@@ -223,8 +221,7 @@ class ExtInvoiceCorrectionRequest(ModelMutation):
 
         invoice = invoice_correction_request(
             order=order,
-            invoice=shallow_invoice,
-            last_correction_invoice=last_correction_invoice
+            invoice=shallow_invoice
         )
 
         return ExtInvoiceCorrectionRequest(invoice=invoice, order=order)
