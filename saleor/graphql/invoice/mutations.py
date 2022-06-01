@@ -38,7 +38,11 @@ class InvoiceRequest(ModelMutation):
 
     @staticmethod
     def clean_order(order):
-        if order.is_draft() or order.is_unconfirmed() or order.status != OrderStatus.FULFILLED:
+        if (
+            order.is_draft()
+            or order.is_unconfirmed()
+            or order.status not in [OrderStatus.FULFILLED, OrderStatus.PARTIALLY_RETURNED]
+        ):
             raise ValidationError(
                 {
                     "orderId": ValidationError(
@@ -234,15 +238,15 @@ class InvoiceDelete(ModelDeleteMutation):
 
     @staticmethod
     def clean_order(order):
-        if order.status == OrderStatus.FULFILLED:
-            raise ValidationError(
-                {
-                    "orderId": ValidationError(
-                        "Cannot delete an invoice for fulfilled order.",
-                        code=InvoiceErrorCode.INVALID_STATUS,
-                    )
-                }
-            )
+        # TODO: probably we can allow last correction invoice deletion
+        raise ValidationError(
+            {
+                "orderId": ValidationError(
+                    "Cannot delete already created invoice.",
+                    code=InvoiceErrorCode.INVALID_STATUS,
+                )
+            }
+        )
 
     @classmethod
     def perform_mutation(cls, _root, info, **data):
