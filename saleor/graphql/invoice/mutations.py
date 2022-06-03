@@ -237,21 +237,22 @@ class InvoiceDelete(ModelDeleteMutation):
         error_type_field = "invoice_errors"
 
     @staticmethod
-    def clean_order(order):
-        # TODO: probably we can allow last correction invoice deletion
-        raise ValidationError(
+    def clean_order(invoice: Invoice, order: Order):
+        if not (invoice.number is None and invoice.parent is None and
+                order.metadata.get('invoice') == "false"):
+            raise ValidationError(
             {
                 "orderId": ValidationError(
                     "Cannot delete already created invoice.",
                     code=InvoiceErrorCode.INVALID_STATUS,
                 )
             }
-        )
+            )
 
     @classmethod
     def perform_mutation(cls, _root, info, **data):
         invoice = cls.get_instance(info, **data)
-        cls.clean_order(invoice.order)
+        cls.clean_order(invoice=invoice, order=invoice.order)
         response = super().perform_mutation(_root, info, **data)
         events.invoice_deleted_event(
             user=info.context.user, app=info.context.app, invoice_id=invoice.pk
