@@ -100,12 +100,13 @@ def wms_document_generate_number():
     current_year = int(now.strftime("%Y"))
 
     last_wms_document = WmsDocument.objects.filter().last()
-    match = re.search("(\d+)/(\d+)", last_wms_document.number)
-    if match:
-        number, year = int(match.group(1)), int(match.group(2))
-        if current_year == year and number:
-            new_number = number + 1
-            return f"WZ-S-{new_number}/{current_year}"
+    if last_wms_document:
+        match = re.search("(\d+)/(\d+)", last_wms_document.number)
+        if match:
+            number, year = int(match.group(1)), int(match.group(2))
+            if current_year == year and number:
+                new_number = number + 1
+                return f"WZ-S-{new_number}/{current_year}"
     return f"WZ-S-1/{current_year}"
 
 
