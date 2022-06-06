@@ -5,6 +5,7 @@ from typing import List
 import graphene
 from django.db.models import Sum, Count, Q, F
 from django.template.loader import get_template
+from django.core.exceptions import ValidationError
 from weasyprint import HTML
 
 from saleor.order.models import Order, OrderLine
@@ -65,6 +66,11 @@ def generate_encoded_pdf_document(document_id):
 
 
 def generate_encoded_pdf_documents(orders: [Order]):
+    if not orders:
+        raise ValidationError(
+            "No wms documents to generate",
+            code="no_documents_error"
+        )
     wmsdocuments = WmsDocument.objects.filter(order__in=orders)
     docs = []
     for wmsdocument in wmsdocuments:
