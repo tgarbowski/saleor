@@ -190,18 +190,6 @@
   </head>
 
   <body>
-    <div class="section-header section-left">
-      <div class="content-padded">
-        <span class="normal-text">
-          Salingo Sp. z o.o.
-          <br>Okulickiego 7/9
-          <br>05-500 Piaseczno
-          <br>NIP: 8133839384
-          <br>Nr rachunku: Bank Pekao
-          <br>PL06 1240 4751 1111 0010 9890 6407
-        </span>
-      </div>
-    </div>
     <div class="section-invoice-info section-right">
       <div class="content-padded">
         <span class="header-category">Numer faktury:</span>
@@ -222,7 +210,20 @@
       </div>
     </div>
     <div class="address address-left">
-      <span class="header-title">ADRES ROZLICZENIOWY</span>
+      <span class="header-title">Sprzedawca/podatnik</span>
+      <div class="content-padded">
+        <span class="normal-text">
+          Salingo Sp. z o.o.
+          <br>Okulickiego 7/9
+          <br>05-500 Piaseczno
+          <br>NIP: 8133839384
+          <br>Nr rachunku: Bank Pekao
+          <br>PL06 1240 4751 1111 0010 9890 6407
+        </span>
+      </div>
+    </div>
+    <div class="address">
+      <span class="header-title">Nabywca/płatnik</span>
       <br />
       <span class="normal-text">
         {{ order.billing_address.first_name }}
@@ -248,34 +249,6 @@
       <span class="normal-text">{{ order.billing_address.phone }}</span>
       <br />
       <span class="normal-text">{{ order.get_customer_email }}</span>
-    </div>
-    <div class="address">
-      <span class="header-title">ADRES WYSYŁKI</span>
-      <br />
-      <span class="normal-text">
-        {{ order.shipping_address.first_name }}
-        {{ order.shipping_address.last_name }}
-      </span>
-      <br />
-      <span class="normal-text">{{ order.shipping_address.street_address_1 }}</span>
-      <br />
-      {% if order.shipping_address.street_address_2 %}
-      <span class="normal-text">{{ order.shipping_address.street_address_2 }}</span>
-      <br />
-      {% endif %}
-      {% if order.shipping_address.vat_id %}
-      <span class="normal-text">{{ order.shipping_address.vat_id }}</span>
-      <br />
-      {% endif %}
-      <span class="normal-text">{{ order.shipping_address.country }}</span>
-      <br />
-      <span class="normal-text">{{ order.shipping_address.city }}</span>
-      <br />
-      <span class="normal-text">{{ order.shipping_address.postal_code }}</span>
-      <br />
-      <span class="normal-text">{{ order.shipping_address.phone }}</span>
-      <br />
-      <span class="normal-text">{{ order.user_email }}</span>
     </div>
     <div class="content-tight-padded">
       <div class="content-separator">&nbsp;</div>
@@ -304,7 +277,6 @@
       <div class="content-separator">&nbsp;</div>
     </div>
     <div class="content-padded">
-      <span class="header-title">ZAMAWIANE PRZEDMIOTY</span>
       {% include "invoices/invoice_products_table.html" with products=products_first_page %}
       {% if not rest_of_products|length %}
           {% if products_first_page|length == 4 %}

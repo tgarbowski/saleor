@@ -27,7 +27,7 @@
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {% price order.total.tax %} </span>
+        <span class="header-item"> {{ order.vat }} </span>
       </td>
     </tr>
     {% if gift_cards_payment.amount > 0 %}

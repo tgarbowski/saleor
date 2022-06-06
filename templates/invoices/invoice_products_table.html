@@ -5,11 +5,22 @@
       <td class="cell-product">
         <span class="header-category-small">Produkty</span>
       </td>
-      <td class="cell-price">
-        <span class="header-category-small cell-price-content">Cena</span>
-      </td>
       <td class="cell-quantity">
         <span class="header-category-small cell-quantity-content">Ilość</span>
+      </td>
+      <td class="cell-price">
+        <span class="header-category-small cell-price-content">Cena jednostkowa netto</span>
+      </td>
+
+      <td class="cell-price">
+        <span class="header-category-small cell-price-content">Wartość sprzedaży netto</span>
+      </td>
+
+      <td class="cell-price">
+        <span class="header-category-small cell-price-content">VAT %</span>
+      </td>
+      <td class="cell-price">
+        <span class="header-category-small cell-price-content">VAT kwota</span>
       </td>
       <td class="cell-total-price">
         <span class="header-category-small">Razem</span>
@@ -27,19 +38,28 @@
           {% endif %}
         </span>
       </td>
-      <td class="cell-price">
-        <span class="normal-text-table cell-price-content"
-          >{% price product.unit_price.gross %}</span
-        >
-      </td>
       <td class="cell-quantity">
         <span class="normal-text-table cell-quantity-content"
           >{{ product.quantity }}</span
         >
       </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content"
+          >{{ product.unit_price_net.amount }}</span
+        >
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">{{ product.total_price_net.amount }}</span>
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">23</span>
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">{{ product.vat.amount|floatformat:2 }}</span>
+      </td>
       <td class="cell-total-price">
         <span class="normal-text-table"
-          >{% price product.total_price.gross %}</span
+          >{{ product.total_price_gross_amount|floatformat:2  }}</span
         >
       </td>
     </tr>

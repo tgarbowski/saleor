@@ -83,11 +83,12 @@ class CheckoutComplete(BaseMutation):
     def perform_mutation(
         cls, _root, info, store_source, checkout_id=None, token=None, **data
     ):
+        print(11111111111)
         # DEPRECATED
         validate_one_of_args_is_in_mutation(
             CheckoutErrorCode, "checkout_id", checkout_id, "token", token
         )
-
+        print(222222222)
         tracking_code = analytics.get_client_id(info.context)
         with transaction_with_commit_on_errors():
             try:
@@ -95,6 +96,7 @@ class CheckoutComplete(BaseMutation):
                     checkout = get_checkout_by_token(token)
                 # DEPRECATED
                 else:
+                    print(33333333333)
                     checkout = cls.get_node_or_error(
                         info,
                         checkout_id or token,
@@ -102,6 +104,7 @@ class CheckoutComplete(BaseMutation):
                         field="checkout_id",
                     )
             except ValidationError as e:
+                print(4444444)
                 # DEPRECATED
                 if checkout_id:
                     token = cls.get_global_id_or_error(
@@ -157,7 +160,7 @@ class CheckoutComplete(BaseMutation):
             checkout_info = fetch_checkout_info(
                 checkout, lines, info.context.discounts, manager
             )
-
+            print(5555555)
             requestor = get_user_or_app_from_context(info.context)
             if requestor.has_perm(AccountPermissions.IMPERSONATE_USER):
                 # Allow impersonating user and process a checkout by using user details

@@ -93,12 +93,25 @@ def get_gift_cards_payment_amount(order):
 
 
 def generate_invoice_pdf(invoice):
+    from decimal import Decimal
     font_path = os.path.join(
         settings.PROJECT_ROOT, "templates", "invoices", "inter.ttf"
     )
 
     all_products = invoice.order.lines.all()
+    TWO_PLACES = Decimal("0.01")
+    # TODO: workaround, we are mutating product state here, set proper net/gross at first
+    order_net_total = Decimal(0.00)
+    for product in all_products:
+        product.total_price_net_amount = (product.total_price_net_amount / Decimal(1.23)).quantize(TWO_PLACES)
+        product.unit_price_net = (product.unit_price_gross / Decimal(1.23)).quantize(TWO_PLACES)
+        product.total_price_net = (product.total_price_gross / Decimal(1.23)).quantize(TWO_PLACES)
+        product.vat = product.total_price_gross - product.total_price_net
 
+        order_net_total += product.total_price_net_amount
+
+    vaat = (order_net_total * Decimal(0.23)).quantize(TWO_PLACES)
+    print('vat', vaat)
     product_limit_first_page = get_product_limit_first_page(all_products)
 
     products_first_page = all_products[:product_limit_first_page]
@@ -106,6 +119,7 @@ def generate_invoice_pdf(invoice):
         all_products[product_limit_first_page:], MAX_PRODUCTS_PER_PAGE
     )
     order = invoice.order
+    order.vat = vaat
     gift_cards_payment = get_gift_cards_payment_amount(order)
     creation_date = datetime.now(tz=pytz.utc)
     rendered_template = get_template("invoices/invoice.html").render(
