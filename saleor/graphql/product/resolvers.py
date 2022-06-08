@@ -87,7 +87,11 @@ def resolve_products(info, requestor, channel_slug=None, **_kwargs) -> ChannelQs
         requestor, channel_slug
     )
     if not has_one_of_permissions(requestor, ALL_PRODUCTS_PERMISSIONS):
-        channels = Channel.objects.filter(slug=str(channel_slug))
+        if channel_slug:
+            channel_id = Channel.objects.filter(slug=str(channel_slug)).first().pk
+            channels = Channel.objects.filter(pk=channel_id)
+        else:
+            channels = Channel.objects.filter(slug=str(channel_slug))
         product_channel_listings = models.ProductChannelListing.objects.filter(
             Exists(channels.filter(pk=OuterRef("channel_id"))),
             visible_in_listings=True,
