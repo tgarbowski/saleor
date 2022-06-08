@@ -212,9 +212,14 @@ class ProductsQueryset(models.QuerySet):
 
     def published_with_variants(self, channel_slug: str):
         published = self.published(channel_slug)
-        channels = Channel.objects.filter(
-            slug=str(channel_slug), is_active=True
-        ).values("id")
+        if channel_slug:
+            channel_id = Channel.objects.filter(slug=str(channel_slug), is_active=True).first().id
+            channels = Channel.objects.filter(pk=channel_id)
+        else:
+            channels = Channel.objects.filter(
+                slug=str(channel_slug), is_active=True
+            ).values("id")
+
         variant_channel_listings = ProductVariantChannelListing.objects.filter(
             Exists(channels.filter(pk=OuterRef("channel_id"))),
             price_amount__isnull=False,
