@@ -92,7 +92,7 @@ def get_gift_cards_payment_amount(order):
     return Money(total_paid, order.currency)
 
 
-def generate_invoice_pdf(invoice):
+def generate_invoice_pdf(invoice, order):
     from decimal import Decimal
     font_path = os.path.join(
         settings.PROJECT_ROOT, "templates", "invoices", "inter.ttf"
@@ -109,6 +109,19 @@ def generate_invoice_pdf(invoice):
         product.vat = product.total_price_gross - product.total_price_net
 
         order_net_total += product.total_price_net_amount
+
+    # Delivery position
+    shipping_price_net = (order.shipping_price_gross_amount / Decimal(1.23)).quantize(TWO_PLACES)
+    order_net_total += shipping_price_net
+    shipping_vat = order.shipping_price_gross_amount - shipping_price_net
+
+    shipment = {
+        "quantity": 1,
+        "shipping_price_net": shipping_price_net,
+        "name": "TRANSPORT Usługa transportowa",
+        "vat": shipping_vat,
+        "shipping_price_gross": order.shipping_price_gross_amount,
+    }
 
     vaat = (order_net_total * Decimal(0.23)).quantize(TWO_PLACES)
     print('vat', vaat)
@@ -131,6 +144,8 @@ def generate_invoice_pdf(invoice):
             "font_path": f"file://{font_path}",
             "products_first_page": products_first_page,
             "rest_of_products": rest_of_products,
+            "shipment": shipment,
+            "order_net_total": order_net_total
         }
     )
     return HTML(string=rendered_template).write_pdf(), creation_date

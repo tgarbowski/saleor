@@ -64,5 +64,65 @@
       </td>
     </tr>
     {% endfor %}
+    <!--SHIPMENT-->
+    <tr class="row-product">
+      <td class="cell-product">
+        <span class="normal-text-table">{{ shipment.name }}</span>
+      </td>
+      <td class="cell-quantity">
+        <span class="normal-text-table cell-quantity-content"
+          >{{ shipment.quantity }}</span
+        >
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content"
+          >{{ shipment.shipping_price_net }}</span
+        >
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">{{ shipment.shipping_price_net }}</span>
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">23</span>
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">{{ shipment.vat|floatformat:2 }}</span>
+      </td>
+      <td class="cell-total-price">
+        <span class="normal-text-table"
+          >{{ shipment.shipping_price_gross|floatformat:2  }}</span
+        >
+      </td>
+    </tr>
+    <!--SUMMARY-->
+    <tr>
+      <td class="cell-product">
+        <span class="normal-text-table"></span>
+      </td>
+      <td class="cell-quantity">
+        <span class="normal-text-table cell-quantity-content"
+          ></span
+        >
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content"
+          ></span
+        >
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">{{ order_net_total }}</span>
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">23</span>
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">{{ order.vat }}</span>
+      </td>
+      <td class="cell-total-price">
+        <span class="normal-text-table"
+          >{% price order.total.gross %}</span
+        >
+      </td>
+    </tr>
   </tbody>
 </table>

@@ -277,7 +277,7 @@
       <div class="content-separator">&nbsp;</div>
     </div>
     <div class="content-padded">
-      {% include "invoices/invoice_products_table.html" with products=products_first_page %}
+      {% include "invoices/invoice_products_table.html" with products=products_first_page shipment=shipment order=order order_net_total=order_net_total%}
       {% if not rest_of_products|length %}
           {% if products_first_page|length == 4 %}
               <div class="page-break"></div>
