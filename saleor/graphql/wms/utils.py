@@ -76,7 +76,7 @@ def generate_encoded_pdf_documents(orders: [Order]):
     for wmsdocument in wmsdocuments:
         docs.append(create_pdf_document(wmsdocument.id))
     val = []
-    for doc in docs:
+    for doc in reversed(docs):
         for page in doc.pages:
             val.append(page)
     file = docs[0].copy(val).write_pdf()
