@@ -99,11 +99,14 @@ def create_shipping_information(order: "Order"):
 
 
 def create_inpost_address(shipping: Shipping) -> InpostAddress:
+    address = shipping.receiver.address.street_address_1
+    if shipping.receiver.address.street_address_2:
+        address += " " + shipping.receiver.address.street_address_2
     inpost_address = InpostAddress(
         city=shipping.receiver.address.city,
         post_code=shipping.receiver.address.postal_code,
         country_code=shipping.receiver.address.country,
-        street=shipping.receiver.address.street_address_1,
+        street=address,
         line1=shipping.receiver.address.street_address_2
     )
     return inpost_address

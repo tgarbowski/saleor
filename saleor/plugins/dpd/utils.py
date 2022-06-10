@@ -3,10 +3,13 @@ from .api import DpdApi
 
 
 def create_dpd_receiver(shipping: Shipping):
+    address = shipping.receiver.address.street_address_1
+    if shipping.receiver.address.street_address_2:
+        address += " " + shipping.receiver.address.street_address_2
     receiver = {
         'city': shipping.receiver.address.city,
         'postalCode': shipping.receiver.address.postal_code,
-        'address': shipping.receiver.address.street_address_1,
+        'address': address,
         'company': shipping.receiver.address.company_name,
         'countryCode': shipping.receiver.address.country,
         'email': shipping.receiver.email,

@@ -3,13 +3,16 @@ from .api import  GlsApi
 
 
 def create_gls_receiver(shipping: Shipping):
+    address = shipping.receiver.address.street_address_1
+    if shipping.receiver.address.street_address_2:
+        address += " " + shipping.receiver.address.street_address_2
     receiver = {
         'rname1': shipping.receiver.address.first_name,
         'rname2': shipping.receiver.address.last_name,
         'rcountry': shipping.receiver.address.country,
         'rzipcode': shipping.receiver.address.postal_code,
         'rcity': shipping.receiver.address.city,
-        'rstreet': shipping.receiver.address.street_address_1,
+        'rstreet': address,
         'rphone': shipping.receiver.address.phone,
         'rcontact': shipping.receiver.email
     }
