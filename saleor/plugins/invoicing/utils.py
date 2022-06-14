@@ -1,5 +1,6 @@
 import os
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from distutils.util import strtobool
@@ -21,6 +22,7 @@ from saleor.order import OrderStatus
 MAX_PRODUCTS_WITH_TABLE = 3
 MAX_PRODUCTS_WITHOUT_TABLE = 4
 MAX_PRODUCTS_PER_PAGE = 13
+TWO_PLACES = Decimal("0.01")
 
 
 def make_full_invoice_number(number=None, year=None, begin_number=None, prefix=None):
@@ -93,46 +95,27 @@ def get_gift_cards_payment_amount(order):
 
 
 def generate_invoice_pdf(invoice, order):
-    from decimal import Decimal
     font_path = os.path.join(
         settings.PROJECT_ROOT, "templates", "invoices", "inter.ttf"
     )
-
-    all_products = invoice.order.lines.all()
-    TWO_PLACES = Decimal("0.01")
-    # TODO: workaround, we are mutating product state here, set proper net/gross at first
-    order_net_total = Decimal(0.00)
-    for product in all_products:
-        product.total_price_net_amount = (product.total_price_net_amount / Decimal(1.23)).quantize(TWO_PLACES)
-        product.unit_price_net = (product.unit_price_gross / Decimal(1.23)).quantize(TWO_PLACES)
-        product.total_price_net = (product.total_price_gross / Decimal(1.23)).quantize(TWO_PLACES)
-        product.vat = product.total_price_gross - product.total_price_net
-
-        order_net_total += product.total_price_net_amount
-
+    fulfilled_order_lines_ids, _ = get_invoice_correct_payload(order=order)
+    fulfilled_order_lines = OrderLine.objects.filter(id__in=fulfilled_order_lines_ids)
+    fulfilled_order_lines = get_order_line_positions(fulfilled_order_lines)
+    order_net_total = sum([position.total_price_net for position in fulfilled_order_lines])
     # Delivery position
-    shipping_price_net = (order.shipping_price_gross_amount / Decimal(1.23)).quantize(TWO_PLACES)
+    shipping_price_net = gross_to_net(order.shipping_price_gross_amount)
+    shipment = get_shipment_position(quantity=1, gross_amount=order.shipping_price_gross_amount)
     order_net_total += shipping_price_net
-    shipping_vat = order.shipping_price_gross_amount - shipping_price_net
+    order_gross_total = net_to_gross(order_net_total)
+    order_summary = create_positions_summary(order_gross_total)
 
-    shipment = {
-        "quantity": 1,
-        "shipping_price_net": shipping_price_net,
-        "name": "TRANSPORT Usługa transportowa",
-        "vat": shipping_vat,
-        "shipping_price_gross": order.shipping_price_gross_amount,
-    }
+    product_limit_first_page = get_product_limit_first_page(fulfilled_order_lines)
 
-    vaat = (order_net_total * Decimal(0.23)).quantize(TWO_PLACES)
-    print('vat', vaat)
-    product_limit_first_page = get_product_limit_first_page(all_products)
-
-    products_first_page = all_products[:product_limit_first_page]
+    products_first_page = fulfilled_order_lines[:product_limit_first_page]
     rest_of_products = chunk_products(
-        all_products[product_limit_first_page:], MAX_PRODUCTS_PER_PAGE
+        fulfilled_order_lines[product_limit_first_page:], MAX_PRODUCTS_PER_PAGE
     )
     order = invoice.order
-    order.vat = vaat
     gift_cards_payment = get_gift_cards_payment_amount(order)
     creation_date = datetime.now(tz=pytz.utc)
     rendered_template = get_template("invoices/invoice.html").render(
@@ -145,7 +128,7 @@ def generate_invoice_pdf(invoice, order):
             "products_first_page": products_first_page,
             "rest_of_products": rest_of_products,
             "shipment": shipment,
-            "order_net_total": order_net_total
+            "order_summary": order_summary
         }
     )
     return HTML(string=rendered_template).write_pdf(), creation_date
@@ -155,54 +138,30 @@ def generate_correction_invoice_pdf(invoice, order):
     font_path = os.path.join(
         settings.PROJECT_ROOT, "templates", "invoices", "inter.ttf"
     )
-
-    fulfilled_order_lines, not_fulfilled_order_lines = get_invoice_correct_payload(
-        order=order)
-
-    all_order_lines = fulfilled_order_lines + not_fulfilled_order_lines
-
-    all_products = OrderLine.objects.filter(id__in=all_order_lines)
+    fulfilled_order_lines, not_fulfilled_order_lines = get_invoice_correct_payload(order=order)
     fulfilled_products = OrderLine.objects.filter(id__in=fulfilled_order_lines)
     not_fulfilled_products = OrderLine.objects.filter(id__in=not_fulfilled_order_lines)
 
-    last_invoice = invoice.parent
-    original_invoice = last_invoice.private_metadata.get("lines")
     merge_products = create_merge_products(fulfilled_products, not_fulfilled_products)
-    # Calculate total price (corrected positions)
-    positive_prices = [position['total_price'].gross.amount for position in merge_products]
-    corrected_positions_summary = sum(positive_prices)
+    corrected_positions_summary_net = sum([position['total_price_net'] for position in merge_products])
+    shipping_price_net = gross_to_net(order.shipping_price_gross_amount)
 
     if order.status != OrderStatus.RETURNED:
-        corrected_positions_summary += order.shipping_price_gross_amount
-
-    for position in original_invoice:
-        position['pr'] = price_from_minor_unit(value=position['pr'], currency='PLN')
-
-    original_invoice_sumary = last_invoice.private_metadata.get("summary")['to']
-    original_invoice_sumary = price_from_minor_unit(value=original_invoice_sumary, currency='PLN')
-    final_summary = corrected_positions_summary - original_invoice_sumary
-    is_invoice = bool(strtobool(order.metadata.get("invoice")))
-
-    # Delivery position
+        corrected_positions_summary_net += shipping_price_net
+    # Original invoice
+    original_invoice_payload = invoice.parent.private_metadata.get("lines")
+    original_invoice = original_invoice_lines_to_lines(original_invoice_payload)
+    original_positions_summary_net = sum([position.total_price_net for position in original_invoice])
+    original_positions_summary = create_positions_summary(original_positions_summary_net)
+    # Corrected invoice
+    corrected_positions_summary = create_positions_summary(corrected_positions_summary_net)
+    final_summary = corrected_positions_summary.total_gross_amount - original_positions_summary.total_gross_amount
+    # Shipment
     shipment_quantity = 1 if order.status != OrderStatus.RETURNED else 0
-    shipment = {
-        "quantity": shipment_quantity,
-        "price": order.shipping_price_gross_amount * shipment_quantity,
-        "unit_price": order.shipping_price_gross_amount,
-        "name": "TRANSPORT Usługa transportowa"
-    }
+    shipment = get_shipment_position(quantity=shipment_quantity, gross_amount=order.shipping_price_gross_amount)
 
-    product_limit_first_page = get_product_limit_first_page(all_products)
-
-    products_first_page = all_products[:product_limit_first_page]
-    rest_of_products = chunk_products(
-        all_products[product_limit_first_page:], MAX_PRODUCTS_PER_PAGE
-    )
-    order = invoice.order
-    gift_cards_payment = get_gift_cards_payment_amount(order)
     creation_date = datetime.now(tz=pytz.utc)
-
-    rec_payload = get_receipt_payload(merge_products, shipment, corrected_positions_summary)
+    rec_payload = get_receipt_payload(merge_products, shipment, corrected_positions_summary.total_gross_amount)
     invoice.private_metadata = rec_payload
     invoice.save()
 
@@ -211,17 +170,14 @@ def generate_correction_invoice_pdf(invoice, order):
             "invoice": invoice,
             "creation_date": creation_date.strftime("%d %b %Y"),
             "order": order,
-            "gift_cards_payment": gift_cards_payment,
             "font_path": f"file://{font_path}",
-            "products_first_page": products_first_page,
-            "rest_of_products": rest_of_products,
             "original_invoice": original_invoice,
             "merge_products": merge_products,
             "shipment": shipment,
-            "original_invoice_sumary": original_invoice_sumary,
+            "is_invoice": bool(strtobool(order.metadata.get("invoice"))),
+            "final_summary": final_summary,
             "corrected_positions_summary": corrected_positions_summary,
-            "is_invoice": is_invoice,
-            "final_summary": final_summary
+            "original_positions_summary": original_positions_summary
         }
     )
     return HTML(string=rendered_template).write_pdf(), creation_date
@@ -233,10 +189,12 @@ def create_merge_products(fulfilled_products, not_fulfilled_products):
         merge_products.append(
             {
                 "product_sku": fulfilled_product.product_sku,
-                "unit_price": fulfilled_product.unit_price,
+                "name": fulfilled_product.product_name,
                 "quantity": fulfilled_product.quantity,
-                "total_price": fulfilled_product.total_price,
-                "name": fulfilled_product.product_name
+                "unit_price_net": gross_to_net(fulfilled_product.unit_price_gross),
+                "total_price_net": gross_to_net(fulfilled_product.total_price_gross_amount),
+                "total_price_gross": fulfilled_product.total_price_gross_amount,
+                "vat": fulfilled_product.total_price_gross - fulfilled_product.total_price_net
             }
         )
 
@@ -244,10 +202,12 @@ def create_merge_products(fulfilled_products, not_fulfilled_products):
         merge_products.append(
             {
                 "product_sku": not_fulfilled_product.product_sku,
-                "unit_price": not_fulfilled_product.unit_price,
+                "name": not_fulfilled_product.product_name,
                 "quantity": 0,
-                "total_price": get_zero_taxed_money_pln(),
-                "name": not_fulfilled_product.product_name
+                "unit_price_net": gross_to_net(not_fulfilled_product.unit_price_gross),
+                "total_price_net": gross_to_net(Decimal(0.00)),
+                "total_price_gross": gross_to_net(Decimal(0.00)),
+                "vat": not_fulfilled_product.total_price_gross - not_fulfilled_product.total_price_net
             }
         )
     return merge_products
@@ -261,8 +221,7 @@ def get_receipt_payload(merge_products, shipping, corrected_positions_summary):
             "na": line_fulfilled['name'],
             "il": line_fulfilled['quantity'],
             "vtp": "23,00",
-            "pr": price_to_minor_unit(value=line_fulfilled['unit_price'].gross.amount,
-                                      currency='PLN')
+            "pr": price_to_minor_unit(value=line_fulfilled['unit_price_net'].amount, currency='PLN')
         }
         lines_json.append(line)
 
@@ -270,7 +229,7 @@ def get_receipt_payload(merge_products, shipping, corrected_positions_summary):
         "na": "TRANSPORT Usługa transportowa",
         "il": 1,
         "vtp": "23,00",
-        "pr": price_to_minor_unit(value=shipping['price'], currency='PLN')
+        "pr": price_to_minor_unit(value=shipping.total_price_gross, currency='PLN')
     }
     lines_json.append(shipping_position)
 
@@ -298,3 +257,84 @@ def get_zero_taxed_money_pln():
         net=Money(amount=0, currency='PLN'),
         gross=Money(amount=0, currency='PLN')
     )
+
+
+def gross_to_net(gross_amount):
+    return (gross_amount / Decimal(1.23)).quantize(TWO_PLACES)
+
+
+def net_to_gross(net_amount):
+    return (net_amount * Decimal(1.23)).quantize(TWO_PLACES)
+
+
+def calculate_vat(net_amount):
+    return (net_amount * Decimal(0.23)).quantize(TWO_PLACES)
+
+
+def get_shipment_position(quantity: int, gross_amount: Decimal) -> "InvoicePosition":
+    return InvoicePosition(
+        name="TRANSPORT Usługa transportowa",
+        quantity=quantity,
+        unit_price_net=gross_to_net(gross_amount),
+        total_price_net=gross_to_net(gross_amount * quantity),
+        total_price_gross=(gross_amount * quantity),
+        vat=calculate_vat(gross_to_net(gross_amount))
+    )
+
+
+def get_order_line_positions(order_lines: ["OrderLine"]) -> ["InvoicePosition"]:
+    invoice_positions = []
+    for order_line in order_lines:
+        position = InvoicePosition(
+            name=order_line.name,
+            quantity=order_line.quantity,
+            unit_price_net=gross_to_net(order_line.unit_price_gross),
+            total_price_net=gross_to_net(order_line.total_price_gross),
+            total_price_gross=order_line.total_price_gross,
+            vat=calculate_vat(gross_to_net(order_line.total_price_gross))
+        )
+        invoice_positions.append(position)
+    return invoice_positions
+
+
+def original_invoice_lines_to_lines(original_invoice) -> ["InvoicePosition"]:
+    positions = []
+    for position in original_invoice:
+        gross_amount = price_from_minor_unit(value=position['pr'], currency='PLN')
+        invoice_position = InvoicePosition(
+            name=position['na'],
+            quantity=position['il'],
+            unit_price_net=gross_to_net(gross_amount),
+            total_price_net=gross_to_net(gross_amount),
+            total_price_gross=gross_amount,
+            vat=calculate_vat(gross_to_net(gross_amount))
+        )
+        positions.append(invoice_position)
+    return positions
+
+
+def create_positions_summary(net_amount: Decimal) -> "PositionsSummary":
+    gross_amount = net_to_gross(net_amount)
+
+    return PositionsSummary(
+        total_net_amount=net_amount,
+        total_gross_amount=gross_amount,
+        vat=calculate_vat(net_amount)
+    )
+
+
+@dataclass
+class InvoicePosition:
+    name: str
+    quantity: int
+    unit_price_net: Decimal
+    total_price_net: Decimal
+    total_price_gross: Decimal
+    vat: Decimal
+    sku: str = None
+
+@dataclass
+class PositionsSummary:
+    total_net_amount: Decimal
+    total_gross_amount: Decimal
+    vat: Decimal

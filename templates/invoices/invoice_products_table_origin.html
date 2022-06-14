@@ -1,39 +1,65 @@
 <table class="products-table">
   <tbody>
     <tr class="row-category">
-      <td class="cell-product">
+      <td class="cell-enumeration cell-grayed">
+        <span class="header-category-small">Lp.</span>
+      </td>
+      <td class="cell-product cell-grayed">
         <span class="header-category-small">Produkty</span>
       </td>
-      <td class="cell-price">
-        <span class="header-category-small cell-price-content">Cena</span>
-      </td>
-      <td class="cell-quantity">
+      <td class="cell-quantity cell-grayed">
         <span class="header-category-small cell-quantity-content">Ilość</span>
       </td>
-      <td class="cell-total-price">
-        <span class="header-category-small">Razem</span>
+      <td class="cell-price cell-grayed">
+        <span class="header-category-small cell-price-content">Cena jednost. netto</span>
+      </td>
+      <td class="cell-price cell-grayed">
+        <span class="header-category-small cell-price-content">Wartość sprzedaży netto</span>
+      </td>
+      <td class="cell-price cell-grayed">
+        <span class="header-category-small cell-price-content">VAT %</span>
+      </td>
+      <td class="cell-price cell-grayed">
+        <span class="header-category-small cell-price-content">VAT kwota</span>
+      </td>
+      <td class="cell-total-price cell-grayed">
+        <span class="header-category-small">Wartość sprzedaży brutto</span>
       </td>
     </tr>
     {% for product in original_invoice %}
     <tr class="row-product">
+      <td class="cell-enumeration">
+        <span class="normal-text-table cell-price-content"
+          >{{ forloop.counter }}</span
+        >
+      </td>
       <td class="cell-product">
         <span class="normal-text-table">
-          {{ product.na }}
+          {{ product.name }}
         </span>
-      </td>
-      <td class="cell-price">
-        <span class="normal-text-table cell-price-content"
-          >{{ product.pr }}</span
-        >
       </td>
       <td class="cell-quantity">
         <span class="normal-text-table cell-quantity-content"
-          >{{ product.il }}</span
+          >{{ product.quantity }}</span
         >
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content"
+          >{{ product.unit_price_net }}</span
+        >
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">{{ product.total_price_net }}</span>
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">23</span>
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">{{ product.vat }}</span>
       </td>
       <td class="cell-total-price">
         <span class="normal-text-table"
-          >{{ product.pr }}</span
+          >{{ product.total_price_gross }}</span
         >
       </td>
     </tr>
