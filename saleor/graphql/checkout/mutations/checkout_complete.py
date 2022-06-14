@@ -87,6 +87,7 @@ class CheckoutComplete(BaseMutation):
         validate_one_of_args_is_in_mutation(
             CheckoutErrorCode, "checkout_id", checkout_id, "token", token
         )
+
         tracking_code = analytics.get_client_id(info.context)
         with transaction_with_commit_on_errors():
             try:
@@ -156,6 +157,7 @@ class CheckoutComplete(BaseMutation):
             checkout_info = fetch_checkout_info(
                 checkout, lines, info.context.discounts, manager
             )
+
             requestor = get_user_or_app_from_context(info.context)
             if requestor.has_perm(AccountPermissions.IMPERSONATE_USER):
                 # Allow impersonating user and process a checkout by using user details
