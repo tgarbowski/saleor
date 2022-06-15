@@ -2,24 +2,41 @@
 <table class="products-table">
   <tbody>
     <tr class="row-category">
-      <td class="cell-product">
+      <td class="cell-enumeration cell-grayed">
+        <span class="header-category-small">Lp.</span>
+      </td>
+      <td class="cell-product cell-grayed">
         <span class="header-category-small">Produkty</span>
       </td>
-      <td class="cell-price">
-        <span class="header-category-small cell-price-content">Cena</span>
-      </td>
-      <td class="cell-quantity">
+      <td class="cell-quantity cell-grayed">
         <span class="header-category-small cell-quantity-content">Ilość</span>
       </td>
-      <td class="cell-total-price">
-        <span class="header-category-small">Razem</span>
+      <td class="cell-price cell-grayed">
+        <span class="header-category-small cell-price-content">Cena jednost. netto</span>
+      </td>
+      <td class="cell-price cell-grayed">
+        <span class="header-category-small cell-price-content">Wartość sprzedaży netto</span>
+      </td>
+      <td class="cell-price cell-grayed">
+        <span class="header-category-small cell-price-content">VAT %</span>
+      </td>
+      <td class="cell-price cell-grayed">
+        <span class="header-category-small cell-price-content">VAT kwota</span>
+      </td>
+      <td class="cell-total-price cell-grayed">
+        <span class="header-category-small">Wartość sprzedaży brutto</span>
       </td>
     </tr>
     {% for product in products %}
     <tr class="row-product">
+      <td class="cell-enumeration">
+        <span class="normal-text-table cell-price-content"
+          >{{ forloop.counter }}</span
+        >
+      </td>
       <td class="cell-product">
         <span class="normal-text-table">
-          {{ product|truncatechars:46 }} {% if product.product_sku %}
+          {{ product.name|truncatechars:46 }} {% if product.product_sku %}
           <div class="padded-font-small"></div>
           <span class="header-category-small"
             >SKU: {{ product.product_sku }}</span
@@ -27,19 +44,28 @@
           {% endif %}
         </span>
       </td>
-      <td class="cell-price">
-        <span class="normal-text-table cell-price-content"
-          >{% price product.unit_price.gross %}</span
-        >
-      </td>
       <td class="cell-quantity">
         <span class="normal-text-table cell-quantity-content"
           >{{ product.quantity }}</span
         >
       </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content"
+          >{{ product.unit_price_net }}</span
+        >
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">{{ product.total_price_net }}</span>
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">23</span>
+      </td>
+      <td class="cell-price">
+        <span class="normal-text-table cell-price-content">{{ product.vat }}</span>
+      </td>
       <td class="cell-total-price">
         <span class="normal-text-table"
-          >{% price product.total_price.gross %}</span
+          >{{ product.total_price_gross }}</span
         >
       </td>
     </tr>
