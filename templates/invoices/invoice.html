@@ -289,12 +289,12 @@
       <div class="content-separator">&nbsp;</div>
     </div>
     <div class="content-padded">
-      {% include "invoices/invoice_products_table.html" with products=products_first_page shipment=shipment order=order order_net_total=order_net_total%}
+      {% include "invoices/invoice_products_table.html" with products=products_first_page %}
       {% if not rest_of_products|length %}
           {% if products_first_page|length == 4 %}
               <div class="page-break"></div>
           {% endif %}
-          {% include "invoices/invoice_summary_table.html" with order=order %}
+          {% include "invoices/invoice_summary_table.html" with order_summary=order_summary %}
       {% else %}
           {% for product_set in rest_of_products %}
               <div class="page-break"></div>
@@ -303,7 +303,7 @@
                   {% if product_set|length > 11 %}
                       <div class="page-break"></div>
                   {% endif %}
-                  {% include "invoices/invoice_summary_table.html" with order=order gift_cards_payment=gift_cards_payment order_summary=order_summary%}
+                  {% include "invoices/invoice_summary_table.html" with gift_cards_payment=gift_cards_payment order_summary=order_summary%}
               {% endif %}
           {% endfor %}
       {% endif %}

@@ -283,73 +283,13 @@
     </div>
     <div class="content-padded">
       <span class="header-title">Przed korektą</span>
-      {% include "invoices/invoice_products_table_origin.html" with original_invoice=original_invoice %}
-      <table class="summary-table">
-        <tbody>
-          <tr class="summary-row">
-            <td class="cell-summary">
-              <span class="normal-text-table">Kwota netto</span>
-            </td>
-            <td class="cell-quantity"></td>
-            <td class="cell-total-price">
-              <span class="header-item"> {{ original_positions_summary.total_net_amount }} </span>
-            </td>
-          </tr>
-          <tr class="summary-row">
-            <td class="cell-summary">
-              <span class="normal-text-table">VAT</span>
-            </td>
-            <td class="cell-quantity"></td>
-            <td class="cell-total-price">
-              <span class="header-item"> {{ original_positions_summary.vat }} </span>
-            </td>
-          </tr>
-          <tr class="summary-row">
-            <td class="cell-summary">
-              <span class="normal-text-table"><b>Kwota brutto</b></span>
-            </td>
-            <td class="cell-quantity"></td>
-            <td class="cell-total-price">
-              <span class="header-item"> {{ original_positions_summary.total_gross_amount }} </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      {% include "invoices/invoice_products_table.html" with products=original_invoice %}
+      {% include "invoices/invoice_summary_table.html" with order_summary=original_positions_summary %}
     </div>
     <div class="content-padded">
       <span class="header-title">Po korekcie</span>
-      {% include "invoices/invoice_product_table_corrected.html" with products=merge_products shipment=shipment%}
-      <table class="summary-table">
-        <tbody>
-          <tr class="summary-row">
-            <td class="cell-summary">
-              <span class="normal-text-table">Kwota netto</span>
-            </td>
-            <td class="cell-quantity"></td>
-            <td class="cell-total-price">
-              <span class="header-item"> {{ corrected_positions_summary.total_net_amount }} </span>
-            </td>
-          </tr>
-          <tr class="summary-row">
-            <td class="cell-summary">
-              <span class="normal-text-table">VAT</span>
-            </td>
-            <td class="cell-quantity"></td>
-            <td class="cell-total-price">
-              <span class="header-item"> {{ corrected_positions_summary.vat }} </span>
-            </td>
-          </tr>
-          <tr class="summary-row">
-            <td class="cell-summary">
-              <span class="normal-text-table"><b>Kwota brutto</b></span>
-            </td>
-            <td class="cell-quantity"></td>
-            <td class="cell-total-price">
-              <span class="header-item"> {{ corrected_positions_summary.total_gross_amount }} </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      {% include "invoices/invoice_products_table.html" with products=merge_products %}
+      {% include "invoices/invoice_summary_table.html" with order_summary=corrected_positions_summary %}
     </div>
   <!-- final summary-->
     <div class="content-padded">

@@ -7,7 +7,7 @@
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {{ order_summary.order_net_total }} </span>
+        <span class="header-item"> {{ order_summary.total_net_amount }} PLN</span>
       </td>
     </tr>
     <tr class="summary-row">
@@ -16,7 +16,7 @@
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {{ order_summary.order_vat_total }} </span>
+        <span class="header-item"> {{ order_summary.vat }} PLN</span>
       </td>
     </tr>
     {% if gift_cards_payment.amount > 0 %}
@@ -36,7 +36,7 @@
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {{ order_summary.order_gross_total }} </span>
+        <span class="header-item"> {{ order_summary.total_gross_amount }} PLN</span>
       </td>
     </tr>
   </tbody>
