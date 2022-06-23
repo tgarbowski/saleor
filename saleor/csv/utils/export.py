@@ -1,12 +1,17 @@
+import codecs
+import csv
 import uuid
 from datetime import date, datetime
 from tempfile import NamedTemporaryFile
 from typing import IO, TYPE_CHECKING, Any, Dict, List, Set, Union
 
 import petl as etl
+import json
+from django.db.models.functions import Concat, Cast, TruncSecond, TruncDay
 from django.utils import timezone
-
+from django.db.models import Count, F, Value, DateTimeField, CharField, FloatField
 from ...giftcard.models import GiftCard
+from ...invoice.models import Invoice
 from ...product.models import Product
 from .. import FileTypes
 from ..notifications import send_export_download_link_notification
@@ -57,6 +62,35 @@ def export_products(
     temporary_file.close()
 
     send_export_download_link_notification(export_file, "products")
+
+
+def export_invoices(
+    export_file: "ExportFile",
+    month: str,
+    year: str,
+    delimiter: str = ";",
+    file_type: str = "csv"
+):
+    file_name = get_filename("financial_tally", "CSV")
+    queryset = Invoice.objects.filter(created__month=month, created__year=year)
+
+    headers = ["reciever_nip","receiver_name", "receiver_address","invoice_number",
+               "created_date","sale_date","WDT","Export","net_price_0_percent",
+               "transport_price_5_percent","tax_price_5_percent","net_price_7_8_percent",
+               "tax_price_7_8_percent","net_price_22_23_percent", "tax_price_22_23_percent"]
+
+    temporary_file = create_file_with_headers(headers, delimiter, file_type)
+    export_invoices_in_batches(
+        queryset,
+        temporary_file,
+        headers,
+        delimiter,
+        file_type
+    )
+    translate_tally_headers(temporary_file)
+    save_csv_file_in_export_file(export_file, temporary_file, file_name)
+    temporary_file.close()
+    send_export_download_link_notification(export_file, "financial_tally")
 
 
 def export_gift_cards(
@@ -137,14 +171,12 @@ def parse_input(data: Any) -> Dict[str, Union[str, dict]]:
 
 def create_file_with_headers(file_headers: List[str], delimiter: str, file_type: str):
     table = etl.wrap([file_headers])
-
     if file_type == FileTypes.CSV:
         temp_file = NamedTemporaryFile("ab+", suffix=".csv")
         etl.tocsv(table, temp_file.name, delimiter=delimiter)
     else:
         temp_file = NamedTemporaryFile("ab+", suffix=".xlsx")
         etl.io.xlsx.toxlsx(table, temp_file.name)
-
     return temp_file
 
 
@@ -178,6 +210,46 @@ def export_products_in_batches(
         append_to_file(export_data, headers, temporary_file, file_type, delimiter)
 
 
+def export_invoices_in_batches(
+    queryset: "QuerySet",
+    temporary_file: Any,
+    headers: List[str],
+    delimiter: str,
+    file_type: str
+):
+    for batch_pks in queryset_in_batches(queryset):
+        invoice_batch = Invoice.objects.filter(pk__in=batch_pks).prefetch_related(
+            "order",
+            "order__shipping_address"
+        )
+        export_data = list(invoice_batch.values(
+            reciever_nip=F("order__shipping_address__vat_id"),
+            receiver_name=Concat(F("order__shipping_address__first_name"),
+                                 Value(" "),
+                                 F("order__shipping_address__last_name")),
+            receiver_address=Concat(F("order__shipping_address__postal_code"),
+                                    Value(" "),
+                                    F("order__shipping_address__city"),
+                                    Value(", "),
+                                    F("order__shipping_address__street_address_1"),
+                                    Value(" "),
+                                    F("order__shipping_address__street_address_2")),
+            invoice_number=F("number"),
+            created_date=Cast(TruncDay('created', DateTimeField()), CharField()),
+            sale_date=Cast(TruncDay('created', DateTimeField()), CharField()),
+            WDT=Value("0"),
+            Export=Value("0"),
+            net_price_0_percent=Value("0"),
+            transport_price_5_percent=Value("0"),
+            tax_price_5_percent=Value("0"),
+            net_price_7_8_percent=Value("0"),
+            tax_price_7_8_percent=Value("0"),
+            net_price_22_23_percent=F("private_metadata__summary__to"),
+            tax_price_22_23_percent=F("private_metadata__summary__to")
+        ))
+        append_to_file(export_data, headers, temporary_file, file_type, delimiter)
+
+
 def export_gift_cards_in_batches(
     queryset: "QuerySet",
     export_fields: List[str],
@@ -191,6 +263,25 @@ def export_gift_cards_in_batches(
         export_data = list(gift_card_batch.values(*export_fields))
 
         append_to_file(export_data, export_fields, temporary_file, file_type, delimiter)
+
+
+def translate_tally_headers(file, delimiter: str = ";"):
+    file_name = file.name
+    headers2 = ["Numer NIP Kontrahenta","Nazwa Kontrahenta","Adres Kontrahenta","Nr faktury",
+                "Data wystawienia","Data sprzedaży","WDT","Export",
+                "Sprzedaż netto, opodatkowana stawką 0%",
+                "Dostawa towarów oraz świadczenie usług na terytorium kraju, opodatkowane stawką 5%",
+                "Podatek należny 5%","Sprzedaż netto, opodatkowana stawką 7% albo 8%",
+                "Podatek należny 7% albo 8%","Sprzedaż netto, opodatkowana stawką 22% albo 23%",
+                "Podatek należny 22% albo 23%"]
+    with open(file_name, 'rt') as inFile:
+        r = csv.reader(inFile, delimiter=delimiter)
+        next(r, None)
+        with open(file_name, 'w') as outfile:
+            w = csv.writer(outfile, delimiter=delimiter)
+            w.writerow(headers2)
+            for row in r:
+                w.writerow(row)
 
 
 def queryset_in_batches(queryset):

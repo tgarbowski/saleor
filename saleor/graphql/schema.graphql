@@ -2267,6 +2267,12 @@ type ExtReceiptUpdate {
   invoice: Invoice
 }
 
+type ExtFinancialTally {
+  invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [InvoiceError!]!
+  exportFile: ExportFile
+}
+
 type ExternalAuthentication {
   id: String!
   name: String
@@ -3947,6 +3953,7 @@ type Mutation {
   extReceiptRequest(orderId: ID!): ExtReceiptRequest
   extReceiptUpdate(id: ID!, input: ExtReceiptInput!): ExtReceiptUpdate
   extInvoiceCorrectionRequest(orderId: ID!): ExtInvoiceCorrectionRequest
+  extFinancialTally(month: Int!, year: Int!): ExtFinancialTally
   wmsDocumentCreate(input: WmsDocumentInput!): WmsDocumentCreate
   wmsDocumentUpdate(id: ID!, input: WmsDocumentInput!): WmsDocumentUpdate
   wmsDocumentDelete(id: ID!): WmsDocumentDelete

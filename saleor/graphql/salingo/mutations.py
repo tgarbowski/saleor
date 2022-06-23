@@ -3,7 +3,10 @@ import graphene
 from django.core.exceptions import ValidationError
 
 from ..core.mutations import ModelMutation
+from ...csv.events import export_started_event
 from ...invoice import events, models
+from ...csv import models as csv_models
+from ...csv.tasks import export_financial_tally
 from saleor.graphql.invoice.types import Invoice
 from ...core.permissions import OrderPermissions
 from ...invoice.error_codes import InvoiceErrorCode
@@ -170,11 +173,6 @@ class ExtReceiptUpdate(ModelMutation):
 class ExtInvoiceCorrectionRequest(ModelMutation):
     order = graphene.Field(Order, description="Order related to an invoice.")
 
-    class Arguments:
-        order_id = graphene.ID(
-            required=True, description="ID of the order related to invoice."
-        )
-
     class Meta:
         description = "Creates a correction invoice."
         model = models.Invoice
@@ -225,3 +223,34 @@ class ExtInvoiceCorrectionRequest(ModelMutation):
         )
 
         return ExtInvoiceCorrectionRequest(invoice=invoice, order=order)
+
+
+class ExtFinancialTally(ModelMutation):
+    url = graphene.String(description="Tally url")
+
+    class Arguments:
+        month = graphene.String(required=True, description="Tally month")
+        year = graphene.String(required=True, description="Tally year")
+
+    class Meta:
+        description = "Export products to csv file."
+        permissions = (OrderPermissions.MANAGE_ORDERS,)
+        model = models.Invoice
+        object_type = Invoice
+        error_type_class = InvoiceError
+        error_type_field = "export_errors"
+
+    @classmethod
+    def perform_mutation(cls, root, info, **data):
+        month = data["month"]
+        year = data["year"]
+
+        app = info.context.app
+        kwargs = {"app": app} if app else {"user": info.context.user}
+
+        export_file = csv_models.ExportFile.objects.create(**kwargs)
+        export_started_event(export_file=export_file, **kwargs)
+        export_financial_tally(export_file.pk, month, year)
+
+        export_file.refresh_from_db()
+        return cls(url="TEST")
