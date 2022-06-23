@@ -204,11 +204,6 @@ class PaymentCountableConnection(CountableConnection):
             return None
         return CheckoutByTokenLoader(info.context).load(root.checkout_id)
 
-class PaymentUrl(graphene.ObjectType):
-    class Meta:
-        description = ("data to generate redirect url for payment")
-
-    payment_url = graphene.String(description="")
 
 class PaymentInitialized(graphene.ObjectType):
     class Meta:
