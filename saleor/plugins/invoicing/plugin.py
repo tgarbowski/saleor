@@ -96,7 +96,7 @@ class InvoicingPlugin(BasePlugin):
             prefix=self.config.invoice_prefix)
         if not number:
             invoice.update_invoice(number=invoice_number)
-        file_content, creation_date = generate_invoice_pdf(invoice)
+        file_content, creation_date = generate_invoice_pdf(invoice, order)
         invoice.created = creation_date
         slugified_invoice_number = slugify(invoice_number)
         invoice.invoice_file.save(
