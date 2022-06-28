@@ -1,22 +1,24 @@
-import codecs
 import csv
 import uuid
 from datetime import date, datetime
+from itertools import chain
 from tempfile import NamedTemporaryFile
 from typing import IO, TYPE_CHECKING, Any, Dict, List, Set, Union
 
 import petl as etl
-import json
-from django.db.models.functions import Concat, Cast, TruncSecond, TruncDay
+from django.db.models.functions import Concat, Cast, TruncDay
 from django.utils import timezone
-from django.db.models import Count, F, Value, DateTimeField, CharField, FloatField
+from django.db.models import F, Value, DateTimeField, CharField
+
 from ...giftcard.models import GiftCard
 from ...invoice.models import Invoice
+from ...payment.models import Payment
 from ...product.models import Product
 from .. import FileTypes
 from ..notifications import send_export_download_link_notification
 from .product_headers import get_product_export_fields_and_headers_info
 from .products_data import get_products_data
+from ...warehouse.models import Warehouse
 
 if TYPE_CHECKING:
     # flake8: noqa
@@ -64,7 +66,7 @@ def export_products(
     send_export_download_link_notification(export_file, "products")
 
 
-def export_invoices(
+def export_tally_csv(
     export_file: "ExportFile",
     month: str,
     year: str,
@@ -80,17 +82,46 @@ def export_invoices(
                "tax_price_7_8_percent","net_price_22_23_percent", "tax_price_22_23_percent"]
 
     temporary_file = create_file_with_headers(headers, delimiter, file_type)
-    export_invoices_in_batches(
+    export_tally_data_in_batches(
         queryset,
         temporary_file,
         headers,
         delimiter,
         file_type
     )
+    temporary_file = clean_tally_fields(temporary_file, delimiter)
     translate_tally_headers(temporary_file)
     save_csv_file_in_export_file(export_file, temporary_file, file_name)
     temporary_file.close()
     send_export_download_link_notification(export_file, "financial_tally")
+
+
+def export_miglo_csv(
+    export_file: "ExportFile",
+    month: str,
+    year: str,
+    delimiter: str = ";",
+    file_type: str = "csv"
+):
+    file_name = get_filename("miglo_tally", "CSV")
+    queryset = Invoice.objects.filter(created__month=month, created__year=year)
+    headers = ["DocType","DocId","DocNumber","DocDate","SaleDate","Term","CustomerId",
+               "Netto","Brutto","PaymentTypeId","PaymentName","StoreId","StoreName",
+               "ExternalNumber","OriginalNumber","OriginalDate","CorrectinType", "File",
+               "BruttoParent"]
+
+    temporary_file = create_file_with_headers(headers, delimiter, file_type)
+    export_miglo_data_in_batches(
+        queryset,
+        temporary_file,
+        headers,
+        delimiter,
+        file_type
+    )
+    temporary_file = clean_miglo_fields(temporary_file, delimiter)
+    save_csv_file_in_export_file(export_file, temporary_file, file_name)
+    temporary_file.close()
+    send_export_download_link_notification(export_file, "miglo_tally")
 
 
 def export_gift_cards(
@@ -210,7 +241,7 @@ def export_products_in_batches(
         append_to_file(export_data, headers, temporary_file, file_type, delimiter)
 
 
-def export_invoices_in_batches(
+def export_tally_data_in_batches(
     queryset: "QuerySet",
     temporary_file: Any,
     headers: List[str],
@@ -250,6 +281,96 @@ def export_invoices_in_batches(
         append_to_file(export_data, headers, temporary_file, file_type, delimiter)
 
 
+def get_query_values_list(
+        invoice_queryset: "QuerySet",
+        payment_queryset: "QuerySet",
+        is_correction: bool = False
+):
+    if is_correction:
+        invoice_data = list(invoice_queryset.values(
+            DocType=Value("9"),
+            DocId=F("id"),
+            DocNumber=F("number"),
+            DocDate=Cast(TruncDay('created', DateTimeField()), CharField()),
+            SaleDate=Cast(TruncDay('created', DateTimeField()), CharField()),
+            Term=Value("0"),
+            CustomerId=F("order__user"),
+            Netto=F("private_metadata__summary__to"),
+            Brutto=F("private_metadata__summary__to"),
+            # TODO: change StoreName and StoreId from static value to fetch from DB
+            # StoreId=F("order__collection_point"),
+            # StoreName=F("order__warehouse__name"),
+            StoreId=Value("1"),
+            StoreName=Value("Magazyn 1"),
+            ExternalNumber=F("order_id"),
+            OriginalNumber=F("parent__number"),
+            OriginalDate=Cast(TruncDay('parent__created_at', DateTimeField()),
+                              CharField()),
+            CorrectinType=Value("2"),
+            File=F('parent__invoice_file'),
+            BruttoParent=F("parent__private_metadata__summary__to")
+        ))
+    else:
+        invoice_data = list(invoice_queryset.values(
+            DocType=Value("4"),
+            DocId=F("id"),
+            DocNumber=F("number"),
+            DocDate=Cast(TruncDay('created', DateTimeField()), CharField()),
+            SaleDate=Cast(TruncDay('created', DateTimeField()), CharField()),
+            Term=Value("0"),
+            CustomerId=F("order__user"),
+            Netto=F("private_metadata__summary__to"),
+            Brutto=F("private_metadata__summary__to"),
+            # TODO: change StoreName and StoreId from static value to fetch from DB
+            # StoreId=F("order__collection_point"),
+            # StoreName=F("order__warehouse__name"),
+            StoreId=Value("1"),
+            StoreName=Value("Magazyn 1"),
+            ExternalNumber=F("order_id"),
+            OriginalNumber=F("parent__number"),
+            OriginalDate=Cast(TruncDay('parent__created', DateTimeField()),
+                              CharField()),
+        ))
+    payment_data = list(payment_queryset.values(
+        PaymentTypeId=F("gateway"),
+        PaymentName=F("gateway")
+    ))
+    return invoice_data, payment_data
+
+
+def export_miglo_data_in_batches(
+    queryset: "QuerySet",
+    temporary_file: Any,
+    headers: List[str],
+    delimiter: str,
+    file_type: str
+):
+    for batch_pks in queryset_in_batches(queryset):
+        invoice_batch = Invoice.objects.filter(pk__in=batch_pks, parent__isnull=True).prefetch_related(
+            "order",
+        ).order_by("order_id")
+        order_ids = invoice_batch.values_list("order_id", flat=True)
+        payment_batch = Payment.objects.filter(order_id__in=order_ids).order_by("order_id")
+
+        invoice_correction_batch = Invoice.objects.filter(pk__in=batch_pks, parent__isnull=False).prefetch_related(
+            "order",
+        ).order_by("order_id")
+        order_ids = invoice_correction_batch.values_list("order_id", flat=True)
+        payment_correction_batch = Payment.objects.filter(order_id__in=order_ids).order_by("order_id")
+
+        export_invoice_data, export_payment_data = get_query_values_list(invoice_batch, payment_batch)
+
+        export_invoice_correction_data, export_payment_correction_data = \
+            get_query_values_list(invoice_correction_batch, payment_correction_batch, True)
+
+        export_data = []
+        for i in range(len(export_invoice_data)):
+                export_data.append(export_invoice_data[i] | export_payment_data[i])
+        for i in range(len(export_invoice_correction_data)):
+                export_data.append(export_invoice_correction_data[i] | export_payment_correction_data[i])
+        append_to_file(export_data, headers, temporary_file, file_type, delimiter)
+
+
 def export_gift_cards_in_batches(
     queryset: "QuerySet",
     export_fields: List[str],
@@ -282,6 +403,62 @@ def translate_tally_headers(file, delimiter: str = ";"):
             w.writerow(headers2)
             for row in r:
                 w.writerow(row)
+
+
+def clean_tally_fields(temp_file, delimiter):
+
+    table = etl.fromcsv(temp_file.name, delimiter=delimiter)
+    table = etl.convert(table, {'net_price_22_23_percent': float,
+                                'tax_price_22_23_percent': float})
+    table = etl.convert(table, {
+        'net_price_22_23_percent': lambda v: str(round(v * 100 / 12200, 2)),
+        'tax_price_22_23_percent': lambda v: str(round(v * 22 / 12200, 2))})
+    table = etl.convert(table, "net_price_22_23_percent", "replace", ".", ",")
+    table = etl.convert(table, "tax_price_22_23_percent", "replace", ".", ",")
+    table = etl.convert(table, "created_date", "replace", " 00:00:00", "")
+    table = etl.convert(table, "sale_date", "replace", " 00:00:00", "")
+
+    temp_file = NamedTemporaryFile("ab+", suffix=".csv")
+    etl.tocsv(table, temp_file.name, delimiter=delimiter)
+    return temp_file
+
+
+def clean_miglo_fields(temp_file, delimiter):
+    table = etl.fromcsv(temp_file.name, delimiter=delimiter)
+    table = etl.convert(table, {'Netto': float,
+                                'Brutto': float,
+                                'BruttoParent': float})
+    table = etl.convert(table, {
+        'Netto': lambda v: str(round(v * 100 / 12200, 2)),
+        'Brutto': lambda v: str(round(v * 22 / 12200, 2))},
+                        where = lambda r: r.DocType == '4')
+
+    table = etl.convert(table, "DocDate", "replace", " 00:00:00", "")
+    table = etl.convert(table, "SaleDate", "replace", " 00:00:00", "")
+    table = etl.convert(table, "OriginalDate", "replace", " 00:00:00", "")
+
+    table = etl.convert(table, "PaymentTypeId", "replace", "salingo.payments.payu", "2")
+    table = etl.convert(table, "PaymentTypeId", "replace", "salingo.payments.cod", "3")
+    table = etl.convert(table, "PaymentName", "replace", "salingo.payments.payu", "Przelew")
+    table = etl.convert(table, "PaymentName", "replace", "salingo.payments.cod", "Pobranie")
+
+    table = etl.convert(table, 'CorrectinType', "replace", "2", "1", where = lambda r: r.File == ' ')
+    table = etl.transform.basics.cutout(table, "File")
+
+    table = etl.convert(table, 'Netto',
+                        lambda v, row: str(round((v - row.BruttoParent) * 100 / 12200, 2)),
+                        pass_row=True, where = lambda r: r.DocType == '9')
+    table = etl.convert(table, 'Brutto',
+                        lambda v, row: str(round((v - row.BruttoParent) * 22 / 12200, 2)),
+                        pass_row=True, where = lambda r: r.DocType == '9')
+    table = etl.transform.basics.cutout(table, "BruttoParent")
+
+    table = etl.convert(table, "Netto", "replace", ".", ",")
+    table = etl.convert(table, "Brutto", "replace", ".", ",")
+
+    temp_file = NamedTemporaryFile("ab+", suffix=".csv")
+    etl.tocsv(table, temp_file.name, delimiter=delimiter)
+    return temp_file
 
 
 def queryset_in_batches(queryset):

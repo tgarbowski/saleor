@@ -6,7 +6,7 @@ from ..core.mutations import ModelMutation
 from ...csv.events import export_started_event
 from ...invoice import events, models
 from ...csv import models as csv_models
-from ...csv.tasks import export_financial_tally
+from ...csv.tasks import export_tally_csv_task, export_miglo_csv_task
 from saleor.graphql.invoice.types import Invoice
 from ...core.permissions import OrderPermissions
 from ...invoice.error_codes import InvoiceErrorCode
@@ -225,9 +225,7 @@ class ExtInvoiceCorrectionRequest(ModelMutation):
         return ExtInvoiceCorrectionRequest(invoice=invoice, order=order)
 
 
-class ExtFinancialTally(ModelMutation):
-    url = graphene.String(description="Tally url")
-
+class ExtTallyCsv(ModelMutation):
     class Arguments:
         month = graphene.String(required=True, description="Tally month")
         year = graphene.String(required=True, description="Tally year")
@@ -250,7 +248,36 @@ class ExtFinancialTally(ModelMutation):
 
         export_file = csv_models.ExportFile.objects.create(**kwargs)
         export_started_event(export_file=export_file, **kwargs)
-        export_financial_tally(export_file.pk, month, year)
+        export_tally_csv_task(export_file.pk, month, year)
 
         export_file.refresh_from_db()
-        return cls(url="TEST")
+        return cls()
+
+
+class ExtMigloCsv(ModelMutation):
+    class Arguments:
+        month = graphene.String(required=True, description="Tally month")
+        year = graphene.String(required=True, description="Tally year")
+
+    class Meta:
+        description = "Export products to csv file."
+        permissions = (OrderPermissions.MANAGE_ORDERS,)
+        model = models.Invoice
+        object_type = Invoice
+        error_type_class = InvoiceError
+        error_type_field = "export_errors"
+
+    @classmethod
+    def perform_mutation(cls, root, info, **data):
+        month = data["month"]
+        year = data["year"]
+
+        app = info.context.app
+        kwargs = {"app": app} if app else {"user": info.context.user}
+
+        export_file = csv_models.ExportFile.objects.create(**kwargs)
+        export_started_event(export_file=export_file, **kwargs)
+        export_miglo_csv_task(export_file.pk, month, year)
+
+        export_file.refresh_from_db()
+        return cls()
