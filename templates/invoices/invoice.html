@@ -237,6 +237,14 @@
     <div class="address section-right">
       <span class="header-title">Nabywca/płatnik</span>
       <br />
+      {% if order.billing_address.vat_id %}
+      <span class="normal-text">{{ order.billing_address.vat_id }}</span>
+      <br />
+      {% endif %}
+      {% if order.billing_address.company_name %}
+      <span class="normal-text">{{ order.billing_address.company_name }}</span>
+      <br />
+      {% endif %}
       <span class="normal-text">
         {{ order.billing_address.first_name }}
         {{ order.billing_address.last_name }}
@@ -246,10 +254,6 @@
       <br />
       {% if order.billing_address.street_address_2 %}
       <span class="normal-text">{{ order.billing_address.street_address_2 }}</span>
-      <br />
-      {% endif %}
-      {% if order.billing_address.vat_id %}
-      <span class="normal-text">{{ order.billing_address.vat_id }}</span>
       <br />
       {% endif %}
       <span class="normal-text">{{ order.billing_address.country }}</span>
@@ -270,9 +274,15 @@
         <span class="header-title">METODA PŁATNOŚCI</span>
         <br />
         {% if order.get_last_payment %}
-        <span class="normal-text">{{ order.get_last_payment.gateway }}</span>
+          {% if order.get_last_payment.gateway == "salingo.payments.payu" %}
+            <span class="normal-text">PAYU</span>
+          {% elif order.get_last_payment.gateway == "salingo.payments.cod" %}
+            <span class="normal-text">Płatność za pobraniem</span>
+          {% else %}
+            <span class="normal-text">{{ order.get_last_payment.gateway }}</span>
+          {% endif %}
         {% else %}
-        <span class="normal-text">Nieopłacone</span>
+        <span class="normal-text">Status: Nieopłacone</span>
         {% endif %}
         <br />
       </div>
