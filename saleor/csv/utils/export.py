@@ -1,7 +1,6 @@
 import csv
 import uuid
 from datetime import date, datetime
-from itertools import chain
 from tempfile import NamedTemporaryFile
 from typing import IO, TYPE_CHECKING, Any, Dict, List, Set, Union
 
@@ -18,7 +17,6 @@ from .. import FileTypes
 from ..notifications import send_export_download_link_notification
 from .product_headers import get_product_export_fields_and_headers_info
 from .products_data import get_products_data
-from ...warehouse.models import Warehouse
 
 if TYPE_CHECKING:
     # flake8: noqa
