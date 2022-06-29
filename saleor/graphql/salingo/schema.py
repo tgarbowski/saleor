@@ -5,7 +5,7 @@ from saleor.graphql.utils import resolve_global_ids_to_primary_keys
 from saleor.order.models import Order
 from saleor.graphql.order.filters import OrderFilter
 from saleor.graphql.wms.utils import generate_warehouse_list
-from .mutations import ExtReceiptRequest, ExtReceiptUpdate, ExtInvoiceCorrectionRequest
+from .mutations import ExtReceiptRequest, ExtReceiptUpdate, ExtInvoiceCorrectionRequest, ExtTallyCsv, ExtMigloCsv
 from saleor.graphql.core.utils import from_global_id_or_error
 from .types import PaymentUrl
 from saleor.plugins.manager import get_plugins_manager
@@ -13,6 +13,7 @@ from saleor.graphql.payment.types import Payment
 from saleor.payment.gateways.payu.utils import generate_payu_redirect_url
 from saleor.payment.utils import create_payment_information
 from saleor.payment import models
+
 
 
 class ExternalQueries(graphene.ObjectType):
@@ -70,3 +71,5 @@ class ExternalMutations(graphene.ObjectType):
     ext_receipt_request = ExtReceiptRequest.Field()
     ext_receipt_update = ExtReceiptUpdate.Field()
     ext_invoice_correction_request = ExtInvoiceCorrectionRequest.Field()
+    ext_tally_csv = ExtTallyCsv.Field()
+    ext_miglo_csv = ExtMigloCsv.Field()
