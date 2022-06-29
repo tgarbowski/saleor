@@ -1,6 +1,7 @@
 import csv
 import uuid
 from datetime import date, datetime
+from enum import Enum
 from tempfile import NamedTemporaryFile
 from typing import IO, TYPE_CHECKING, Any, Dict, List, Set, Union
 
@@ -26,6 +27,10 @@ if TYPE_CHECKING:
 
 
 BATCH_SIZE = 10000
+
+class DocType(Enum):
+    INVOICE = "4"
+    INVOICE_CORRECTION = "9"
 
 
 def export_products(
@@ -68,14 +73,14 @@ def export_tally_csv(
     export_file: "ExportFile",
     month: str,
     year: str,
-    delimiter: str = ";",
-    file_type: str = "csv"
 ):
-    file_name = get_filename("financial_tally", "CSV")
+    file_type = "csv"
+    delimiter = ";"
+    file_name = get_filename("tally_csv", "CSV")
     queryset = Invoice.objects.filter(created__month=month, created__year=year)
 
     headers = ["reciever_nip","receiver_name", "receiver_address","invoice_number",
-               "created_date","sale_date","WDT","Export","net_price_0_percent",
+               "created_date","sale_date","wdt","export","net_price_0_percent",
                "transport_price_5_percent","tax_price_5_percent","net_price_7_8_percent",
                "tax_price_7_8_percent","net_price_22_23_percent", "tax_price_22_23_percent"]
 
@@ -91,22 +96,22 @@ def export_tally_csv(
     translate_tally_headers(temporary_file)
     save_csv_file_in_export_file(export_file, temporary_file, file_name)
     temporary_file.close()
-    send_export_download_link_notification(export_file, "financial_tally")
+    send_export_download_link_notification(export_file, "tally_csv")
 
 
 def export_miglo_csv(
     export_file: "ExportFile",
     month: str,
     year: str,
-    delimiter: str = ";",
-    file_type: str = "csv"
 ):
-    file_name = get_filename("miglo_tally", "CSV")
+    file_type = "csv"
+    delimiter = ";"
+    file_name = get_filename("miglo_csv", "CSV")
     queryset = Invoice.objects.filter(created__month=month, created__year=year)
     headers = ["DocType","DocId","DocNumber","DocDate","SaleDate","Term","CustomerId",
                "Netto","Brutto","PaymentTypeId","PaymentName","StoreId","StoreName",
-               "ExternalNumber","OriginalNumber","OriginalDate","CorrectinType", "File",
-               "BruttoParent"]
+               "ExternalNumber","OriginalNumber","OriginalDate","CorrectionType",
+               "ParentFile","ParentBrutto"]
 
     temporary_file = create_file_with_headers(headers, delimiter, file_type)
     export_miglo_data_in_batches(
@@ -119,7 +124,7 @@ def export_miglo_csv(
     temporary_file = clean_miglo_fields(temporary_file, delimiter)
     save_csv_file_in_export_file(export_file, temporary_file, file_name)
     temporary_file.close()
-    send_export_download_link_notification(export_file, "miglo_tally")
+    send_export_download_link_notification(export_file, "test_csv")
 
 
 def export_gift_cards(
@@ -266,8 +271,8 @@ def export_tally_data_in_batches(
             invoice_number=F("number"),
             created_date=Cast(TruncDay('created', DateTimeField()), CharField()),
             sale_date=Cast(TruncDay('created', DateTimeField()), CharField()),
-            WDT=Value("0"),
-            Export=Value("0"),
+            wdt=Value("0"),
+            export=Value("0"),
             net_price_0_percent=Value("0"),
             transport_price_5_percent=Value("0"),
             tax_price_5_percent=Value("0"),
@@ -279,14 +284,14 @@ def export_tally_data_in_batches(
         append_to_file(export_data, headers, temporary_file, file_type, delimiter)
 
 
-def get_query_values_list(
+def get_miglo_query_values_list(
         invoice_queryset: "QuerySet",
         payment_queryset: "QuerySet",
         is_correction: bool = False
 ):
     if is_correction:
         invoice_data = list(invoice_queryset.values(
-            DocType=Value("9"),
+            DocType=Value(DocType.INVOICE_CORRECTION.value),
             DocId=F("id"),
             DocNumber=F("number"),
             DocDate=Cast(TruncDay('created', DateTimeField()), CharField()),
@@ -304,13 +309,13 @@ def get_query_values_list(
             OriginalNumber=F("parent__number"),
             OriginalDate=Cast(TruncDay('parent__created_at', DateTimeField()),
                               CharField()),
-            CorrectinType=Value("2"),
-            File=F('parent__invoice_file'),
-            BruttoParent=F("parent__private_metadata__summary__to")
+            CorrectionType=Value("2"),
+            ParentFile=F('parent__invoice_file'),
+            ParentBrutto=F("parent__private_metadata__summary__to")
         ))
     else:
         invoice_data = list(invoice_queryset.values(
-            DocType=Value("4"),
+            DocType=Value(DocType.INVOICE.value),
             DocId=F("id"),
             DocNumber=F("number"),
             DocDate=Cast(TruncDay('created', DateTimeField()), CharField()),
@@ -356,10 +361,10 @@ def export_miglo_data_in_batches(
         order_ids = invoice_correction_batch.values_list("order_id", flat=True)
         payment_correction_batch = Payment.objects.filter(order_id__in=order_ids).order_by("order_id")
 
-        export_invoice_data, export_payment_data = get_query_values_list(invoice_batch, payment_batch)
+        export_invoice_data, export_payment_data = get_miglo_query_values_list(invoice_batch, payment_batch)
 
         export_invoice_correction_data, export_payment_correction_data = \
-            get_query_values_list(invoice_correction_batch, payment_correction_batch, True)
+            get_miglo_query_values_list(invoice_correction_batch, payment_correction_batch, True)
 
         export_data = []
         for i in range(len(export_invoice_data)):
@@ -425,7 +430,7 @@ def clean_miglo_fields(temp_file, delimiter):
     table = etl.fromcsv(temp_file.name, delimiter=delimiter)
     table = etl.convert(table, {'Netto': float,
                                 'Brutto': float,
-                                'BruttoParent': float})
+                                'ParentBrutto': float})
     table = etl.convert(table, {
         'Netto': lambda v: str(round(v * 100 / 12200, 2)),
         'Brutto': lambda v: str(round(v * 22 / 12200, 2))},
@@ -440,16 +445,16 @@ def clean_miglo_fields(temp_file, delimiter):
     table = etl.convert(table, "PaymentName", "replace", "salingo.payments.payu", "Przelew")
     table = etl.convert(table, "PaymentName", "replace", "salingo.payments.cod", "Pobranie")
 
-    table = etl.convert(table, 'CorrectinType', "replace", "2", "1", where = lambda r: r.File == ' ')
-    table = etl.transform.basics.cutout(table, "File")
+    table = etl.convert(table, 'CorrectionType', "replace", "2", "1", where = lambda r: r.ParentFile == ' ')
+    table = etl.transform.basics.cutout(table, "ParentFile")
 
     table = etl.convert(table, 'Netto',
-                        lambda v, row: str(round((v - row.BruttoParent) * 100 / 12200, 2)),
+                        lambda v, row: str(round((v - row.ParentBrutto) * 100 / 12200, 2)),
                         pass_row=True, where = lambda r: r.DocType == '9')
     table = etl.convert(table, 'Brutto',
-                        lambda v, row: str(round((v - row.BruttoParent) * 22 / 12200, 2)),
+                        lambda v, row: str(round((v - row.ParentBrutto) * 22 / 12200, 2)),
                         pass_row=True, where = lambda r: r.DocType == '9')
-    table = etl.transform.basics.cutout(table, "BruttoParent")
+    table = etl.transform.basics.cutout(table, "ParentBrutto")
 
     table = etl.convert(table, "Netto", "replace", ".", ",")
     table = etl.convert(table, "Brutto", "replace", ".", ",")

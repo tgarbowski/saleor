@@ -24,7 +24,8 @@ class ExportTask(celery.Task):
     TASK_NAME_TO_DATA_TYPE_MAPPING = {
         "export-products": "products",
         "export-gift-cards": "gift cards",
-        "export-financial-tally": "exportfiles",
+        "export-tally-csv": "tally csv",
+        "export-miglo-csv": "miglo csv"
     }
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
