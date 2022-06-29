@@ -6211,6 +6211,7 @@ input PublishableChannelListingInput {
 
 type Query {
   warehouseListPdf(orderIds: [ID!], filters: OrderFilterInput): String
+  generatePaymentUrl(paymentId: ID!, channel: String): PaymentUrl
   wmsDeliverers(filter: WmsDelivererFilterInput, before: String, after: String, first: Int, last: Int): WMSDelivererCountableConnection
   wmsDeliverer(id: ID): WmsDeliverer
   wmsDocPositions(filter: WmsDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WMSDocPositionCountableConnection
@@ -6218,6 +6219,7 @@ type Query {
   wmsDocuments(filter: WmsDocumentFilterInput, before: String, after: String, first: Int, last: Int): WMSDocumentCountableConnection
   wmsDocument(id: ID, number: String): WmsDocument
   wmsDocumentPdf(id: ID!): String
+  wmsDocumentsListPdf(filters: OrderFilterInput): String
   wmsActionsReport(startDate: Date!, endDate: Date!): GenericScalar
   wmsProductsReport(startDate: Date!, endDate: Date!): GenericScalar
   productTypeWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): ProductType
@@ -6255,7 +6257,6 @@ type Query {
   reportProductSales(period: ReportingPeriod!, channel: String!, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   payment(id: ID!): Payment
   payments(filter: PaymentFilterInput, before: String, after: String, first: Int, last: Int): PaymentCountableConnection
-  generatePaymentUrl(paymentId: ID!): PaymentUrl
   page(id: ID, slug: String): Page
   pages(sortBy: PageSortingInput, filter: PageFilterInput, before: String, after: String, first: Int, last: Int): PageCountableConnection
   pageType(id: ID!): PageType

@@ -3,31 +3,20 @@
   <tbody>
     <tr class="summary-row">
       <td class="cell-summary">
-        <span class="normal-text-table">Suma częściowa</span>
+        <span class="normal-text-table">Kwota netto</span>
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {% price order.get_subtotal.gross %} </span>
+        <span class="header-item"> {{ order_summary.total_net_amount }} PLN</span>
       </td>
     </tr>
     <tr class="summary-row">
       <td class="cell-summary">
-        <span class="normal-text-table">Koszt dostawy</span>
+        <span class="normal-text-table">VAT</span>
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item">
-          {% price order.shipping_price.gross %}
-        </span>
-      </td>
-    </tr>
-    <tr class="summary-row">
-      <td class="cell-summary">
-        <span class="normal-text-table">Podatek</span>
-      </td>
-      <td class="cell-quantity"></td>
-      <td class="cell-total-price">
-        <span class="header-item"> {% price order.total.tax %} </span>
+        <span class="header-item"> {{ order_summary.vat }} PLN</span>
       </td>
     </tr>
     {% if gift_cards_payment.amount > 0 %}
@@ -43,11 +32,11 @@
     {% endif %}
     <tr class="summary-row">
       <td class="cell-summary">
-        <span class="normal-text-table"><b>Razem</b></span>
+        <span class="normal-text-table"><b>Kwota brutto</b></span>
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {% price order.total.gross %} </span>
+        <span class="header-item"> {{ order_summary.total_gross_amount }} PLN</span>
       </td>
     </tr>
   </tbody>

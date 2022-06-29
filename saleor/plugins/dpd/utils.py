@@ -14,7 +14,7 @@ def create_dpd_receiver(shipping: Shipping):
         'countryCode': shipping.receiver.address.country,
         'email': shipping.receiver.email,
         'phone': shipping.receiver.address.phone,
-        'name': 'asd'
+        'name': f'{shipping.receiver.address.first_name} {shipping.receiver.address.last_name}'
     }
     return receiver
 

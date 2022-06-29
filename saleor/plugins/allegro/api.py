@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 class AllegroAPI:
     api_public = 'public.v1'
-    api_beta = 'beta.v2'
 
     def __init__(self, channel):
         self.channel = channel
@@ -157,13 +156,18 @@ class AllegroAPI:
     def add_product_to_offer(self, allegro_product_id, allegro_id, description):
         endpoint = 'sale/product-offers/' + allegro_id
 
-        allegro_product = {
-            "product":{
-                "id": allegro_product_id
-            },
+        data = {
+            "productSet": [
+                {
+                    "product": {
+                        "id": allegro_product_id
+                    }
+                }
+            ],
             "description": description
         }
-        response = self.patch_request(endpoint=endpoint, data=allegro_product, api_version=self.api_beta)
+
+        response = self.patch_request(endpoint=endpoint, data=data, api_version=self.api_public)
 
         return response.json()
 
