@@ -124,7 +124,7 @@ def export_miglo_csv(
     temporary_file = clean_miglo_fields(temporary_file, delimiter)
     save_csv_file_in_export_file(export_file, temporary_file, file_name)
     temporary_file.close()
-    send_export_download_link_notification(export_file, "test_csv")
+    send_export_download_link_notification(export_file, "miglo_csv")
 
 
 def export_gift_cards(
