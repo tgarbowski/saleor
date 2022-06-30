@@ -9,7 +9,7 @@ from saleor.plugins.allegro.enums import AllegroErrors
 from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import (Product, ProductVariant, Category, ProductChannelListing,
-                                   ProductVariantChannelListing)
+                                   ProductVariantChannelListing, ProductMedia)
 from saleor.salingo.utils import SalingoDatetimeFormats
 
 
@@ -304,3 +304,8 @@ class AllegroErrorHandler:
     def update_product_errors_in_private_metadata(product, errors):
         product.store_value_in_private_metadata({'publish.allegro.errors': errors})
         product.save(update_fields=["private_metadata"])
+
+
+def get_product_media_urls(product: "Product") -> [str]:
+    product_medias = ProductMedia.objects.filter(product=product)
+    return [product_media.image.url for product_media in product_medias]
