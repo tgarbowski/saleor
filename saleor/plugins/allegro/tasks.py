@@ -9,7 +9,8 @@ from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish
                     get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished,
                     update_allegro_purchased_error, email_bulk_unpublish_result,
                     get_datetime_now, product_ids_to_skus, get_products_by_channels,
-                    AllegroProductPublishValidator, AllegroErrorHandler)
+                    AllegroProductPublishValidator, AllegroErrorHandler,
+                    get_product_media_urls)
 from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductMedia, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
@@ -58,7 +59,7 @@ def check_bulk_unpublish_status_task(unique_id):
 
 @app.task()
 def publish_products(product_id, offer_type, starting_at, products_bulk_ids, channel):
-    allegro_api_instance = AllegroAPI(channel)
+    allegro_api = AllegroAPI(channel)
 
     saleor_product = Product.objects.get(pk=product_id)
     saleor_product.delete_value_from_private_metadata('publish.allegro.errors')
@@ -79,102 +80,112 @@ def publish_products(product_id, offer_type, starting_at, products_bulk_ids, cha
          'publish.status.date': get_datetime_now()})
     saleor_product.save()
 
-    product_images = ProductMedia.objects.filter(product=saleor_product)
-    product_images = [product_image.image.url for product_image in product_images]
-
+    product_images = get_product_media_urls(product=saleor_product)
     publication_date = saleor_product.get_value_from_private_metadata("publish.allegro.date")
+    existing_product_id = saleor_product.private_metadata.get('publish.allegro.product')
     # New offer
     if not publication_date:
-        product = allegro_api_instance.prepare_offer(saleor_product, starting_at, offer_type, product_images, 'required')
+        product = allegro_api.prepare_offer(saleor_product, starting_at, offer_type, product_images, 'required')
         logger.info('New offer: ' + str(product.get('external').get('id')))
-        offer = allegro_api_instance.publish_to_allegro(allegro_product=product)
+        offer = allegro_api.publish_to_allegro(allegro_product=product)
         description = offer.get('description')
 
         if offer is None:
             AllegroErrorHandler.update_errors_in_private_metadata(
                 saleor_product,
-                [error for error in allegro_api_instance.errors],
+                [error for error in allegro_api.errors],
                 channel)
 
             if products_bulk_ids: email_errors(products_bulk_ids)
             return
-        # Assign existing product_id to offer
-        existing_product_id = saleor_product.private_metadata.get('publish.allegro.product')
-        if existing_product_id:
-            allegro_api_instance.add_product_to_offer(
+        # Save errors if they exist
+        err_handling_response = allegro_api.error_handling(offer, saleor_product)
+        # If must_assign_offer_to_product create new product and assign to offer
+        # OR Assign existing product_id to offer
+        if err_handling_response == 'must_assign_offer_to_product' and existing_product_id:
+            allegro_product = allegro_api.add_product_to_offer(
                 allegro_product_id=existing_product_id,
                 allegro_id=offer.get('id'),
                 description=description)
-        # Save errors if they exist
-        err_handling_response = allegro_api_instance.error_handling(offer, saleor_product)
-        # If must_assign_offer_to_product create new product and assign to offer
-        if err_handling_response == 'must_assign_offer_to_product' and not existing_product_id:
+            allegro_api.error_handling_product(allegro_product, saleor_product)
+            # Validate final offer
+            offer = allegro_api.get_offer(offer.get('id'))
+            allegro_api.error_handling(offer, saleor_product)
+        elif err_handling_response == 'must_assign_offer_to_product' and not existing_product_id:
             offer_id = saleor_product.private_metadata.get('publish.allegro.id')
-            parameters = allegro_api_instance.prepare_product_parameters(
+            parameters = allegro_api.prepare_product_parameters(
                 saleor_product,
                 'requiredForProduct')
-            product = allegro_api_instance.prepare_product(saleor_product, parameters, product['images'])
+            product = allegro_api.prepare_product(saleor_product, parameters, product['images'])
             product = {"product": product}
             # Propose a new product
-            propose_product = allegro_api_instance.propose_a_product(product['product'])
+            propose_product = allegro_api.propose_a_product(product['product'])
             # If product successfully created
             if propose_product.get('id'):
                 saleor_product.store_value_in_private_metadata(
                     {'publish.allegro.product': propose_product['id']})
                 saleor_product.save()
                 # Update offer with created allegro product ID
-                allegro_product = allegro_api_instance.add_product_to_offer(
+                allegro_product = allegro_api.add_product_to_offer(
                     allegro_product_id=propose_product['id'],
                     allegro_id=offer_id,
                     description=description)
                 # Save offer-product connection errors
-                allegro_api_instance.error_handling_product(allegro_product, saleor_product)
+                allegro_api.error_handling_product(allegro_product, saleor_product)
                 # Validate final offer
-                offer = allegro_api_instance.get_offer(offer_id)
-                allegro_api_instance.error_handling(offer, saleor_product)
+                offer = allegro_api.get_offer(offer_id)
+                allegro_api.error_handling(offer, saleor_product)
             else:
-                allegro_api_instance.error_handling_product(propose_product, saleor_product)
+                allegro_api.error_handling_product(propose_product, saleor_product)
 
         if products_bulk_ids:
             email_errors(products_bulk_ids)
         return
     # Update offer
-    if publication_date:
-        offer_id = saleor_product.private_metadata.get('publish.allegro.id')
+    offer_id = saleor_product.private_metadata.get('publish.allegro.id')
+    if publication_date and offer_id:
+        product = allegro_api.prepare_offer(saleor_product, starting_at, offer_type,
+                                            product_images, 'required')
+        offer_update = allegro_api.update_allegro_offer(allegro_product=product,
+                                                        allegro_id=offer_id)
 
-        if offer_id:
-            product = allegro_api_instance.prepare_offer(saleor_product, starting_at, offer_type,
-                                                         product_images, 'required')
-            offer_update = allegro_api_instance.update_allegro_offer(allegro_product=product,
-                                                                     allegro_id=offer_id)
-
-            description = offer_update.get('description')
-            logger.info('Offer update: ' + str(product.get('external').get('id')) + str(offer_update))
-            offer = allegro_api_instance.get_offer(offer_id)
-            err_handling_response = allegro_api_instance.error_handling(offer, saleor_product)
-            # If must_assign_offer_to_product create new product and assign to offer
-            if err_handling_response == 'must_assign_offer_to_product':
-                parameters = allegro_api_instance.prepare_product_parameters(saleor_product, 'requiredForProduct')
-                product = allegro_api_instance.prepare_product(saleor_product, parameters, product['images'])
-                product = {"product": product}
-                # Propose a new product
-                propose_product = allegro_api_instance.propose_a_product(product['product'])
-                # If product successfully created
-                if propose_product.get('id'):
-                    logger.info('Product Created: ' + str(propose_product['id']))
-                    saleor_product.store_value_in_private_metadata({'publish.allegro.product': propose_product['id']})
-                    saleor_product.save()
-                    # Update offer with created allegro product ID
-                    allegro_product = allegro_api_instance.add_product_to_offer(
-                        allegro_product_id=propose_product['id'],
-                        allegro_id=offer_id,
-                        description=description)
-                    allegro_api_instance.error_handling_product(allegro_product, saleor_product)
-                    # Validate final offer
-                    offer = allegro_api_instance.get_offer(offer_id)
-                    allegro_api_instance.error_handling(offer, saleor_product)
-                else:
-                    allegro_api_instance.error_handling_product(propose_product, saleor_product)
+        description = offer_update.get('description')
+        logger.info('Offer update: ' + str(product.get('external').get('id')) + str(offer_update))
+        offer = allegro_api.get_offer(offer_id)
+        err_handling_response = allegro_api.error_handling(offer, saleor_product)
+        # If must_assign_offer_to_product create new product and assign to offer
+        # OR Assign existing product_id to offer
+        if err_handling_response == 'must_assign_offer_to_product' and existing_product_id:
+            allegro_product = allegro_api.add_product_to_offer(
+                allegro_product_id=existing_product_id,
+                allegro_id=offer.get('id'),
+                description=description)
+            allegro_api.error_handling_product(allegro_product, saleor_product)
+            # Validate final offer
+            offer = allegro_api.get_offer(offer_id)
+            allegro_api.error_handling(offer, saleor_product)
+        elif err_handling_response == 'must_assign_offer_to_product' and not existing_product_id:
+            parameters = allegro_api.prepare_product_parameters(saleor_product, 'requiredForProduct')
+            product = allegro_api.prepare_product(saleor_product, parameters, product['images'])
+            product = {"product": product}
+            # Propose a new product
+            propose_product = allegro_api.propose_a_product(product['product'])
+            # If product successfully created
+            if propose_product.get('id'):
+                logger.info('Product Created: ' + str(propose_product['id']))
+                saleor_product.store_value_in_private_metadata({'publish.allegro.product': propose_product['id']})
+                saleor_product.save()
+                # Update offer with created allegro product ID
+                allegro_product = allegro_api.add_product_to_offer(
+                    allegro_product_id=propose_product['id'],
+                    allegro_id=offer_id,
+                    description=description)
+                allegro_api.error_handling_product(allegro_product, saleor_product)
+                # Validate final offer
+                offer = allegro_api.get_offer(offer_id)
+                allegro_api.error_handling(offer, saleor_product)
+            else:
+                allegro_api.error_handling_product(propose_product, saleor_product)
 
     if products_bulk_ids: email_errors(products_bulk_ids)
 
