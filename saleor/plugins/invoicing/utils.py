@@ -8,6 +8,7 @@ from distutils.util import strtobool
 import pytz
 from django.conf import settings
 from django.template.loader import get_template
+from num2words import num2words
 from prices import Money
 from weasyprint import HTML
 
@@ -120,7 +121,7 @@ def generate_invoice_pdf(invoice, order):
     rendered_template = get_template("invoices/invoice.html").render(
         {
             "invoice": invoice,
-            "creation_date": creation_date.strftime("%d %b %Y"),
+            "creation_date": creation_date.strftime("%d.%m.%Y"),
             "order": order,
             "gift_cards_payment": gift_cards_payment,
             "font_path": f"file://{font_path}",
@@ -313,7 +314,8 @@ def create_positions_summary(net_amount: Decimal) -> "PositionsSummary":
     return PositionsSummary(
         total_net_amount=net_amount,
         total_gross_amount=gross_amount,
-        vat=calculate_vat(net_amount)
+        vat=calculate_vat(net_amount),
+        gross_in_text=num2words(gross_amount, lang='pl', to='currency', currency='PLN')
     )
 
 
@@ -332,3 +334,4 @@ class PositionsSummary:
     total_net_amount: Decimal
     total_gross_amount: Decimal
     vat: Decimal
+    gross_in_text: str = None

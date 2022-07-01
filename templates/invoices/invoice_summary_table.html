@@ -7,7 +7,7 @@
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {{ order_summary.total_net_amount }} PLN</span>
+        <span class="header-item"> {{ order_summary.total_net_amount }} zł</span>
       </td>
     </tr>
     <tr class="summary-row">
@@ -16,7 +16,7 @@
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {{ order_summary.vat }} PLN</span>
+        <span class="header-item"> {{ order_summary.vat }} zł</span>
       </td>
     </tr>
     {% if gift_cards_payment.amount > 0 %}
@@ -36,17 +36,12 @@
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {{ order_summary.total_gross_amount }} PLN</span>
-      </td>
-    </tr>
-    <tr class="summary-row">
-      <td class="cell-summary">
-        <span class="normal-text-table"><b>Razem do zapłaty</b></span>
-      </td>
-      <td class="cell-quantity"></td>
-      <td class="cell-total-price">
-        <span class="header-item"> {{ order_summary.total_gross_amount }} PLN</span>
+        <span class="header-item"> {{ order_summary.total_gross_amount }} zł</span>
       </td>
     </tr>
   </tbody>
 </table>
+<div class="summary">
+  <span class="summary-bold">Razem do zapłaty: {{ order_summary.total_gross_amount }} zł</span>
+</div>
+<div class="summary">Słownie: {{ order_summary.gross_in_text }}</div>

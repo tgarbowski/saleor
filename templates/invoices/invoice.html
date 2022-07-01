@@ -117,6 +117,10 @@
         line-height: normal;
       }
 
+      .bold-row {
+        font-weight: bold;
+      }
+
       .padded-font {
         margin-top: 10px;
       }
@@ -184,10 +188,32 @@
         text-align: right;
       }
 
+      .cell-total-price-left {
+        width: 5%;
+      }
+
       .cell-summary {
         width: 70%;
         text-align: right;
         padding-right: 30px;
+      }
+
+      .cell-summary-left {
+        width: 10%;
+      }
+
+      .summary {
+        padding-top: 20px;
+        font-size: 16px;
+      }
+
+      .summary-bold {
+        font-weight: bold;
+        color: #000000;
+        display: block;
+        font-family: Inter;
+        letter-spacing: 0.05em;
+        line-height: 13px;
       }
 
       .content-separator {
@@ -316,6 +342,6 @@
               {% endif %}
           {% endfor %}
       {% endif %}
-  </div>
+    </div>
   </body>
 </html>
