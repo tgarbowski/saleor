@@ -95,6 +95,25 @@ def get_gift_cards_payment_amount(order):
     return Money(total_paid, order.currency)
 
 
+def convert_order_positions_floats(order_lines: ["InvoicePosition"]):
+    for order_line in order_lines:
+        order_line.total_price_net = \
+            str(order_line.total_price_net).replace(".", ",")
+        order_line.total_price_gross = \
+            str(order_line.total_price_gross).replace(".", ",")
+        order_line.unit_price_net = \
+            str(order_line.unit_price_net).replace(".", ",")
+        order_line.vat = \
+            str(order_line.vat).replace(".", ",")
+    return order_lines
+
+
+def convert_summary_floats(order_summary: "PositionsSummary"):
+    order_summary.vat = str(order_summary.vat).replace(".", ",")
+    order_summary.total_gross_amount = str(order_summary.total_gross_amount).replace(".", ",")
+    order_summary.total_net_amount = str(order_summary.total_net_amount).replace(".", ",")
+    return order_summary
+
 def generate_invoice_pdf(invoice, order):
     font_path = os.path.join(
         settings.PROJECT_ROOT, "templates", "invoices", "inter.ttf"
@@ -110,6 +129,9 @@ def generate_invoice_pdf(invoice, order):
 
     order_summary = create_positions_summary(order_net_total)
     product_limit_first_page = get_product_limit_first_page(fulfilled_order_lines)
+
+    fulfilled_order_lines = convert_order_positions_floats(fulfilled_order_lines)
+    order_summary = convert_summary_floats(order_summary)
 
     products_first_page = fulfilled_order_lines[:product_limit_first_page]
     rest_of_products = chunk_products(
@@ -155,7 +177,11 @@ def generate_correction_invoice_pdf(invoice, order):
     original_positions_summary = create_positions_summary(original_positions_summary_net)
     # Corrected invoice
     corrected_positions_summary = create_positions_summary(corrected_positions_summary_net)
-    final_summary = corrected_positions_summary.total_gross_amount - original_positions_summary.total_gross_amount
+    final_summary = str(corrected_positions_summary.total_gross_amount -
+                        original_positions_summary.total_gross_amount).replace(".", ",")
+    print(corrected_positions_summary.total_gross_amount)
+    print(original_positions_summary.total_gross_amount)
+    print(final_summary)
     # Shipment
     shipment_quantity = 1 if order.status != OrderStatus.RETURNED else 0
     shipment = get_shipment_position(quantity=shipment_quantity, gross_amount=order.shipping_price_gross_amount)
@@ -166,6 +192,11 @@ def generate_correction_invoice_pdf(invoice, order):
     invoice.save()
 
     merge_products.append(shipment)
+
+    original_invoice = convert_order_positions_floats(original_invoice)
+    merge_products = convert_order_positions_floats(merge_products)
+    corrected_positions_summary = convert_summary_floats(corrected_positions_summary)
+    original_positions_summary = convert_summary_floats(original_positions_summary)
 
     rendered_template = get_template("invoices/correction_invoice.html").render(
         {
