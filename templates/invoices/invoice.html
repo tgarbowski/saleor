@@ -117,6 +117,10 @@
         line-height: normal;
       }
 
+      .bold-row {
+        font-weight: bold;
+      }
+
       .padded-font {
         margin-top: 10px;
       }
@@ -184,10 +188,32 @@
         text-align: right;
       }
 
+      .cell-total-price-left {
+        width: 5%;
+      }
+
       .cell-summary {
         width: 70%;
         text-align: right;
         padding-right: 30px;
+      }
+
+      .cell-summary-left {
+        width: 10%;
+      }
+
+      .summary {
+        padding-top: 20px;
+        font-size: 16px;
+      }
+
+      .summary-bold {
+        font-weight: bold;
+        color: #000000;
+        display: block;
+        font-family: Inter;
+        letter-spacing: 0.05em;
+        line-height: 13px;
       }
 
       .content-separator {
@@ -237,19 +263,22 @@
     <div class="address section-right">
       <span class="header-title">Nabywca/płatnik</span>
       <br />
+      {% if order.billing_address.vat_id and order.billing_address.company_name %}
+      <span class="normal-text">{{ order.billing_address.company_name }}</span>
+      <br />
+      <span class="normal-text">{{ order.billing_address.vat_id }}</span>
+      <br />
+      {% else %}
       <span class="normal-text">
         {{ order.billing_address.first_name }}
         {{ order.billing_address.last_name }}
       </span>
       <br />
+      {% endif %}
       <span class="normal-text">{{ order.billing_address.street_address_1 }}</span>
       <br />
       {% if order.billing_address.street_address_2 %}
       <span class="normal-text">{{ order.billing_address.street_address_2 }}</span>
-      <br />
-      {% endif %}
-      {% if order.billing_address.vat_id %}
-      <span class="normal-text">{{ order.billing_address.vat_id }}</span>
       <br />
       {% endif %}
       <span class="normal-text">{{ order.billing_address.country }}</span>
@@ -270,9 +299,15 @@
         <span class="header-title">METODA PŁATNOŚCI</span>
         <br />
         {% if order.get_last_payment %}
-        <span class="normal-text">{{ order.get_last_payment.gateway }}</span>
+          {% if order.get_last_payment.gateway == "salingo.payments.payu" %}
+            <span class="normal-text">PAYU</span>
+          {% elif order.get_last_payment.gateway == "salingo.payments.cod" %}
+            <span class="normal-text">Płatność za pobraniem</span>
+          {% else %}
+            <span class="normal-text">{{ order.get_last_payment.gateway }}</span>
+          {% endif %}
         {% else %}
-        <span class="normal-text">Nieopłacone</span>
+        <span class="normal-text">Status: Nieopłacone</span>
         {% endif %}
         <br />
       </div>
@@ -307,6 +342,6 @@
               {% endif %}
           {% endfor %}
       {% endif %}
-  </div>
+    </div>
   </body>
 </html>
