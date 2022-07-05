@@ -1,4 +1,5 @@
 {% load price from taxed_prices %}
+{% load comma_separator from template_tags %}
 <!DOCTYPE html>
 <html>
   <head>
@@ -224,19 +225,23 @@
     <div class="address section-right">
       <span class="header-title">Nabywca/płatnik</span>
       <br />
+
+      {% if order.billing_address.vat_id and order.billing_address.company_name %}
+      <span class="normal-text">{{ order.billing_address.company_name }}</span>
+      <br />
+      <span class="normal-text">{{ order.billing_address.vat_id }}</span>
+      <br />
+      {% else %}
       <span class="normal-text">
         {{ order.billing_address.first_name }}
         {{ order.billing_address.last_name }}
       </span>
       <br />
+      {% endif %}
       <span class="normal-text">{{ order.billing_address.street_address_1 }}</span>
       <br />
       {% if order.billing_address.street_address_2 %}
       <span class="normal-text">{{ order.billing_address.street_address_2 }}</span>
-      <br />
-      {% endif %}
-      {% if order.billing_address.vat_id %}
-      <span class="normal-text">{{ order.billing_address.vat_id }}</span>
       <br />
       {% endif %}
       <span class="normal-text">{{ order.billing_address.country }}</span>
@@ -301,7 +306,7 @@
             </td>
             <td class="cell-quantity"></td>
             <td class="cell-total-price">
-              <span class="header-item"> {{ final_summary|floatformat:2 }} PLN</span>
+              <span class="header-item"> {{ final_summary|comma_separator }} PLN</span>
             </td>
           </tr>
         </tbody>
