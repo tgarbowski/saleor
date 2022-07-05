@@ -1,4 +1,5 @@
 {% load price from taxed_prices %}
+{% load comma_separator from template_tags %}
 <table class="summary-table">
   <tbody>
     <tr class="summary-row">
@@ -7,7 +8,7 @@
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {{ order_summary.total_net_amount }} zł</span>
+        <span class="header-item"> {{ order_summary.total_net_amount|comma_separator }} zł</span>
       </td>
     </tr>
     <tr class="summary-row">
@@ -16,7 +17,7 @@
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {{ order_summary.vat }} zł</span>
+        <span class="header-item"> {{ order_summary.vat|comma_separator }} zł</span>
       </td>
     </tr>
     {% if gift_cards_payment.amount > 0 %}
@@ -36,12 +37,12 @@
       </td>
       <td class="cell-quantity"></td>
       <td class="cell-total-price">
-        <span class="header-item"> {{ order_summary.total_gross_amount }} zł</span>
+        <span class="header-item"> {{ order_summary.total_gross_amount|comma_separator }} zł</span>
       </td>
     </tr>
   </tbody>
 </table>
 <div class="summary">
-  <span class="summary-bold">Razem do zapłaty: {{ order_summary.total_gross_amount }} zł</span>
+  <span class="summary-bold">Razem do zapłaty: {{ order_summary.total_gross_amount|comma_separator }} zł</span>
 </div>
 <div class="summary">Słownie: {{ order_summary.gross_in_text }}</div>

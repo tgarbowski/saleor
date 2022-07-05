@@ -1,4 +1,5 @@
 {% load price from taxed_prices %}
+{% load comma_separator from template_tags %}
 <!DOCTYPE html>
 <html>
   <head>
@@ -305,7 +306,7 @@
             </td>
             <td class="cell-quantity"></td>
             <td class="cell-total-price">
-              <span class="header-item"> {{ final_summary|floatformat:2 }} PLN</span>
+              <span class="header-item"> {{ final_summary|comma_separator }} PLN</span>
             </td>
           </tr>
         </tbody>
