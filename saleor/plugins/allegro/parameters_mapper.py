@@ -194,6 +194,8 @@ class AllegroParametersMapper(BaseParametersMapper):
 
         custom_map = self.product.product_type.metadata.get('allegro.mapping.attributes')
         if custom_map is not None:
+            if isinstance(custom_map, str):
+                custom_map = json.loads(custom_map.replace('\'', '\"'))
             custom_map = [m for m in custom_map if '*' not in m]
             if custom_map:
                 return self.parse_attributes_to_map(custom_map).get(parameter)
