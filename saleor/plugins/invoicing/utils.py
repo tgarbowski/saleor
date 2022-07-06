@@ -107,8 +107,9 @@ def generate_invoice_pdf(invoice, order):
     fulfilled_order_lines.append(shipment)
 
     order_net_total = sum([position.total_price_net for position in fulfilled_order_lines])
+    order_gross_total = sum([position.total_price_gross for position in fulfilled_order_lines])
 
-    order_summary = create_positions_summary(order_net_total)
+    order_summary = create_positions_summary(order_net_total, order_gross_total)
     product_limit_first_page = get_product_limit_first_page(fulfilled_order_lines)
 
     products_first_page = fulfilled_order_lines[:product_limit_first_page]
@@ -144,17 +145,20 @@ def generate_correction_invoice_pdf(invoice, order):
 
     merge_products = create_merge_products(fulfilled_products, not_fulfilled_products)
     corrected_positions_summary_net = sum([position.total_price_net for position in merge_products])
+    corrected_positions_summary_gross = sum([position.total_price_gross for position in merge_products])
     shipping_price_net = gross_to_net(order.shipping_price_gross_amount)
 
     if order.status != OrderStatus.RETURNED:
         corrected_positions_summary_net += shipping_price_net
+        corrected_positions_summary_gross += order.shipping_price_gross_amount.quantize(TWO_PLACES)
     # Original invoice
     original_invoice_payload = invoice.parent.private_metadata.get("lines")
     original_invoice = original_invoice_lines_to_lines(original_invoice_payload)
     original_positions_summary_net = sum([position.total_price_net for position in original_invoice])
-    original_positions_summary = create_positions_summary(original_positions_summary_net)
+    original_positions_summary_gross = sum([position.total_price_gross for position in original_invoice])
+    original_positions_summary = create_positions_summary(original_positions_summary_net, original_positions_summary_gross)
     # Corrected invoice
-    corrected_positions_summary = create_positions_summary(corrected_positions_summary_net)
+    corrected_positions_summary = create_positions_summary(corrected_positions_summary_net, corrected_positions_summary_gross)
     final_summary = corrected_positions_summary.total_gross_amount - original_positions_summary.total_gross_amount
     # Shipment
     shipment_quantity = 1 if order.status != OrderStatus.RETURNED else 0
@@ -188,28 +192,36 @@ def generate_correction_invoice_pdf(invoice, order):
 def create_merge_products(fulfilled_products, not_fulfilled_products):
     merge_products = []
     for fulfilled_product in fulfilled_products:
+        total_price_net = gross_to_net(fulfilled_product.total_price_gross_amount)
+        total_price_gross = fulfilled_product.total_price_gross_amount.quantize(TWO_PLACES)
+        vat = total_price_gross - total_price_net
+
         merge_products.append(
             InvoicePosition(
                 sku=fulfilled_product.product_sku,
                 name=fulfilled_product.product_name,
                 quantity=fulfilled_product.quantity,
                 unit_price_net=gross_to_net(fulfilled_product.unit_price_gross.amount),
-                total_price_net=gross_to_net(fulfilled_product.total_price_gross_amount),
-                total_price_gross=fulfilled_product.total_price_gross_amount,
-                vat=(fulfilled_product.total_price_gross - fulfilled_product.total_price_net).amount
+                total_price_net=total_price_net,
+                total_price_gross=total_price_gross,
+                vat=vat
             )
         )
 
     for not_fulfilled_product in not_fulfilled_products:
+        total_price_net = Decimal(0.00).quantize(TWO_PLACES)
+        total_price_gross = Decimal(0.00).quantize(TWO_PLACES)
+        vat = total_price_gross - total_price_net
+
         merge_products.append(
             InvoicePosition(
                 sku=not_fulfilled_product.product_sku,
                 name=not_fulfilled_product.product_name,
                 quantity=0,
                 unit_price_net=gross_to_net(not_fulfilled_product.unit_price_gross.amount),
-                total_price_net=gross_to_net(Decimal(0.00)),
-                total_price_gross=gross_to_net(Decimal(0.00)),
-                vat=(not_fulfilled_product.total_price_gross - not_fulfilled_product.total_price_net).amount.quantize(TWO_PLACES)
+                total_price_net=total_price_net,
+                total_price_gross=total_price_gross,
+                vat=vat
             )
         )
     return merge_products
@@ -267,26 +279,35 @@ def calculate_vat(net_amount):
 
 
 def get_shipment_position(quantity: int, gross_amount: Decimal) -> "InvoicePosition":
+    gross_amount = gross_amount.quantize(TWO_PLACES)
+    total_price_net = gross_to_net(gross_amount * quantity)
+    total_price_gross = (gross_amount * quantity).quantize(TWO_PLACES)
+    total_vat = total_price_gross - total_price_net
+
     return InvoicePosition(
         name="TRANSPORT Usługa transportowa",
         quantity=quantity,
         unit_price_net=gross_to_net(gross_amount),
-        total_price_net=gross_to_net(gross_amount * quantity),
-        total_price_gross=(gross_amount * quantity).quantize(TWO_PLACES),
-        vat=calculate_vat(gross_to_net(gross_amount * quantity))
+        total_price_net=total_price_net,
+        total_price_gross=total_price_gross,
+        vat=total_vat
     )
 
 
 def get_order_line_positions(order_lines: ["OrderLine"]) -> ["InvoicePosition"]:
     invoice_positions = []
     for order_line in order_lines:
+        total_price_net = gross_to_net(order_line.total_price_gross.amount)
+        total_price_gross = (order_line.total_price_gross.amount).quantize(TWO_PLACES)
+        vat = total_price_gross - total_price_net
+
         position = InvoicePosition(
             name=order_line.product_name,
             quantity=order_line.quantity,
             unit_price_net=gross_to_net(order_line.unit_price_gross.amount),
-            total_price_net=gross_to_net(order_line.total_price_gross.amount),
-            total_price_gross=(order_line.total_price_gross.amount).quantize(TWO_PLACES),
-            vat=calculate_vat(gross_to_net(order_line.total_price_gross.amount))
+            total_price_net=total_price_net,
+            total_price_gross=total_price_gross,
+            vat=vat
         )
         invoice_positions.append(position)
     return invoice_positions
@@ -296,25 +317,31 @@ def original_invoice_lines_to_lines(original_invoice) -> ["InvoicePosition"]:
     positions = []
     for position in original_invoice:
         gross_amount = price_from_minor_unit(value=position['pr'], currency='PLN')
+        net_amount = gross_to_net(gross_amount)
+        vat = gross_amount - net_amount
+
         invoice_position = InvoicePosition(
             name=position['na'],
             quantity=position['il'],
             unit_price_net=gross_to_net(gross_amount),
-            total_price_net=gross_to_net(gross_amount),
+            total_price_net=net_amount,
             total_price_gross=gross_amount,
-            vat=calculate_vat(gross_to_net(gross_amount))
+            vat=vat
         )
         positions.append(invoice_position)
     return positions
 
 
-def create_positions_summary(net_amount: Decimal) -> "PositionsSummary":
-    gross_amount = net_to_gross(net_amount)
+def create_positions_summary(
+    net_amount: Decimal,
+    gross_amount: Decimal
+) -> "PositionsSummary":
+    vat = gross_amount - net_amount
 
     return PositionsSummary(
         total_net_amount=net_amount,
         total_gross_amount=gross_amount,
-        vat=calculate_vat(net_amount),
+        vat=vat,
         gross_in_text=num2words(gross_amount, lang='pl', to='currency', currency='PLN')
     )
 
