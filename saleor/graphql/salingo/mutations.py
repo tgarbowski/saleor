@@ -173,6 +173,11 @@ class ExtReceiptUpdate(ModelMutation):
 class ExtInvoiceCorrectionRequest(ModelMutation):
     order = graphene.Field(Order, description="Order related to an invoice.")
 
+    class Arguments:
+        order_id = graphene.ID(
+            required=True, description="ID of the order related to invoice."
+        )
+
     class Meta:
         description = "Creates a correction invoice."
         model = models.Invoice
