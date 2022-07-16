@@ -13,7 +13,7 @@ from ..product.search import (
 
 task_logger = get_task_logger(__name__)
 
-BATCH_SIZE = 10000
+BATCH_SIZE = 500
 
 
 @app.task
@@ -62,26 +62,31 @@ def set_order_search_document_values(total_count, updated_count):
 
 
 @app.task
-def set_product_search_document_values(total_count, updated_count):
-    # set lower batch size as it was crashing for products with
-    # lots of attributes because out of memory issues
-    batch_size = 500
-    qs = Product.objects.filter(search_document="").prefetch_related(
-        *PRODUCT_FIELDS_TO_PREFETCH
-    )[:batch_size]
-    if not qs:
+def set_product_search_document_values(updated_count: int = 0) -> None:
+    products = list(
+        Product.objects.filter(search_document='')
+        .prefetch_related(*PRODUCT_FIELDS_TO_PREFETCH)[:BATCH_SIZE]
+        .iterator()
+    )
+
+    if not products:
         task_logger.info("No products to update.")
         return
 
-    updated_count = set_search_document_values(
-        qs, total_count, updated_count, prepare_product_search_document_value
+    updated_count += set_search_vector_values(
+        products,
+        prepare_product_search_document_value,
     )
 
-    if updated_count == total_count:
+    task_logger.info("Updated %d products", updated_count)
+
+    if len(products) < BATCH_SIZE:
         task_logger.info("Setting product search document values finished.")
         return
 
-    return set_product_search_document_values.delay(total_count, updated_count)
+    del products
+
+    set_product_search_document_values.delay(updated_count)
 
 
 def set_search_document_values(
@@ -104,3 +109,17 @@ def set_search_document_values(
         f"{progress}% done."
     )
     return updated_count
+
+
+def set_search_vector_values(
+    instances,
+    prepare_search_vector_func,
+):
+    Model = instances[0]._meta.model
+    for instance in instances:
+        instance.search_document = prepare_search_vector_func(
+            instance, already_prefetched=True
+        )
+    Model.objects.bulk_update(instances, ["search_document"])
+
+    return len(instances)
