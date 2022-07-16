@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 ASSIGNED_ATTRIBUTE_TYPE = Union["AssignedProductAttribute", "AssignedVariantAttribute"]
 
-PRODUCT_SEARCH_FIELDS = ["name", "description_plaintext"]
+PRODUCT_SEARCH_FIELDS = ["name"]
 PRODUCT_FIELDS_TO_PREFETCH = [
     "variants__attributes__values",
     "variants__attributes__assignment__attribute",
