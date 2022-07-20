@@ -433,8 +433,12 @@ class ProductQueries(graphene.ObjectType):
             qs, info, kwargs, ProductVariantCountableConnection
         )
 
-    def resolve_product_variants_skus(self, info, sku, **_kwargs):
-        return resolve_product_variants_skus(info, sku)
+    def resolve_product_variants_skus(self, info, sku, **kwargs):
+        qs = resolve_product_variants_skus(info, sku)
+
+        return create_connection_slice(
+            qs, info, kwargs, ProductVariantCountableConnection
+        )
 
 
 class ProductMutations(graphene.ObjectType):
