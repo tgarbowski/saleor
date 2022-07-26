@@ -12,6 +12,7 @@ import time
 import rule_engine
 
 from django.db import transaction
+from django.core.exceptions import ObjectDoesNotExist
 
 from saleor.channel.models import Channel
 from saleor.product.models import (Category, Product, ProductVariantChannelListing,
@@ -23,6 +24,7 @@ from saleor.salingo.utils import patch_async
 from saleor.plugins.allegro.api import AllegroAPI
 from saleor.plugins.allegro.tasks import bulk_allegro_unpublish
 from saleor.plugins.allegro.utils import skus_to_product_ids
+from saleor.discount.models import Sale
 
 
 PluginConfigurationType = List[dict]
@@ -208,7 +210,8 @@ class PricingExecutors:
                 weight=payload.weight,
                 current_cost_price_amount=payload.current_cost_price_amount
             )
-
+        elif payload.price_mode == PriceEnum.SALE_DISCOUNT.value:
+            price = payload.current_price
         else:
             price = payload.current_price
 
@@ -285,6 +288,14 @@ class PricingExecutors:
         except InvalidOperation:
             return None
 
+        if price_mode == 's':
+            try:
+                discount_name = result.split("_")[1]
+            except:
+                discount_name = None
+        else:
+            discount_name = None
+
         if product.weight is None:
             message = f'Weight not provided for SKU: {product.sku}, can not calculate price.'
             logger.info(message)
@@ -309,7 +320,8 @@ class PricingExecutors:
             product_type=product.type,
             material=product.material,
             condition=product.condition,
-            current_cost_price_amount=channel_cost_price_amount
+            current_cost_price_amount=channel_cost_price_amount,
+            discount_name=discount_name
         )
 
     def change_price(self, product: 'ProductRulesVariables', result):
@@ -321,6 +333,7 @@ class PricingExecutors:
         if validated_pricing_variables is None: return
 
         price = self.calculate_price(validated_pricing_variables)
+        discount_name = validated_pricing_variables.discount_name
 
         if price < self.global_config.minimum_price:
             price = self.global_config.minimum_price
@@ -343,26 +356,20 @@ class PricingExecutors:
             id=product.id,
             price_amount=price,
             cost_price_amount=cost_price_amount,
+            current_cost_price_amount=validated_pricing_variables.current_cost_price_amount,
             message=message,
             sku=product.sku,
             source_channel=product.channel_slug,
             current_price_amount=product.channel_price_amount,
             is_published=product.channel_is_published,
-            initial_price_amount=product.initial_price_amount
+            initial_price_amount=product.initial_price_amount,
+            discount_name=discount_name
         )
 
     @classmethod
     def bulk_handler(cls, products: Dict[int, 'PricingCalculationOutput']) -> None:
-        channel = get_source_channel(products)
-        cls.bulk_update_pricing(products)
-
-        channels = list(
-            PluginConfiguration.objects.filter(identifier='allegro').values_list(
-                'channel__slug', flat=True)
-            )
-
-        if channel in channels:
-            cls.bulk_update_pricing_allegro(products)
+        discount_name = get_discount_name(products)
+        cls.bulk_update_pricing(products, discount_name)
 
     @classmethod
     def bulk_update_pricing_allegro(cls, products: Dict[int, 'PricingCalculationOutput']):
@@ -408,18 +415,34 @@ class PricingExecutors:
                 retries += 1
 
     @classmethod
-    def bulk_update_pricing(cls, products: Dict[int, 'PricingCalculationOutput']) -> None:
-        variant_ids = dict.keys(products)
+    def assign_discounts(cls, variant_ids: List[int], sale_name: str) -> None:
+        try:
+            sale = Sale.objects.get(name=sale_name)
+            sale.variants.add(*variant_ids)
+        except ObjectDoesNotExist:
+            logger.info(f'Wrong sale name: {sale_name}')
+
+    @classmethod
+    def bulk_update_pricing(cls, products: Dict[int, 'PricingCalculationOutput'], discount_name) -> None:
+        variant_ids = []
+        variant_ids_discount = []
         product_messages = {}
         initial_price_messages = {}
-
+        # Prepare logs messages, variants and discounted variants
         for key, value in products.items():
             product_messages[value.id] = value.message
             if value.initial_price_amount is None:
                 initial_price_messages[value.id] = value.price_amount
+            if value.discount_name:
+                variant_ids_discount.append(value.variant_id)
+            if (
+                    value.current_price_amount != value.price_amount or
+                    value.current_cost_price_amount != value.cost_price_amount
+                ):
+                variant_ids.append(value.variant_id)
 
         pvcl = ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids)
-
+        # Update price_amount on ProductVariantChannelListing
         for listing in pvcl:
             product = products[listing.variant_id]
             listing.price_amount = product.price_amount
@@ -430,7 +453,9 @@ class PricingExecutors:
             fields=['price_amount', 'cost_price_amount'],
             batch_size=500
         )
-
+        # Assign discounts
+        cls.assign_discounts(variant_ids=variant_ids_discount, sale_name=discount_name)
+        # Save Logs
         if initial_price_messages:
             bulk_log_to_private_metadata(product_messages=initial_price_messages, key='initial_price', obj_type='str')
 
@@ -478,13 +503,13 @@ class Resolvers:
 
         product_ids = list(product_channel_listings.values_list('product_id', flat=True))
         if not product_ids: return
-
+        product_channel_listings = product_channel_listings.iterator()
         product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
             channel__slug=channel, variant__product__id__in=product_ids
         ).select_related(
             'variant', 'variant__product', 'variant__product__product_type',
             'variant__product__category'
-        ).order_by('variant__product_id')[:LIMIT]
+        ).order_by('variant__product_id')[:LIMIT].iterator()
 
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
@@ -545,12 +570,14 @@ class Resolvers:
 
     @staticmethod
     def get_attribute_from_description(description, attribute_name):
-        for block in description.get('blocks'):
-            text = block.get('data').get('text')
+        try:
+            for block in description.get('blocks'):
+                text = block.get('data').get('text')
 
-            if text and attribute_name in text:
-                return text.partition(":")[2].lower().strip()
-
+                if text and attribute_name in text:
+                    return text.partition(":")[2].lower().strip()
+        except:
+            return ''
         return ''
 
     @staticmethod
@@ -726,6 +753,12 @@ def get_target_channel(products):
     return channel
 
 
+def get_discount_name(products):
+    first_variant_id = next(iter(products))
+    channel = products[first_variant_id].discount_name
+    return channel
+
+
 @dataclass
 class ProductRulesVariables:
     id: int
@@ -773,6 +806,8 @@ class PricingCalculationOutput:
     initial_price_amount: Decimal
     is_published: bool
     current_price_amount: Decimal
+    discount_name: str
+    current_cost_price_amount: Decimal
 
 
 @dataclass
@@ -802,6 +837,7 @@ class PricingVariables:
     product_type: str
     material: str
     condition: str
+    discount_name: str
 
 
 @dataclass
@@ -821,6 +857,7 @@ class PriceEnum(Enum):
     MANUAL = 'm'
     ALGORITHM_OLD = 'aold'
     ALGORITHM_NEW = 'anew'
+    SALE_DISCOUNT = 's'
 
 
 @dataclass
