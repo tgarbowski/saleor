@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from .utils import get_plugin_configuration
 from saleor.product.models import ProductVariant, ProductVariantChannelListing
+from saleor.salingo.discounts import get_variant_discounted_price
 
 
 class ProductMapperFactory:
@@ -350,17 +351,18 @@ class AllegroProductMapper:
 
         self.set_format(self.get_offer_type())
 
-        product_variant_channel_listing = self.get_pv_channel_listing()
+        pvcl = self.get_pv_channel_listing()
+        discounted_price_amount = get_variant_discounted_price(variant_id=pvcl.variant_id)
 
         if self.get_offer_type() == 'BUY_NOW':
             self.set_price_amount(
-                str(product_variant_channel_listing.price_amount))
-            self.set_price_currency(product_variant_channel_listing.currency)
+                str(discounted_price_amount))
+            self.set_price_currency(pvcl.currency)
             self.set_publication_republish('False')
         else:
             self.set_starting_price_amount(
-                str(product_variant_channel_listing.price_amount))
-            self.set_starting_price_currency(product_variant_channel_listing.currency)
+                str(discounted_price_amount))
+            self.set_starting_price_currency(pvcl.currency)
             self.set_publication_republish('True')
             self.set_publication_duration(self.get_publication_duration())
 
