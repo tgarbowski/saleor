@@ -531,94 +531,77 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", None)
+CELERY_TASK_DEFAULT_QUEUE = os.environ.get("CELERY_TASK_DEFAULT_QUEUE", "default")
+CELERY_BEAT_SCHEDULE = {
+    "delete-empty-allocations": {
+        "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
+        "schedule": timedelta(days=1),
+        "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
+    },
+    "deactivate-preorder-for-variants": {
+        "task": "saleor.product.tasks.deactivate_preorder_for_variants_task",
+        "schedule": timedelta(hours=1),
+        "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
+    },
+    "delete-expired-reservations": {
+        "task": "saleor.warehouse.tasks.delete_expired_reservations_task",
+        "schedule": timedelta(days=1),
+        "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
+    },
+    "delete-expired-checkouts": {
+        "task": "saleor.checkout.tasks.delete_expired_checkouts",
+        "schedule": crontab(hour=0, minute=0),
+        "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
+    },
+    "delete-outdated-event-data": {
+        "task": "saleor.core.tasks.delete_event_payloads_task",
+        "schedule": timedelta(days=1),
+        "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
+    },
+    "deactivate-expired-gift-cards": {
+        "task": "saleor.giftcard.tasks.deactivate_expired_cards_task",
+        "schedule": crontab(hour=0, minute=0),
+        "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
+    },
+    "update-stocks-quantity-allocated": {
+        "task": "saleor.warehouse.tasks.update_stocks_quantity_allocated_task",
+        "schedule": crontab(hour=0, minute=0),
+        "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
+    },
+    "delete-old-export-files": {
+        "task": "saleor.csv.tasks.delete_old_export_files",
+        "schedule": crontab(hour=1, minute=0),
+        "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
+    }
+}
 
 if APP_ENVIRONMENT in ['production']:
-    CELERY_BEAT_SCHEDULE = {
-        'refresh_token_task': {
-            'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
-            'schedule': 1800.0
-        },
+    CELERY_BEAT_SCHEDULE.update({
         'synchronize_allegro_offers_task': {
             'task': 'saleor.plugins.allegroSync.tasks.synchronize_allegro_offers_task',
-            'schedule': crontab(minute=0, hour=23)
+            'schedule': crontab(minute=0, hour=23),
+            "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
         },
-        "delete-empty-allocations": {
-            "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
-            "schedule": timedelta(days=1),
-        },
-        "deactivate-preorder-for-variants": {
-            "task": "saleor.product.tasks.deactivate_preorder_for_variants_task",
-            "schedule": timedelta(hours=1),
-        },
-        "delete-expired-reservations": {
-            "task": "saleor.warehouse.tasks.delete_expired_reservations_task",
-            "schedule": timedelta(days=1),
-        },
-        "delete-expired-checkouts": {
-            "task": "saleor.checkout.tasks.delete_expired_checkouts",
-            "schedule": crontab(hour=0, minute=0),
-        },
-        "delete-outdated-event-data": {
-            "task": "saleor.core.tasks.delete_event_payloads_task",
-            "schedule": timedelta(days=1),
-        },
-        "deactivate-expired-gift-cards": {
-            "task": "saleor.giftcard.tasks.deactivate_expired_cards_task",
-            "schedule": crontab(hour=0, minute=0),
-        },
-        "update-stocks-quantity-allocated": {
-            "task": "saleor.warehouse.tasks.update_stocks_quantity_allocated_task",
-            "schedule": crontab(hour=0, minute=0),
-        },
-        "delete-old-export-files": {
-            "task": "saleor.csv.tasks.delete_old_export_files",
-            "schedule": crontab(hour=1, minute=0),
-        },
-    }
-
-if APP_ENVIRONMENT in ['development']:
-    CELERY_BEAT_SCHEDULE = {
         'refresh_token_task': {
             'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
-            'schedule': 1800.0
-        },
+            'schedule': 1800.0,
+            'options': {'queue': CELERY_TASK_DEFAULT_QUEUE}
+        }
+    })
+
+if APP_ENVIRONMENT in ['development']:
+    CELERY_BEAT_SCHEDULE.update({
         'save_allegro_orders_task': {
             'task': 'saleor.plugins.allegro.tasks.save_allegro_orders_task',
-            'schedule': 600.0
+            'schedule': 600.0,
+            "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
         },
-        "delete-empty-allocations": {
-            "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
-            "schedule": timedelta(days=1),
-        },
-        "deactivate-preorder-for-variants": {
-            "task": "saleor.product.tasks.deactivate_preorder_for_variants_task",
-            "schedule": timedelta(hours=1),
-        },
-        "delete-expired-reservations": {
-            "task": "saleor.warehouse.tasks.delete_expired_reservations_task",
-            "schedule": timedelta(days=1),
-        },
-        "delete-expired-checkouts": {
-            "task": "saleor.checkout.tasks.delete_expired_checkouts",
-            "schedule": crontab(hour=0, minute=0),
-        },
-        "delete-outdated-event-data": {
-            "task": "saleor.core.tasks.delete_event_payloads_task",
-            "schedule": timedelta(days=1),
-        },
-        "deactivate-expired-gift-cards": {
-            "task": "saleor.giftcard.tasks.deactivate_expired_cards_task",
-            "schedule": crontab(hour=0, minute=0),
-        },
-        "update-stocks-quantity-allocated": {
-            "task": "saleor.warehouse.tasks.update_stocks_quantity_allocated_task",
-            "schedule": crontab(hour=0, minute=0),
-        },
-        "delete-old-export-files": {
-            "task": "saleor.csv.tasks.delete_old_export_files",
-            "schedule": crontab(hour=1, minute=0),
-        },
-    }
+        'refresh_token_task': {
+            'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
+            'schedule': 1800.0,
+            'options': {'queue': CELERY_TASK_DEFAULT_QUEUE}
+        }
+    })
 
 EVENT_PAYLOAD_DELETE_PERIOD = timedelta(
     seconds=parse(os.environ.get("EVENT_PAYLOAD_DELETE_PERIOD", "14 days"))
