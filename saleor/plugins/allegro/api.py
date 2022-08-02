@@ -624,7 +624,7 @@ class AllegroAPI:
         elif offer['validation'].get('errors') is not None:
             if len(offer['validation'].get('errors')) > 0:
                 for error in offer['validation'].get('errors'):
-                    if 'too few offers related to a product' in error['message']:
+                    if 'You cannot publish offer without a related product' in error['message']:
                         must_assign_offer_to_product = True
                     logger.error((error['message'] + ' dla ogłoszenia: ' + self.plugin_config['auth_env'] + '/offer/' + offer['id'] + '/restore'))
                     self.errors.append((error['message'] + 'dla ogłoszenia: ' + self.plugin_config['auth_env'] + '/offer/' + offer['id'] + '/restore'))
