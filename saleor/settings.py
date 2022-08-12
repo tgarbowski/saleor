@@ -768,3 +768,4 @@ schema_printer._print_object = patched_print_object
 
 REMOVER_API_URL = os.environ.get("REMOVER_API_URL")
 REMOVER_API_KEY = os.environ.get("REMOVER_API_KEY")
+REMOVER_SALEOR_API_KEY = os.environ.get("REMOVER_SALEOR_API_KEY")
