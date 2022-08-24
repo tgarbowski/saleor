@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date
 import logging
 
 from django.db.models.functions import Substr
@@ -117,9 +117,11 @@ def cleanup_products():
 @app.task()
 def publication_flow():
     cleanup_products()
-    remove_background(
-        start_date=date_x_days_before(days=7),
-        end_date=date.today()
-    )
-    rotate_channels()
+    if settings.APP_ENVIRONMENT == 'production':
+        remove_background(
+            start_date=date_x_days_before(days=7),
+            end_date=date.today()
+        )
     calculate_prices()
+    rotate_channels()
+

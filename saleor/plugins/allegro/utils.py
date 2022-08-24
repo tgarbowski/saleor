@@ -285,19 +285,20 @@ class AllegroErrorHandler:
 
     @staticmethod
     def update_errors_in_private_metadata(product, errors, channel):
+        # TODO: check publication_date flow
         product_channel_listing = ProductChannelListing.objects.get(
             channel__slug=channel,
             product=product)
 
         if errors:
             product_channel_listing.is_published = False
-            product_channel_listing.publication_date = None
+            # product_channel_listing.publication_date = None
             product.store_value_in_private_metadata({'publish.allegro.errors': errors})
         else:
             product_channel_listing.is_published = True
-            product_channel_listing.publication_date = get_date_now()
+            # product_channel_listing.publication_date = get_date_now()
             product.store_value_in_private_metadata({'publish.allegro.errors': []})
-        product_channel_listing.save(update_fields=["is_published", "publication_date"])
+        product_channel_listing.save(update_fields=["is_published"])
         product.save(update_fields=["private_metadata"])
 
     @staticmethod

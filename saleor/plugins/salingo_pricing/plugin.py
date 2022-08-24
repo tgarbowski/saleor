@@ -1,18 +1,14 @@
 from decimal import Decimal, InvalidOperation
-from typing import List
 import re
 
 from django.core.exceptions import ValidationError
 
-from saleor.salingo.business_rules import (
-    BusinessRulesEvaluator, PriceEnum, BusinessRulesConfiguration, DEFAULT_BUSINESS_RULES_CONFIGURATION,
-    DEFAULT_BUSINESS_RULES_CONFIG_STRUCTURE)
+from saleor.salingo.plugins_common import DEFAULT_BUSINESS_RULES_CONFIGURATION, DEFAULT_BUSINESS_RULES_CONFIG_STRUCTURE
+from saleor.salingo.business_rules import (BusinessRulesEvaluator, PriceEnum)
+from saleor.salingo.interface import BusinessRulesConfiguration
 from saleor.plugins.error_codes import PluginErrorCode
 from saleor.plugins.base_plugin import BasePlugin
 from saleor.plugins.models import PluginConfiguration
-
-
-PluginConfigurationType = List[dict]
 
 
 class SalingoPricingPlugin(BasePlugin):

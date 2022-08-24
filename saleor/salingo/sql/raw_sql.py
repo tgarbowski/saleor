@@ -56,3 +56,12 @@ products_media_to_remove_background = """
     and ppm.oembed_data ->>'background_remove_status' is null
     order by ppv.sku
     """
+
+
+variant_id_sale_name = """
+    SELECT dsv.productvariant_id, ds."name"
+    FROM discount_sale_variants dsv
+    join discount_sale ds
+    on dsv.sale_id = ds.id
+    WHERE dsv.productvariant_id in %s
+"""

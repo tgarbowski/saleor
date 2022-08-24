@@ -532,6 +532,8 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", None)
 CELERY_TASK_DEFAULT_QUEUE = os.environ.get("CELERY_TASK_DEFAULT_QUEUE", "default")
+CELERY_LONG_TASKS_QUEUE = os.environ.get("CELERY_LONG_TASKS_QUEUE", "long_tasks_queue")
+
 CELERY_BEAT_SCHEDULE = {
     "delete-empty-allocations": {
         "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
@@ -586,6 +588,15 @@ if APP_ENVIRONMENT in ['production']:
             'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
             'schedule': 1800.0,
             'options': {'queue': CELERY_TASK_DEFAULT_QUEUE}
+        }
+    })
+
+if APP_ENVIRONMENT in ['staging']:
+    CELERY_BEAT_SCHEDULE.update({
+        'publication_flow': {
+            'task': 'saleor.salingo.tasks.publication_flow',
+            'schedule': crontab(minute=0, hour=23),
+            "options": {"queue": CELERY_LONG_TASKS_QUEUE}
         }
     })
 
