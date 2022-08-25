@@ -595,7 +595,7 @@ if APP_ENVIRONMENT in ['staging']:
     CELERY_BEAT_SCHEDULE.update({
         'publication_flow': {
             'task': 'saleor.salingo.tasks.publication_flow',
-            'schedule': crontab(minute=0, hour=23),
+            'schedule': 3600.0,
             "options": {"queue": CELERY_LONG_TASKS_QUEUE}
         }
     })
