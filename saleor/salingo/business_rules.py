@@ -1,33 +1,31 @@
 from asyncio import run
-from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from enum import Enum
 import logging
 import re
-from typing import List, Dict, Optional
+from typing import List, Dict
 import yaml
 import time
 
 import rule_engine
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.core.exceptions import ObjectDoesNotExist
 
 from saleor.channel.models import Channel
 from saleor.product.models import (Category, Product, ProductVariantChannelListing,
                                    ProductChannelListing)
 from saleor.plugins.models import PluginConfiguration
-from saleor.plugins.base_plugin import ConfigurationTypeField
-from measurement.measures import Mass
 from saleor.salingo.utils import patch_async
 from saleor.plugins.allegro.api import AllegroAPI
 from saleor.plugins.allegro.tasks import bulk_allegro_unpublish
 from saleor.plugins.allegro.utils import skus_to_product_ids
 from saleor.discount.models import Sale
+from saleor.salingo.interface import (ProductRulesVariables, PricingCalculationOutput,
+                                      RoutingOutput, Location, PricingVariables, PricingConfig,
+                                      PriceEnum)
+from saleor.salingo.sql.raw_sql import variant_id_sale_name
 
-
-PluginConfigurationType = List[dict]
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +46,7 @@ class BusinessRulesEvaluator:
             # Resolve products for given config
             resolver_function = getattr(Resolvers, config['resolver'])
             products = resolver_function(cursor=0)
-            executor = ExecutorsFactory.get_executor(plugin_slug=self.plugin_slug, config=config)
+            executor = ExecutorsFactory.get_executor(plugin_slug=self.plugin_slug)
             executor_function = getattr(executor, config['executor'])
 
             while products:
@@ -56,14 +54,16 @@ class BusinessRulesEvaluator:
                 for rule in engine_rules:
                     rule_object = rule_engine.Rule(rule['rule'], context=context)
                     matching_products = rule_object.filter(products)
+                    matching_products = filter(
+                        lambda product: product.id not in already_processed, matching_products
+                    )
                     output_for_update = {}
                     # Prepare output for matching products
                     for product in matching_products:
-                        if product.id not in already_processed:
-                            output = executor_function(product, rule['result'])
-                            already_processed.add(product.id)
-                            if output:
-                                output_for_update[output.variant_id] = output
+                        output = executor_function(product, rule['result'])
+                        already_processed.add(product.id)
+                        if output:
+                            output_for_update[output.variant_id] = output
                     # Bulk action on matching products
                     if output_for_update and self.mode == 'commit':
                         executor.bulk_handler(output_for_update)
@@ -101,7 +101,7 @@ class BusinessRulesEvaluator:
 
 class ExecutorsFactory:
     @staticmethod
-    def get_executor(plugin_slug, config):
+    def get_executor(plugin_slug):
         if plugin_slug == 'salingo_pricing':
             global_pricing_config = get_plugin_config_by_identifier('salingo_pricing_global')
             global_config = PricingConfig(
@@ -112,23 +112,22 @@ class ExecutorsFactory:
                 minimum_price=Decimal(global_pricing_config['minimum_price']),
                 price_per_kg=Decimal(global_pricing_config['price_per_kg'])
             )
-            return PricingExecutors(config=config, global_config=global_config)
+            return PricingExecutors(global_config=global_config)
         if plugin_slug == 'salingo_routing':
-            return RoutingExecutors(config=config)
+            return RoutingExecutors()
 
 
 class RoutingExecutors:
-    def __init__(self, config):
-        self.config = config
-
     @classmethod
     def bulk_handler(cls, products: Dict[int, 'RoutingOutput']):
-        channel = get_source_channel(products)
+        channel = get_first_product(products).source_channel
 
         if channel in ['allegro']:
             cls.handle_allegro_flow(products)
         else:
             cls.bulk_change_channel_listings(products)
+
+        cls.apply_discounts(products)
 
     @classmethod
     def handle_allegro_flow(cls, products: Dict[int, 'RoutingOutput']):
@@ -137,8 +136,26 @@ class RoutingExecutors:
         cls.bulk_change_channel_listings(product_to_change)
 
     @classmethod
+    def apply_discounts(cls, products: Dict[int, 'RoutingOutput']):
+        discount_name = get_first_product(products=products).discount_name
+
+        if not discount_name:
+            return
+
+        variant_ids_discount = []
+        for key, value in products.items():
+            if value.discount_name:
+                variant_ids_discount.append(value.variant_id)
+
+        if variant_ids_discount:
+            assign_discounts(
+                variant_ids=variant_ids_discount,
+                sale_name=discount_name
+            )
+
+    @classmethod
     def remove_from_allegro(cls, products: Dict[int, 'RoutingOutput']):
-        channel = get_source_channel(products)
+        channel = get_first_product(products).source_channel
         product_ids = []
 
         for key, value in products.items():
@@ -148,18 +165,24 @@ class RoutingExecutors:
 
         return skus_to_product_ids(skus_purchased)
 
-
-    def move_from_unpublished(self, product: 'ProductRulesVariables', result: str):
+    def move_from_current_channel_to_target(self, product: 'ProductRulesVariables', result: str):
         message = f'{datetime.now()} moved from channel ' \
                   f'{product.channel_slug} to channel {result}'
         logger.info(f'{product.sku} {message}')
 
+        channel = result.split("_")[0]
+        try:
+            discount_name = result.split("_")[1]
+        except IndexError:
+            discount_name = None
+
         return RoutingOutput(
             variant_id=product.variant_id,
             id=product.id,
-            channel=result,
+            channel=channel,
             source_channel=product.channel_slug,
-            message=message
+            message=message,
+            discount_name=discount_name
         )
 
     @classmethod
@@ -188,8 +211,7 @@ class RoutingExecutors:
 
 
 class PricingExecutors:
-    def __init__(self, config, global_config):
-        self.config = config
+    def __init__(self, global_config):
         self.global_config = global_config
 
     def calculate_price(self, payload: 'PricingVariables') -> Decimal:
@@ -210,8 +232,6 @@ class PricingExecutors:
                 weight=payload.weight,
                 current_cost_price_amount=payload.current_cost_price_amount
             )
-        elif payload.price_mode == PriceEnum.SALE_DISCOUNT.value:
-            price = payload.current_price
         else:
             price = payload.current_price
 
@@ -288,14 +308,6 @@ class PricingExecutors:
         except InvalidOperation:
             return None
 
-        if price_mode == 's':
-            try:
-                discount_name = result.split("_")[1]
-            except:
-                discount_name = None
-        else:
-            discount_name = None
-
         if product.weight is None:
             message = f'Weight not provided for SKU: {product.sku}, can not calculate price.'
             logger.info(message)
@@ -320,8 +332,7 @@ class PricingExecutors:
             product_type=product.type,
             material=product.material,
             condition=product.condition,
-            current_cost_price_amount=channel_cost_price_amount,
-            discount_name=discount_name
+            current_cost_price_amount=channel_cost_price_amount
         )
 
     def change_price(self, product: 'ProductRulesVariables', result):
@@ -333,7 +344,6 @@ class PricingExecutors:
         if validated_pricing_variables is None: return
 
         price = self.calculate_price(validated_pricing_variables)
-        discount_name = validated_pricing_variables.discount_name
 
         if price < self.global_config.minimum_price:
             price = self.global_config.minimum_price
@@ -362,14 +372,12 @@ class PricingExecutors:
             source_channel=product.channel_slug,
             current_price_amount=product.channel_price_amount,
             is_published=product.channel_is_published,
-            initial_price_amount=product.initial_price_amount,
-            discount_name=discount_name
+            initial_price_amount=product.initial_price_amount
         )
 
     @classmethod
     def bulk_handler(cls, products: Dict[int, 'PricingCalculationOutput']) -> None:
-        discount_name = get_discount_name(products)
-        cls.bulk_update_pricing(products, discount_name)
+        cls.bulk_update_pricing(products)
 
     @classmethod
     def bulk_update_pricing_allegro(cls, products: Dict[int, 'PricingCalculationOutput']):
@@ -415,26 +423,15 @@ class PricingExecutors:
                 retries += 1
 
     @classmethod
-    def assign_discounts(cls, variant_ids: List[int], sale_name: str) -> None:
-        try:
-            sale = Sale.objects.get(name=sale_name)
-            sale.variants.add(*variant_ids)
-        except ObjectDoesNotExist:
-            logger.info(f'Wrong sale name: {sale_name}')
-
-    @classmethod
-    def bulk_update_pricing(cls, products: Dict[int, 'PricingCalculationOutput'], discount_name) -> None:
+    def bulk_update_pricing(cls, products: Dict[int, 'PricingCalculationOutput']) -> None:
         variant_ids = []
-        variant_ids_discount = []
         product_messages = {}
         initial_price_messages = {}
-        # Prepare logs messages, variants and discounted variants
+        # Prepare logs messages and variants
         for key, value in products.items():
             product_messages[value.id] = value.message
             if value.initial_price_amount is None:
                 initial_price_messages[value.id] = value.price_amount
-            if value.discount_name:
-                variant_ids_discount.append(value.variant_id)
             if (
                     value.current_price_amount != value.price_amount or
                     value.current_cost_price_amount != value.cost_price_amount
@@ -453,8 +450,6 @@ class PricingExecutors:
             fields=['price_amount', 'cost_price_amount'],
             batch_size=500
         )
-        # Assign discounts
-        cls.assign_discounts(variant_ids=variant_ids_discount, sale_name=discount_name)
         # Save Logs
         if initial_price_messages:
             bulk_log_to_private_metadata(product_messages=initial_price_messages, key='initial_price', obj_type='str')
@@ -513,8 +508,11 @@ class Resolvers:
 
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
+        variant_ids = []
 
         for pcl, pvcl in zip(product_channel_listings, product_variant_channel_listing):
+            variant_ids.append(pvcl.variant.id)
+
             if pvcl.variant.product_id != pcl.product_id:
                 raise Exception(f'Wrong channel listings merge for SKU = {pvcl.variant.sku}. '
                                 f'PVCL product_id = {pvcl.variant.product_id} != '
@@ -551,8 +549,15 @@ class Resolvers:
                 initial_price_amount=pvcl.variant.product.metadata.get('initial_price'),
                 workstation=cls.get_workstation(pvcl.variant.sku),
                 user=cls.get_user(pvcl.variant.sku),
+                discount="",
                 is_bundled=cls.is_bundled(pvcl.variant.product.metadata.get('bundle.id'))
             ))
+
+        variants_sale_name = variantid_salename(tuple(variant_ids))
+
+        for product in products:
+            if product.variant_id in variants_sale_name:
+                product.discount = variants_sale_name[product.variant_id]
 
         return products
 
@@ -625,39 +630,6 @@ class Resolvers:
             return Location()
 
         return parsed_location
-
-
-DEFAULT_BUSINESS_RULES_CONFIGURATION = [
-        {"name": "ruleset", "value": ""},
-        {"name": "execute_order", "value": ""},
-        {"name": "resolver", "value": ""},
-        {"name": "executor", "value": ""},
-        {"name": "rules", "value": ""}
-    ]
-
-
-DEFAULT_BUSINESS_RULES_CONFIG_STRUCTURE = {
-        "ruleset": {
-            "type": ConfigurationTypeField.STRING,
-            "label": "Ruleset"
-        },
-        "execute_order": {
-            "type": ConfigurationTypeField.STRING,
-            "label": "Execute order"
-        },
-        "resolver": {
-            "type": ConfigurationTypeField.STRING,
-            "label": "Resolver"
-        },
-        "executor": {
-            "type": ConfigurationTypeField.STRING,
-            "label": "Executor"
-        },
-        "rules": {
-            "type": ConfigurationTypeField.MULTILINE,
-            "label": "Rules"
-        }
-    }
 
 
 def lowercase(obj: Dict):
@@ -741,128 +713,27 @@ def get_backstep_offer_index(offers_price_update, failed_result):
     return index_from_start_again
 
 
-def get_source_channel(products):
+def get_first_product(products):
     first_variant_id = next(iter(products))
-    channel = products[first_variant_id].source_channel
-    return channel
+    return products[first_variant_id]
 
 
-def get_target_channel(products):
-    first_variant_id = next(iter(products))
-    channel = products[first_variant_id].channel
-    return channel
+def assign_discounts(variant_ids: List[int], sale_name: str) -> None:
+    try:
+        sale = Sale.objects.get(name=sale_name)
+        sale.variants.add(*variant_ids)
+    except ObjectDoesNotExist:
+        logger.info(f'Wrong sale name: {sale_name}')
 
 
-def get_discount_name(products):
-    first_variant_id = next(iter(products))
-    channel = products[first_variant_id].discount_name
-    return channel
+def variantid_salename(variant_ids) -> Dict:
+    """ produce dict product_variant_id:sale_name"""
+    variants_sale_name = dict()
 
+    with connection.cursor() as cursor:
+        cursor.execute(variant_id_sale_name, [variant_ids])
+        row = cursor.fetchall()
+        for r in row:
+            variants_sale_name[r[0]] = r[1]
 
-@dataclass
-class ProductRulesVariables:
-    id: int
-    variant_id: int
-    bundle_id: int
-    created: datetime
-    type: str
-    name: str
-    slug: str
-    category: str
-    root_category: str
-    weight: Mass
-    age: int
-    sku: str
-    brand: str
-    material: str
-    condition: str
-    channel_id: int
-    channel_publication_date: datetime.date
-    channel_age: int
-    channel_is_published: bool
-    channel_product_id: int
-    channel_slug: str
-    channel_visible_in_listings: bool
-    channel_available_for_purchase: bool
-    channel_currency: str
-    channel_price_amount: Decimal
-    channel_cost_price_amount: Decimal
-    location: Dict
-    initial_price_amount: Decimal
-    workstation: str
-    user: str
-    is_bundled: bool
-
-
-@dataclass
-class PricingCalculationOutput:
-    variant_id: int
-    id: int
-    price_amount: Decimal
-    cost_price_amount: Decimal
-    message: str
-    sku: str
-    source_channel: str
-    initial_price_amount: Decimal
-    is_published: bool
-    current_price_amount: Decimal
-    discount_name: str
-    current_cost_price_amount: Decimal
-
-
-@dataclass
-class RoutingOutput:
-    variant_id: int
-    id: int
-    message: str
-    channel: str
-    source_channel: str
-
-
-@dataclass
-class Location:
-    type: str = None
-    number: int = None
-    box: int = None
-
-
-@dataclass
-class PricingVariables:
-    price_mode: str
-    current_price: Optional[Decimal]
-    current_cost_price_amount: Optional[Decimal]
-    result_price: Decimal
-    weight: Decimal
-    brand: str
-    product_type: str
-    material: str
-    condition: str
-    discount_name: str
-
-
-@dataclass
-class PricingConfig:
-    condition: dict
-    product_type: dict
-    brand: dict
-    material: dict
-    minimum_price: Decimal
-    price_per_kg: Decimal
-
-
-class PriceEnum(Enum):
-    DISCOUNT = 'd'
-    ITEM = 'i'
-    KILOGRAM = 'k'
-    MANUAL = 'm'
-    ALGORITHM_OLD = 'aold'
-    ALGORITHM_NEW = 'anew'
-    SALE_DISCOUNT = 's'
-
-
-@dataclass
-class BusinessRulesConfiguration:
-    ruleset: str
-    execute_order: int
-    resolver: str
-    executor: str
+    return variants_sale_name
