@@ -100,3 +100,20 @@ def date_x_days_before(days: int):
 
 def datetime_x_days_before(days: int):
     return datetime.now() - timedelta(days=days)
+
+
+def email_dict_errors(errors):
+    from django.core.mail import send_mail
+    from saleor.plugins.allegro.utils import prepare_failed_tasks_email
+    from django.utils.html import strip_tags
+
+    msg = prepare_failed_tasks_email(errors)
+    plain_message = strip_tags(msg)
+
+    send_mail(
+        subject='',
+        message=plain_message,
+        from_email='',
+        recipient_list=[''],
+        html_message=msg
+    )
