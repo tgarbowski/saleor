@@ -6,6 +6,7 @@ import re
 from typing import List, Dict
 import yaml
 import time
+import traceback
 
 import rule_engine
 
@@ -25,6 +26,7 @@ from saleor.salingo.interface import (ProductRulesVariables, PricingCalculationO
                                       RoutingOutput, Location, PricingVariables, PricingConfig,
                                       PriceEnum)
 from saleor.salingo.sql.raw_sql import variant_id_sale_name
+from saleor.salingo.utils import email_dict_errors
 
 
 logger = logging.getLogger(__name__)
@@ -508,6 +510,7 @@ class Resolvers:
 
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
+        failed_products_skus = []
         variant_ids = []
 
         for pcl, pvcl in zip(product_channel_listings, product_variant_channel_listing):
@@ -517,47 +520,54 @@ class Resolvers:
                 raise Exception(f'Wrong channel listings merge for SKU = {pvcl.variant.sku}. '
                                 f'PVCL product_id = {pvcl.variant.product_id} != '
                                 f'PCL product_id = {pcl.product_id}')
-
-            products.append(ProductRulesVariables(
-                id=pvcl.variant.product.id,
-                variant_id=pvcl.variant.id,
-                bundle_id=pvcl.variant.product.metadata.get('bundle.id'),
-                created=pvcl.variant.product.created,
-                type=pvcl.variant.product.product_type.name.lower(),
-                name=pvcl.variant.product.name,
-                slug=pvcl.variant.product.slug,
-                category=pvcl.variant.product.category.slug,
-                root_category=cls.get_root_category(category_tree_ids, pvcl.variant.product.category.tree_id),
-                weight=pvcl.variant.product.weight,
-                age=cls.parse_datetime(pvcl.variant.product.created),
-                sku=pvcl.variant.sku,
-                brand=cls.get_attribute_from_description(pcl.product.description, 'Marka').lower(),
-                material=cls.get_attribute_from_description(pcl.product.description, 'Materiał').lower(),
-                condition=cls.get_attribute_from_description(pcl.product.description, 'Stan').lower(),
-                channel_id=pcl.channel.id,
-                channel_publication_date=pcl.publication_date,
-                channel_age=cls.parse_date(pcl.publication_date),
-                channel_is_published=pcl.is_published,
-                channel_product_id=pcl.product_id,
-                channel_slug=pcl.channel.slug,
-                channel_visible_in_listings=pcl.visible_in_listings,
-                channel_available_for_purchase=pcl.available_for_purchase,
-                channel_currency=pvcl.currency,
-                channel_price_amount=pvcl.price_amount,
-                channel_cost_price_amount=pvcl.cost_price_amount,
-                location=cls.parse_location(pvcl.variant.private_metadata.get('location')),
-                initial_price_amount=pvcl.variant.product.metadata.get('initial_price'),
-                workstation=cls.get_workstation(pvcl.variant.sku),
-                user=cls.get_user(pvcl.variant.sku),
-                discount="",
-                is_bundled=cls.is_bundled(pvcl.variant.product.metadata.get('bundle.id'))
-            ))
+            try:
+                products.append(ProductRulesVariables(
+                    id=pvcl.variant.product.id,
+                    variant_id=pvcl.variant.id,
+                    bundle_id=pvcl.variant.product.metadata.get('bundle.id'),
+                    created=pvcl.variant.product.created,
+                    type=pvcl.variant.product.product_type.name.lower(),
+                    name=pvcl.variant.product.name,
+                    slug=pvcl.variant.product.slug,
+                    category=pvcl.variant.product.category.slug,
+                    root_category=cls.get_root_category(category_tree_ids, pvcl.variant.product.category.tree_id),
+                    weight=pvcl.variant.product.weight,
+                    age=cls.parse_datetime(pvcl.variant.product.created),
+                    sku=pvcl.variant.sku,
+                    brand=cls.get_attribute_from_description(pcl.product.description, 'Marka').lower(),
+                    material=cls.get_attribute_from_description(pcl.product.description, 'Materiał').lower(),
+                    condition=cls.get_attribute_from_description(pcl.product.description, 'Stan').lower(),
+                    channel_id=pcl.channel.id,
+                    channel_publication_date=pcl.publication_date,
+                    channel_age=cls.parse_date(pcl.publication_date),
+                    channel_is_published=pcl.is_published,
+                    channel_product_id=pcl.product_id,
+                    channel_slug=pcl.channel.slug,
+                    channel_visible_in_listings=pcl.visible_in_listings,
+                    channel_available_for_purchase=pcl.available_for_purchase,
+                    channel_currency=pvcl.currency,
+                    channel_price_amount=pvcl.price_amount,
+                    channel_cost_price_amount=pvcl.cost_price_amount,
+                    location=cls.parse_location(pvcl.variant.private_metadata.get('location')),
+                    initial_price_amount=pvcl.variant.product.metadata.get('initial_price'),
+                    workstation=cls.get_workstation(pvcl.variant.sku),
+                    user=cls.get_user(pvcl.variant.sku),
+                    discount="",
+                    is_bundled=cls.is_bundled(pvcl.variant.product.metadata.get('bundle.id'))
+                ))
+            except Exception:
+                exception = traceback.format_exc()
+                msg = f'{pvcl.variant.sku} {exception}'
+                failed_products_skus.append(msg)
 
         variants_sale_name = variantid_salename(tuple(variant_ids))
 
         for product in products:
             if product.variant_id in variants_sale_name:
                 product.discount = variants_sale_name[product.variant_id]
+
+        if failed_products_skus:
+            email_dict_errors(failed_products_skus)
 
         return products
 
