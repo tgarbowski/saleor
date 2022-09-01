@@ -26,6 +26,7 @@ from saleor.salingo.interface import (ProductRulesVariables, PricingCalculationO
                                       RoutingOutput, Location, PricingVariables, PricingConfig,
                                       PriceEnum)
 from saleor.salingo.sql.raw_sql import variant_id_sale_name
+from saleor.salingo.utils import email_dict_errors
 
 
 logger = logging.getLogger(__name__)
@@ -556,11 +557,9 @@ class Resolvers:
                     is_bundled=cls.is_bundled(pvcl.variant.product.metadata.get('bundle.id'))
                 ))
             except Exception:
-                from saleor.salingo.utils import email_dict_errors
-
                 exception = traceback.format_exc()
-                message = f'{pvcl.variant.sku} {exception}'
-                failed_products_skus.append(message)
+                msg = f'{pvcl.variant.sku} {exception}'
+                failed_products_skus.append(msg)
 
         variants_sale_name = variantid_salename(tuple(variant_ids))
 
@@ -568,7 +567,9 @@ class Resolvers:
             if product.variant_id in variants_sale_name:
                 product.discount = variants_sale_name[product.variant_id]
 
-        email_dict_errors(failed_products_skus)
+        if failed_products_skus:
+            email_dict_errors(failed_products_skus)
+
         return products
 
     @staticmethod
