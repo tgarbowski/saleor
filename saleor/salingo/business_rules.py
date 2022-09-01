@@ -67,7 +67,6 @@ class BusinessRulesEvaluator:
                         if output:
                             output_for_update[output.variant_id] = output
                     # Bulk action on matching products
-                    return
                     if output_for_update and self.mode == 'commit':
                         executor.bulk_handler(output_for_update)
                 products = resolver_function(cursor=products[-1].id)
