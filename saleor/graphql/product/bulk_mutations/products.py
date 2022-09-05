@@ -70,6 +70,7 @@ from saleor.plugins.allegro.tasks import publish_products, unpublish_from_multip
 from saleor.graphql.product.filters import ProductFilter, ProductFilterInput
 from saleor.salingo.utils import SalingoDatetimeFormats, validate_date_string, validate_datetime_string
 from saleor.product.models import ProductChannelListing
+from django.conf import settings
 
 
 class CategoryBulkDelete(ModelBulkDeleteMutation):
@@ -1119,12 +1120,15 @@ class ProductBulkPublish(BaseBulkMutation):
         for i, product_id in enumerate(product_ids):
             starting_at = (publish_date + timedelta(minutes=start)).strftime(SalingoDatetimeFormats.datetime)
             products_bulk_ids = product_ids if i == len(product_ids) - 1 else None
-            publish_products.delay(
-                product_id=product_id,
-                offer_type=data['offer_type'],
-                starting_at=starting_at,
-                products_bulk_ids=products_bulk_ids,
-                channel=data['channel']
+            publish_products.apply_async(
+                kwargs={
+                    'product_id': product_id,
+                    'offer_type': data['offer_type'],
+                    'starting_at': starting_at,
+                    'products_bulk_ids': products_bulk_ids,
+                    'channel': data['channel']
+                },
+                queue=settings.CELERY_LONG_TASKS_QUEUE
             )
 
             if (i + 1) % step == 0:

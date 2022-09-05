@@ -588,6 +588,11 @@ if APP_ENVIRONMENT in ['production']:
             'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
             'schedule': 1800.0,
             'options': {'queue': CELERY_TASK_DEFAULT_QUEUE}
+        },
+        'publication_flow': {
+            'task': 'saleor.salingo.tasks.publication_flow',
+            'schedule': crontab(minute=30, hour=0),
+            "options": {"queue": CELERY_LONG_TASKS_QUEUE}
         }
     })
 
@@ -595,7 +600,7 @@ if APP_ENVIRONMENT in ['staging']:
     CELERY_BEAT_SCHEDULE.update({
         'publication_flow': {
             'task': 'saleor.salingo.tasks.publication_flow',
-            'schedule': crontab(minute=0, hour=0),
+            'schedule': crontab(minute=30, hour=0),
             "options": {"queue": CELERY_LONG_TASKS_QUEUE}
         }
     })

@@ -8,6 +8,7 @@ from django.db.models import Q
 from saleor.plugins.allegro.enums import AllegroErrors
 from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.manager import get_plugins_manager
+from saleor.plugins.models import PluginConfiguration
 from saleor.product.models import (Product, ProductVariant, Category, ProductChannelListing,
                                    ProductVariantChannelListing, ProductMedia)
 from saleor.salingo.utils import SalingoDatetimeFormats
@@ -285,20 +286,19 @@ class AllegroErrorHandler:
 
     @staticmethod
     def update_errors_in_private_metadata(product, errors, channel):
-        # TODO: check publication_date flow
         product_channel_listing = ProductChannelListing.objects.get(
             channel__slug=channel,
             product=product)
 
         if errors:
             product_channel_listing.is_published = False
-            # product_channel_listing.publication_date = None
+            product_channel_listing.publication_date = None
             product.store_value_in_private_metadata({'publish.allegro.errors': errors})
         else:
             product_channel_listing.is_published = True
-            # product_channel_listing.publication_date = get_date_now()
+            product_channel_listing.publication_date = get_date_now()
             product.store_value_in_private_metadata({'publish.allegro.errors': []})
-        product_channel_listing.save(update_fields=["is_published"])
+        product_channel_listing.save(update_fields=["is_published", "publication_date"])
         product.save(update_fields=["private_metadata"])
 
     @staticmethod
@@ -310,3 +310,12 @@ class AllegroErrorHandler:
 def get_product_media_urls(product: "Product") -> [str]:
     product_medias = ProductMedia.objects.filter(product=product)
     return [product_media.image.url for product_media in product_medias]
+
+
+def get_allegro_channels_slugs() -> [str]:
+    channels = PluginConfiguration.objects.filter(
+        identifier='allegro',
+        active=True
+    ).values_list('channel__slug', flat=True)
+
+    return list(channels)
