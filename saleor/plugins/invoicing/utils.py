@@ -19,6 +19,7 @@ from saleor.graphql.salingo.utils import get_invoice_correct_payload
 from saleor.order.models import OrderLine
 from saleor.payment.utils import price_from_minor_unit, price_to_minor_unit
 from saleor.order import OrderStatus
+from ...order.utils import get_voucher_discount_for_order
 
 MAX_PRODUCTS_WITH_TABLE = 3
 MAX_PRODUCTS_WITHOUT_TABLE = 4
@@ -106,19 +107,25 @@ def generate_invoice_pdf(invoice, order):
     shipment = get_shipment_position(quantity=1, gross_amount=order.shipping_price_gross_amount)
     fulfilled_order_lines.append(shipment)
 
+    discount = get_voucher_discount_for_order(order)
+    if discount.amount > 0:
+        voucher = get_voucher_position(quantity=1, gross_amount=-discount.amount,
+                                       name=order.voucher.code)
+        fulfilled_order_lines.append(voucher)
+
     order_net_total = sum([position.total_price_net for position in fulfilled_order_lines])
     order_gross_total = sum([position.total_price_gross for position in fulfilled_order_lines])
 
     order_summary = create_positions_summary(order_net_total, order_gross_total)
     product_limit_first_page = get_product_limit_first_page(fulfilled_order_lines)
 
-    products_first_page = fulfilled_order_lines[:product_limit_first_page]
-    rest_of_products = chunk_products(
-        fulfilled_order_lines[product_limit_first_page:], MAX_PRODUCTS_PER_PAGE
-    )
+    # rest_of_products = chunk_products(
+    #     fulfilled_order_lines, MAX_PRODUCTS_PER_PAGE
+    # )
     order = invoice.order
     gift_cards_payment = get_gift_cards_payment_amount(order)
     creation_date = datetime.now(tz=pytz.utc)
+
     rendered_template = get_template("invoices/invoice.html").render(
         {
             "invoice": invoice,
@@ -126,8 +133,7 @@ def generate_invoice_pdf(invoice, order):
             "order": order,
             "gift_cards_payment": gift_cards_payment,
             "font_path": f"file://{font_path}",
-            "products_first_page": products_first_page,
-            "rest_of_products": rest_of_products,
+            "rest_of_products": fulfilled_order_lines,
             "shipment": shipment,
             "order_summary": order_summary
         }
@@ -286,6 +292,21 @@ def get_shipment_position(quantity: int, gross_amount: Decimal) -> "InvoicePosit
 
     return InvoicePosition(
         name="TRANSPORT Usługa transportowa",
+        quantity=quantity,
+        unit_price_net=gross_to_net(gross_amount),
+        total_price_net=total_price_net,
+        total_price_gross=total_price_gross,
+        vat=total_vat
+    )
+
+def get_voucher_position(quantity: int, gross_amount: Decimal, name: str) -> "InvoicePosition":
+    gross_amount = gross_amount.quantize(TWO_PLACES)
+    total_price_net = gross_to_net(gross_amount * quantity)
+    total_price_gross = (gross_amount * quantity).quantize(TWO_PLACES)
+    total_vat = total_price_gross - total_price_net
+
+    return InvoicePosition(
+        name=name,
         quantity=quantity,
         unit_price_net=gross_to_net(gross_amount),
         total_price_net=total_price_net,
