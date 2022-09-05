@@ -27,6 +27,7 @@ from saleor.salingo.interface import (ProductRulesVariables, PricingCalculationO
                                       PriceEnum)
 from saleor.salingo.sql.raw_sql import variant_id_sale_name
 from saleor.salingo.utils import email_dict_errors
+from saleor.plugins.allegro.utils import get_allegro_channels_slugs
 
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,7 @@ class RoutingExecutors:
     def bulk_handler(cls, products: Dict[int, 'RoutingOutput']):
         channel = get_first_product(products).source_channel
 
-        if channel in ['allegro']:
+        if channel in get_allegro_channels_slugs():
             cls.handle_allegro_flow(products)
         else:
             cls.bulk_change_channel_listings(products)

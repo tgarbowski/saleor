@@ -10,11 +10,10 @@ from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish
                     update_allegro_purchased_error, email_bulk_unpublish_result,
                     get_datetime_now, product_ids_to_skus, get_products_by_channels,
                     AllegroProductPublishValidator, AllegroErrorHandler,
-                    get_product_media_urls)
+                    get_product_media_urls, get_allegro_channels_slugs)
 from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import Category, Product, ProductMedia, ProductVariant
+from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
-from saleor.plugins.models import PluginConfiguration
 from .orders import insert_allegro_orders
 
 logger = logging.getLogger(__name__)
@@ -22,8 +21,7 @@ logger = logging.getLogger(__name__)
 
 @app.task()
 def refresh_token_task():
-    channels = list(PluginConfiguration.objects.filter(identifier='allegro', active=True).values_list(
-        'channel__slug', flat=True))
+    channels = get_allegro_channels_slugs()
 
     HOURS_BEFORE_WE_REFRESH_TOKEN = 6
 
@@ -372,8 +370,7 @@ def bulk_allegro_unpublish(channel, product_ids):
 
 @app.task()
 def save_allegro_orders_task():
-    channels = list(PluginConfiguration.objects.filter(identifier='allegro', active=True).values_list(
-        'channel__slug', flat=True))
+    channels = get_allegro_channels_slugs()
 
     for channel in channels:
         insert_allegro_orders(channel_slug=channel, past_days=1)
