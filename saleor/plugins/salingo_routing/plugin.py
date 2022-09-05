@@ -3,9 +3,9 @@ from django.core.exceptions import ValidationError
 from saleor.plugins.base_plugin import BasePlugin
 from saleor.plugins.error_codes import PluginErrorCode
 from saleor.plugins.models import PluginConfiguration
-from saleor.salingo.business_rules import (
-    DEFAULT_BUSINESS_RULES_CONFIGURATION, DEFAULT_BUSINESS_RULES_CONFIG_STRUCTURE,
-    BusinessRulesConfiguration, BusinessRulesEvaluator)
+from saleor.salingo.plugins_common import DEFAULT_BUSINESS_RULES_CONFIGURATION, DEFAULT_BUSINESS_RULES_CONFIG_STRUCTURE
+from saleor.salingo.business_rules import BusinessRulesEvaluator
+from saleor.salingo.interface import BusinessRulesConfiguration
 
 
 class SalingoRoutingPlugin(BasePlugin):

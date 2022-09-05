@@ -1,31 +1,34 @@
 from asyncio import run
-from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from enum import Enum
 import logging
 import re
-from typing import List, Dict, Optional
+from typing import List, Dict
 import yaml
 import time
+import traceback
 
 import rule_engine
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.core.exceptions import ObjectDoesNotExist
 
 from saleor.channel.models import Channel
 from saleor.product.models import (Category, Product, ProductVariantChannelListing,
                                    ProductChannelListing)
 from saleor.plugins.models import PluginConfiguration
-from saleor.plugins.base_plugin import ConfigurationTypeField
-from measurement.measures import Mass
 from saleor.salingo.utils import patch_async
 from saleor.plugins.allegro.api import AllegroAPI
 from saleor.plugins.allegro.tasks import bulk_allegro_unpublish
 from saleor.plugins.allegro.utils import skus_to_product_ids
+from saleor.discount.models import Sale
+from saleor.salingo.interface import (ProductRulesVariables, PricingCalculationOutput,
+                                      RoutingOutput, Location, PricingVariables, PricingConfig,
+                                      PriceEnum)
+from saleor.salingo.sql.raw_sql import variant_id_sale_name
+from saleor.salingo.utils import email_dict_errors
+from saleor.plugins.allegro.utils import get_allegro_channels_slugs
 
-
-PluginConfigurationType = List[dict]
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +49,7 @@ class BusinessRulesEvaluator:
             # Resolve products for given config
             resolver_function = getattr(Resolvers, config['resolver'])
             products = resolver_function(cursor=0)
-            executor = ExecutorsFactory.get_executor(plugin_slug=self.plugin_slug, config=config)
+            executor = ExecutorsFactory.get_executor(plugin_slug=self.plugin_slug)
             executor_function = getattr(executor, config['executor'])
 
             while products:
@@ -54,14 +57,16 @@ class BusinessRulesEvaluator:
                 for rule in engine_rules:
                     rule_object = rule_engine.Rule(rule['rule'], context=context)
                     matching_products = rule_object.filter(products)
+                    matching_products = filter(
+                        lambda product: product.id not in already_processed, matching_products
+                    )
                     output_for_update = {}
                     # Prepare output for matching products
                     for product in matching_products:
-                        if product.id not in already_processed:
-                            output = executor_function(product, rule['result'])
-                            already_processed.add(product.id)
-                            if output:
-                                output_for_update[output.variant_id] = output
+                        output = executor_function(product, rule['result'])
+                        already_processed.add(product.id)
+                        if output:
+                            output_for_update[output.variant_id] = output
                     # Bulk action on matching products
                     if output_for_update and self.mode == 'commit':
                         executor.bulk_handler(output_for_update)
@@ -99,7 +104,7 @@ class BusinessRulesEvaluator:
 
 class ExecutorsFactory:
     @staticmethod
-    def get_executor(plugin_slug, config):
+    def get_executor(plugin_slug):
         if plugin_slug == 'salingo_pricing':
             global_pricing_config = get_plugin_config_by_identifier('salingo_pricing_global')
             global_config = PricingConfig(
@@ -110,23 +115,22 @@ class ExecutorsFactory:
                 minimum_price=Decimal(global_pricing_config['minimum_price']),
                 price_per_kg=Decimal(global_pricing_config['price_per_kg'])
             )
-            return PricingExecutors(config=config, global_config=global_config)
+            return PricingExecutors(global_config=global_config)
         if plugin_slug == 'salingo_routing':
-            return RoutingExecutors(config=config)
+            return RoutingExecutors()
 
 
 class RoutingExecutors:
-    def __init__(self, config):
-        self.config = config
-
     @classmethod
     def bulk_handler(cls, products: Dict[int, 'RoutingOutput']):
-        channel = get_source_channel(products)
+        channel = get_first_product(products).source_channel
 
-        if channel in ['allegro']:
+        if channel in get_allegro_channels_slugs():
             cls.handle_allegro_flow(products)
         else:
             cls.bulk_change_channel_listings(products)
+
+        cls.apply_discounts(products)
 
     @classmethod
     def handle_allegro_flow(cls, products: Dict[int, 'RoutingOutput']):
@@ -135,8 +139,26 @@ class RoutingExecutors:
         cls.bulk_change_channel_listings(product_to_change)
 
     @classmethod
+    def apply_discounts(cls, products: Dict[int, 'RoutingOutput']):
+        discount_name = get_first_product(products=products).discount_name
+
+        if not discount_name:
+            return
+
+        variant_ids_discount = []
+        for key, value in products.items():
+            if value.discount_name:
+                variant_ids_discount.append(value.variant_id)
+
+        if variant_ids_discount:
+            assign_discounts(
+                variant_ids=variant_ids_discount,
+                sale_name=discount_name
+            )
+
+    @classmethod
     def remove_from_allegro(cls, products: Dict[int, 'RoutingOutput']):
-        channel = get_source_channel(products)
+        channel = get_first_product(products).source_channel
         product_ids = []
 
         for key, value in products.items():
@@ -146,18 +168,24 @@ class RoutingExecutors:
 
         return skus_to_product_ids(skus_purchased)
 
-
-    def move_from_unpublished(self, product: 'ProductRulesVariables', result: str):
+    def move_from_current_channel_to_target(self, product: 'ProductRulesVariables', result: str):
         message = f'{datetime.now()} moved from channel ' \
                   f'{product.channel_slug} to channel {result}'
         logger.info(f'{product.sku} {message}')
 
+        channel = result.split("_")[0]
+        try:
+            discount_name = result.split("_")[1]
+        except IndexError:
+            discount_name = None
+
         return RoutingOutput(
             variant_id=product.variant_id,
             id=product.id,
-            channel=result,
+            channel=channel,
             source_channel=product.channel_slug,
-            message=message
+            message=message,
+            discount_name=discount_name
         )
 
     @classmethod
@@ -186,8 +214,7 @@ class RoutingExecutors:
 
 
 class PricingExecutors:
-    def __init__(self, config, global_config):
-        self.config = config
+    def __init__(self, global_config):
         self.global_config = global_config
 
     def calculate_price(self, payload: 'PricingVariables') -> Decimal:
@@ -208,7 +235,6 @@ class PricingExecutors:
                 weight=payload.weight,
                 current_cost_price_amount=payload.current_cost_price_amount
             )
-
         else:
             price = payload.current_price
 
@@ -343,6 +369,7 @@ class PricingExecutors:
             id=product.id,
             price_amount=price,
             cost_price_amount=cost_price_amount,
+            current_cost_price_amount=validated_pricing_variables.current_cost_price_amount,
             message=message,
             sku=product.sku,
             source_channel=product.channel_slug,
@@ -353,16 +380,7 @@ class PricingExecutors:
 
     @classmethod
     def bulk_handler(cls, products: Dict[int, 'PricingCalculationOutput']) -> None:
-        channel = get_source_channel(products)
         cls.bulk_update_pricing(products)
-
-        channels = list(
-            PluginConfiguration.objects.filter(identifier='allegro').values_list(
-                'channel__slug', flat=True)
-            )
-
-        if channel in channels:
-            cls.bulk_update_pricing_allegro(products)
 
     @classmethod
     def bulk_update_pricing_allegro(cls, products: Dict[int, 'PricingCalculationOutput']):
@@ -409,17 +427,22 @@ class PricingExecutors:
 
     @classmethod
     def bulk_update_pricing(cls, products: Dict[int, 'PricingCalculationOutput']) -> None:
-        variant_ids = dict.keys(products)
+        variant_ids = []
         product_messages = {}
         initial_price_messages = {}
-
+        # Prepare logs messages and variants
         for key, value in products.items():
             product_messages[value.id] = value.message
             if value.initial_price_amount is None:
                 initial_price_messages[value.id] = value.price_amount
+            if (
+                    value.current_price_amount != value.price_amount or
+                    value.current_cost_price_amount != value.cost_price_amount
+                ):
+                variant_ids.append(value.variant_id)
 
         pvcl = ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids)
-
+        # Update price_amount on ProductVariantChannelListing
         for listing in pvcl:
             product = products[listing.variant_id]
             listing.price_amount = product.price_amount
@@ -430,7 +453,7 @@ class PricingExecutors:
             fields=['price_amount', 'cost_price_amount'],
             batch_size=500
         )
-
+        # Save Logs
         if initial_price_messages:
             bulk_log_to_private_metadata(product_messages=initial_price_messages, key='initial_price', obj_type='str')
 
@@ -478,56 +501,74 @@ class Resolvers:
 
         product_ids = list(product_channel_listings.values_list('product_id', flat=True))
         if not product_ids: return
-
+        product_channel_listings = product_channel_listings.iterator()
         product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
             channel__slug=channel, variant__product__id__in=product_ids
         ).select_related(
             'variant', 'variant__product', 'variant__product__product_type',
             'variant__product__category'
-        ).order_by('variant__product_id')[:LIMIT]
+        ).order_by('variant__product_id')[:LIMIT].iterator()
 
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
+        failed_products_skus = []
+        variant_ids = []
 
         for pcl, pvcl in zip(product_channel_listings, product_variant_channel_listing):
+            variant_ids.append(pvcl.variant.id)
+
             if pvcl.variant.product_id != pcl.product_id:
                 raise Exception(f'Wrong channel listings merge for SKU = {pvcl.variant.sku}. '
                                 f'PVCL product_id = {pvcl.variant.product_id} != '
                                 f'PCL product_id = {pcl.product_id}')
+            try:
+                products.append(ProductRulesVariables(
+                    id=pvcl.variant.product.id,
+                    variant_id=pvcl.variant.id,
+                    bundle_id=pvcl.variant.product.metadata.get('bundle.id'),
+                    created=pvcl.variant.product.created,
+                    type=pvcl.variant.product.product_type.name.lower(),
+                    name=pvcl.variant.product.name,
+                    slug=pvcl.variant.product.slug,
+                    category=pvcl.variant.product.category.slug,
+                    root_category=cls.get_root_category(category_tree_ids, pvcl.variant.product.category.tree_id),
+                    weight=pvcl.variant.product.weight,
+                    age=cls.parse_datetime(pvcl.variant.product.created),
+                    sku=pvcl.variant.sku,
+                    brand=cls.get_attribute_from_description(pcl.product.description, 'Marka').lower(),
+                    material=cls.get_attribute_from_description(pcl.product.description, 'Materiał').lower(),
+                    condition=cls.get_attribute_from_description(pcl.product.description, 'Stan').lower(),
+                    channel_id=pcl.channel.id,
+                    channel_publication_date=pcl.publication_date,
+                    channel_age=cls.parse_date(pcl.publication_date),
+                    channel_is_published=pcl.is_published,
+                    channel_product_id=pcl.product_id,
+                    channel_slug=pcl.channel.slug,
+                    channel_visible_in_listings=pcl.visible_in_listings,
+                    channel_available_for_purchase=pcl.available_for_purchase,
+                    channel_currency=pvcl.currency,
+                    channel_price_amount=pvcl.price_amount,
+                    channel_cost_price_amount=pvcl.cost_price_amount,
+                    location=cls.parse_location(pvcl.variant.private_metadata.get('location')),
+                    initial_price_amount=pvcl.variant.product.metadata.get('initial_price'),
+                    workstation=cls.get_workstation(pvcl.variant.sku),
+                    user=cls.get_user(pvcl.variant.sku),
+                    discount="",
+                    is_bundled=cls.is_bundled(pvcl.variant.product.metadata.get('bundle.id'))
+                ))
+            except Exception:
+                exception = traceback.format_exc()
+                msg = f'{pvcl.variant.sku} {exception}'
+                failed_products_skus.append(msg)
 
-            products.append(ProductRulesVariables(
-                id=pvcl.variant.product.id,
-                variant_id=pvcl.variant.id,
-                bundle_id=pvcl.variant.product.metadata.get('bundle.id'),
-                created=pvcl.variant.product.created,
-                type=pvcl.variant.product.product_type.name.lower(),
-                name=pvcl.variant.product.name,
-                slug=pvcl.variant.product.slug,
-                category=pvcl.variant.product.category.slug,
-                root_category=cls.get_root_category(category_tree_ids, pvcl.variant.product.category.tree_id),
-                weight=pvcl.variant.product.weight,
-                age=cls.parse_datetime(pvcl.variant.product.created),
-                sku=pvcl.variant.sku,
-                brand=cls.get_attribute_from_description(pcl.product.description, 'Marka').lower(),
-                material=cls.get_attribute_from_description(pcl.product.description, 'Materiał').lower(),
-                condition=cls.get_attribute_from_description(pcl.product.description, 'Stan').lower(),
-                channel_id=pcl.channel.id,
-                channel_publication_date=pcl.publication_date,
-                channel_age=cls.parse_date(pcl.publication_date),
-                channel_is_published=pcl.is_published,
-                channel_product_id=pcl.product_id,
-                channel_slug=pcl.channel.slug,
-                channel_visible_in_listings=pcl.visible_in_listings,
-                channel_available_for_purchase=pcl.available_for_purchase,
-                channel_currency=pvcl.currency,
-                channel_price_amount=pvcl.price_amount,
-                channel_cost_price_amount=pvcl.cost_price_amount,
-                location=cls.parse_location(pvcl.variant.private_metadata.get('location')),
-                initial_price_amount=pvcl.variant.product.metadata.get('initial_price'),
-                workstation=cls.get_workstation(pvcl.variant.sku),
-                user=cls.get_user(pvcl.variant.sku),
-                is_bundled=cls.is_bundled(pvcl.variant.product.metadata.get('bundle.id'))
-            ))
+        variants_sale_name = variantid_salename(tuple(variant_ids))
+
+        for product in products:
+            if product.variant_id in variants_sale_name:
+                product.discount = variants_sale_name[product.variant_id]
+
+        if failed_products_skus:
+            email_dict_errors(failed_products_skus)
 
         return products
 
@@ -545,12 +586,14 @@ class Resolvers:
 
     @staticmethod
     def get_attribute_from_description(description, attribute_name):
-        for block in description.get('blocks'):
-            text = block.get('data').get('text')
+        try:
+            for block in description.get('blocks'):
+                text = block.get('data').get('text')
 
-            if text and attribute_name in text:
-                return text.partition(":")[2].lower().strip()
-
+                if text and attribute_name in text:
+                    return text.partition(":")[2].lower().strip()
+        except:
+            return ''
         return ''
 
     @staticmethod
@@ -598,39 +641,6 @@ class Resolvers:
             return Location()
 
         return parsed_location
-
-
-DEFAULT_BUSINESS_RULES_CONFIGURATION = [
-        {"name": "ruleset", "value": ""},
-        {"name": "execute_order", "value": ""},
-        {"name": "resolver", "value": ""},
-        {"name": "executor", "value": ""},
-        {"name": "rules", "value": ""}
-    ]
-
-
-DEFAULT_BUSINESS_RULES_CONFIG_STRUCTURE = {
-        "ruleset": {
-            "type": ConfigurationTypeField.STRING,
-            "label": "Ruleset"
-        },
-        "execute_order": {
-            "type": ConfigurationTypeField.STRING,
-            "label": "Execute order"
-        },
-        "resolver": {
-            "type": ConfigurationTypeField.STRING,
-            "label": "Resolver"
-        },
-        "executor": {
-            "type": ConfigurationTypeField.STRING,
-            "label": "Executor"
-        },
-        "rules": {
-            "type": ConfigurationTypeField.MULTILINE,
-            "label": "Rules"
-        }
-    }
 
 
 def lowercase(obj: Dict):
@@ -714,118 +724,27 @@ def get_backstep_offer_index(offers_price_update, failed_result):
     return index_from_start_again
 
 
-def get_source_channel(products):
+def get_first_product(products):
     first_variant_id = next(iter(products))
-    channel = products[first_variant_id].source_channel
-    return channel
+    return products[first_variant_id]
 
 
-def get_target_channel(products):
-    first_variant_id = next(iter(products))
-    channel = products[first_variant_id].channel
-    return channel
+def assign_discounts(variant_ids: List[int], sale_name: str) -> None:
+    try:
+        sale = Sale.objects.get(name=sale_name)
+        sale.variants.add(*variant_ids)
+    except ObjectDoesNotExist:
+        logger.info(f'Wrong sale name: {sale_name}')
 
 
-@dataclass
-class ProductRulesVariables:
-    id: int
-    variant_id: int
-    bundle_id: int
-    created: datetime
-    type: str
-    name: str
-    slug: str
-    category: str
-    root_category: str
-    weight: Mass
-    age: int
-    sku: str
-    brand: str
-    material: str
-    condition: str
-    channel_id: int
-    channel_publication_date: datetime.date
-    channel_age: int
-    channel_is_published: bool
-    channel_product_id: int
-    channel_slug: str
-    channel_visible_in_listings: bool
-    channel_available_for_purchase: bool
-    channel_currency: str
-    channel_price_amount: Decimal
-    channel_cost_price_amount: Decimal
-    location: Dict
-    initial_price_amount: Decimal
-    workstation: str
-    user: str
-    is_bundled: bool
+def variantid_salename(variant_ids) -> Dict:
+    """ produce dict product_variant_id:sale_name"""
+    variants_sale_name = dict()
 
+    with connection.cursor() as cursor:
+        cursor.execute(variant_id_sale_name, [variant_ids])
+        row = cursor.fetchall()
+        for r in row:
+            variants_sale_name[r[0]] = r[1]
 
-@dataclass
-class PricingCalculationOutput:
-    variant_id: int
-    id: int
-    price_amount: Decimal
-    cost_price_amount: Decimal
-    message: str
-    sku: str
-    source_channel: str
-    initial_price_amount: Decimal
-    is_published: bool
-    current_price_amount: Decimal
-
-
-@dataclass
-class RoutingOutput:
-    variant_id: int
-    id: int
-    message: str
-    channel: str
-    source_channel: str
-
-
-@dataclass
-class Location:
-    type: str = None
-    number: int = None
-    box: int = None
-
-
-@dataclass
-class PricingVariables:
-    price_mode: str
-    current_price: Optional[Decimal]
-    current_cost_price_amount: Optional[Decimal]
-    result_price: Decimal
-    weight: Decimal
-    brand: str
-    product_type: str
-    material: str
-    condition: str
-
-
-@dataclass
-class PricingConfig:
-    condition: dict
-    product_type: dict
-    brand: dict
-    material: dict
-    minimum_price: Decimal
-    price_per_kg: Decimal
-
-
-class PriceEnum(Enum):
-    DISCOUNT = 'd'
-    ITEM = 'i'
-    KILOGRAM = 'k'
-    MANUAL = 'm'
-    ALGORITHM_OLD = 'aold'
-    ALGORITHM_NEW = 'anew'
-
-
-@dataclass
-class BusinessRulesConfiguration:
-    ruleset: str
-    execute_order: int
-    resolver: str
-    executor: str
+    return variants_sale_name

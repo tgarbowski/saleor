@@ -17,6 +17,7 @@ from .plugins.allegro.plugin import AllegroAuth
 from .plugins.sumi.plugin import SumiPlugin
 from .product.views import digital_product
 from .core import views
+from .salingo.views import remover_notify
 
 urlpatterns = [
     url(r"^graphql/$", csrf_exempt(GraphQLView.as_view(schema=schema)), name="api"),
@@ -50,6 +51,7 @@ urlpatterns = [
     url(r'^sumi/token(?P<channel_slug>[.0-9A-Za-z_\-]+)?$', SumiPlugin.get_allegro_token),
     url(r'^sumi/locate', SumiPlugin.locate_products),
     url(r".well-known/jwks.json", jwks, name="jwks"),
+    url(r"^remover/notify", remover_notify)
 ]
 
 if settings.DEBUG:

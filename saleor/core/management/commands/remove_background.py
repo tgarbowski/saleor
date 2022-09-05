@@ -1,13 +1,12 @@
 from datetime import datetime
-import requests
 
 import boto3
 from botocore.client import ClientError
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from saleor.product.models import ProductMedia
+from saleor.salingo.remover import RemoverApi, get_media_to_remove
+
 
 class Command(BaseCommand):
     version = "1.0"
@@ -31,85 +30,26 @@ class Command(BaseCommand):
         self.validate_dates()
 
         if self.mode == 'backup':
-            self.validate_bucket(self.backup)
-            self.process_images_backup_mode()
+            self.handle_backup_flow()
         elif self.mode == 'migration':
-            self.process_images_migration_mode()
+            self.handle_migration_flow()
 
-    def process_images_migration_mode(self):
-        images = self.get_images()
+    def handle_backup_flow(self):
+        self.validate_bucket(self.backup)
 
-        url = f'{settings.REMOVER_API_URL}/process_images/migration'
-        headers = {
-            "X-API-KEY": settings.REMOVER_API_KEY
-        }
-        data = {
-            "source": self.source,
-            "target": self.target,
-            "images": images
-        }
-
-        response = requests.post(
-            url=url,
-            json=data,
-            headers=headers
+        RemoverApi.process_images_backup_mode(
+            source=self.source,
+            target=self.target,
+            backup=self.backup,
+            images=get_media_to_remove(self.start_date, self.end_date)
         )
-        print(response.json())
 
-    def process_images_backup_mode(self):
-        images = self.get_images()
-
-        url = f'{settings.REMOVER_API_URL}/process_images/backup'
-        headers = {
-            "X-API-KEY": settings.REMOVER_API_KEY
-        }
-        data = {
-            "source": self.source,
-            "target": self.target,
-            "backup": self.backup,
-            "images": images
-        }
-
-        response = requests.post(
-            url=url,
-            json=data,
-            headers=headers
+    def handle_migration_flow(self):
+        RemoverApi.process_images_migration_mode(
+            source=self.source,
+            target=self.target,
+            images=get_media_to_remove(self.start_date, self.end_date)
         )
-        print(response.json())
-
-    def get_images(self):
-        images = ProductMedia.objects.raw('''
-                select
-                ppm.id,
-                ppm.image,
-                ppm.ppoi
-                from
-                product_product pp,
-                product_productmedia ppm,
-                product_producttype ppt,
-                product_productvariant ppv,
-                attribute_assignedproductattribute aapa,
-                attribute_assignedproductattributevalue aapav,
-                attribute_attributevalue aav,
-                attribute_attribute aa
-                where
-                pp.id = ppm.product_id
-                and pp.product_type_id = ppt.id
-                and pp.id = ppv.product_id
-                and pp.id = aapa.product_id
-                and aapa.id = aapav.assignment_id
-                and aapav.value_id = aav.id
-                and aav.attribute_id = aa.id
-                and cast(pp.created as date) between %s and %s
-                and aa."name" = 'Kolor'
-                and aav."name" != 'biały'
-                and ppt."name" not like 'Biustonosz%%'
-                order by ppv.sku
-                ''', [self.start_date, self.end_date])
-
-        images_list = [image.image.name for image in images]
-
-        return images_list
 
     def validate_bucket(self, bucket):
         s3 = boto3.resource('s3')

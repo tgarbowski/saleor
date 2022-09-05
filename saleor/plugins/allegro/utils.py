@@ -8,6 +8,7 @@ from django.db.models import Q
 from saleor.plugins.allegro.enums import AllegroErrors
 from saleor.plugins.allegro import ProductPublishState
 from saleor.plugins.manager import get_plugins_manager
+from saleor.plugins.models import PluginConfiguration
 from saleor.product.models import (Product, ProductVariant, Category, ProductChannelListing,
                                    ProductVariantChannelListing, ProductMedia)
 from saleor.salingo.utils import SalingoDatetimeFormats
@@ -309,3 +310,12 @@ class AllegroErrorHandler:
 def get_product_media_urls(product: "Product") -> [str]:
     product_medias = ProductMedia.objects.filter(product=product)
     return [product_media.image.url for product_media in product_medias]
+
+
+def get_allegro_channels_slugs() -> [str]:
+    channels = PluginConfiguration.objects.filter(
+        identifier='allegro',
+        active=True
+    ).values_list('channel__slug', flat=True)
+
+    return list(channels)

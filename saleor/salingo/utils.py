@@ -1,8 +1,15 @@
 import asyncio
+import functools
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from typing import List
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.http import HttpResponse
+from django.core.mail import send_mail
+from django.utils.html import strip_tags
+from django.template.loader import render_to_string
 
 from aiohttp.client import ClientSession
 import boto3
@@ -80,3 +87,33 @@ def get_aws_secret(secret_id: str) -> str:
         SecretId=secret_id,
     )
     return response.get('SecretString')
+
+
+def remover_auth(func):
+    @functools.wraps(func)
+    def wrapper_auth(*args, **kwargs):
+        if args[0].headers.get('X-API-KEY') != settings.REMOVER_SALEOR_API_KEY:
+            return HttpResponse(status=403)
+        return func(*args, **kwargs)
+    return wrapper_auth
+
+
+def date_x_days_before(days: int):
+    return date.today() - timedelta(days=days)
+
+
+def datetime_x_days_before(days: int):
+    return datetime.now() - timedelta(days=days)
+
+
+def email_dict_errors(errors: List[str]):
+    html_msg = render_to_string('product_variables_errors.html', {'errors': errors})
+    plain_message = strip_tags(html_msg)
+
+    send_mail(
+        subject='Product variables errors',
+        message=plain_message,
+        from_email='noreply.salingo@gmail.com',
+        recipient_list=['noreply.salingo@gmail.com'],
+        html_message=html_msg
+    )

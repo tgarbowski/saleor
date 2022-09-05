@@ -254,20 +254,20 @@ def export_tally_data_in_batches(
     for batch_pks in queryset_in_batches(queryset):
         invoice_batch = Invoice.objects.filter(pk__in=batch_pks).prefetch_related(
             "order",
-            "order__shipping_address"
+            "order__billing_address"
         )
         export_data = list(invoice_batch.values(
-            reciever_nip=F("order__shipping_address__vat_id"),
-            receiver_name=Concat(F("order__shipping_address__first_name"),
+            reciever_nip=F("order__billing_address__vat_id"),
+            receiver_name=Concat(F("order__billing_address__first_name"),
                                  Value(" "),
-                                 F("order__shipping_address__last_name")),
-            receiver_address=Concat(F("order__shipping_address__postal_code"),
+                                 F("order__billing_address__last_name")),
+            receiver_address=Concat(F("order__billing_address__postal_code"),
                                     Value(" "),
-                                    F("order__shipping_address__city"),
+                                    F("order__billing_address__city"),
                                     Value(", "),
-                                    F("order__shipping_address__street_address_1"),
+                                    F("order__billing_address__street_address_1"),
                                     Value(" "),
-                                    F("order__shipping_address__street_address_2")),
+                                    F("order__billing_address__street_address_2")),
             invoice_number=F("number"),
             created_date=Cast(TruncDay('created', DateTimeField()), CharField()),
             sale_date=Cast(TruncDay('created', DateTimeField()), CharField()),
