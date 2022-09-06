@@ -1057,10 +1057,15 @@ class ProductBulkPublish(BaseBulkMutation):
         unpublish_from_multiple_channels(product_ids=product_ids)
 
     @classmethod
-    def get_filtered_product_ids(cls, filter):
-        all_products = models.Product.objects.all()
+    def get_filtered_product_ids(cls, filters):
+        channel_slug = filters['channel']
+        product_ids = ProductChannelListing.objects.filter(channel__slug=channel_slug).values_list(
+            'product_id', flat=True
+        )
+
+        all_products = models.Product.objects.filter(pk__in=product_ids)
         filtered_products = ProductFilter(
-            data=filter, queryset=all_products
+            data=filters, queryset=all_products
         ).qs
 
         return list(filtered_products.values_list('id', flat=True))

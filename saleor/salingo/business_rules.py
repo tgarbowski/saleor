@@ -205,12 +205,31 @@ class RoutingExecutors:
             ProductChannelListing.objects.filter(product_id__in=product_ids).update(
                 channel_id=channel_id,
                 publication_date=None,
-                is_published=False
+                is_published=False,
+                visible_in_listings=False
             )
             ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids).update(
                 channel_id=channel_id)
 
+        cls.remove_allegro_metadata()
         bulk_log_to_private_metadata(product_messages=product_messages, key='history', obj_type='list')
+
+    @classmethod
+    def remove_allegro_metadata(cls, product_ids):
+        """Removes all allegro related private_metadata keys except publish.allegro.product"""
+        products = Product.objects.filter(pk__in=product_ids)
+
+        for product in products:
+            product.delete_value_from_private_metadata(key='publish.allegro.id')
+            product.delete_value_from_private_metadata(key='publish.allegro.date')
+            product.delete_value_from_private_metadata(key='publish.allegro.errors')
+            product.delete_value_from_private_metadata(key='publish.allegro.status')
+
+        Product.objects.bulk_update(
+            objs=products,
+            fields=['private_metadata'],
+            batch_size=100
+        )
 
 
 class PricingExecutors:
