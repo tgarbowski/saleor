@@ -117,11 +117,6 @@ def generate_invoice_pdf(invoice, order):
     order_gross_total = sum([position.total_price_gross for position in fulfilled_order_lines])
 
     order_summary = create_positions_summary(order_net_total, order_gross_total)
-    product_limit_first_page = get_product_limit_first_page(fulfilled_order_lines)
-
-    # rest_of_products = chunk_products(
-    #     fulfilled_order_lines, MAX_PRODUCTS_PER_PAGE
-    # )
     order = invoice.order
     gift_cards_payment = get_gift_cards_payment_amount(order)
     creation_date = datetime.now(tz=pytz.utc)
