@@ -250,9 +250,9 @@ class ExtTallyCsv(ModelMutation):
 
         app = info.context.app
         kwargs = {"app": app} if app else {"user": info.context.user}
-
-        export_file = csv_models.ExportFile.objects.create(**kwargs)
-        export_started_event(export_file=export_file, **kwargs)
+        export_file = csv_models.ExportFile.objects.create(
+            **kwargs, message="Tally-" + month + "-" + year)
+        export_started_event(export_file=export_file, user=info.context.user)
         export_tally_csv_task(export_file.pk, month, year)
 
         export_file.refresh_from_db()
@@ -280,7 +280,8 @@ class ExtMigloCsv(ModelMutation):
         app = info.context.app
         kwargs = {"app": app} if app else {"user": info.context.user}
 
-        export_file = csv_models.ExportFile.objects.create(**kwargs)
+        export_file = csv_models.ExportFile.objects.create(
+            **kwargs, message="Miglo-" + month + "-" + year)
         export_started_event(export_file=export_file, **kwargs)
         export_miglo_csv_task(export_file.pk, month, year)
 
