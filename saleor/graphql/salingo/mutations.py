@@ -252,7 +252,7 @@ class ExtTallyCsv(ModelMutation):
         kwargs = {"app": app} if app else {"user": info.context.user}
         export_file = csv_models.ExportFile.objects.create(
             **kwargs, message="Tally-" + month + "-" + year)
-        export_started_event(export_file=export_file, user=info.context.user)
+        export_started_event(export_file=export_file, **kwargs)
         export_tally_csv_task(export_file.pk, month, year)
 
         export_file.refresh_from_db()
