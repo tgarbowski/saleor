@@ -16,7 +16,7 @@ duplicated_products = """
          and pp.id  = d.product_id
          and substring(sku,1,2) in %s
     ), do_usuniecia as (
-        select encode(('Product:'||id::text)::bytea,'base64') as product_id, sku, data, name
+        select id as product_id, sku, data, name
         from leads
         where name = name_next
         and sku_num_next - sku_num = 1
