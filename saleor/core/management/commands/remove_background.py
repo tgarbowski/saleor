@@ -5,7 +5,7 @@ from botocore.client import ClientError
 
 from django.core.management.base import BaseCommand, CommandError
 
-from saleor.salingo.remover import RemoverApi, get_media_to_remove
+from saleor.salingo.remover import remove_background_with_backup
 
 
 class Command(BaseCommand):
@@ -36,20 +36,13 @@ class Command(BaseCommand):
 
     def handle_backup_flow(self):
         self.validate_bucket(self.backup)
-
-        RemoverApi.process_images_backup_mode(
-            source=self.source,
-            target=self.target,
-            backup=self.backup,
-            images=get_media_to_remove(self.start_date, self.end_date)
+        remove_background_with_backup(
+            start_date=self.start_date,
+            end_date=self.end_date
         )
 
     def handle_migration_flow(self):
-        RemoverApi.process_images_migration_mode(
-            source=self.source,
-            target=self.target,
-            images=get_media_to_remove(self.start_date, self.end_date)
-        )
+        raise NotImplementedError
 
     def validate_bucket(self, bucket):
         s3 = boto3.resource('s3')

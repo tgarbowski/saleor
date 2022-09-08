@@ -211,7 +211,7 @@ class RoutingExecutors:
             ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids).update(
                 channel_id=channel_id)
 
-        cls.remove_allegro_metadata()
+        cls.remove_allegro_metadata(product_ids=product_ids)
         bulk_log_to_private_metadata(product_messages=product_messages, key='history', obj_type='list')
 
     @classmethod
