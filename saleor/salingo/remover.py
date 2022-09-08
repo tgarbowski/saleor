@@ -1,4 +1,5 @@
 from enum import Enum
+import logging
 
 import requests
 
@@ -11,6 +12,9 @@ from saleor.graphql.product.utils import get_draft_order_lines_data_for_variants
 from saleor.order.models import OrderLine
 from saleor.order.tasks import recalculate_orders_task
 from saleor.product.models import Product, ProductVariant
+
+
+logger = logging.getLogger(__name__)
 
 
 class BackgroundRemoveStatus(Enum):
@@ -114,3 +118,25 @@ def delete_products(product_ids):
     order_pks = draft_order_lines_data.order_pks
     if order_pks:
         recalculate_orders_task.delay(list(order_pks))
+
+
+def remove_background_with_backup(start_date, end_date):
+    images = get_media_to_remove(start_date=start_date, end_date=end_date)
+    images_paths = [image.image.name for image in images]
+    image_ids = [image.id for image in images]
+
+    product_medias = ProductMedia.objects.filter(pk__in=image_ids)
+
+    bulk_log_to_oembed_data(
+        product_medias=product_medias,
+        status=BackgroundRemoveStatus.PENDING.value
+    )
+
+    remover_response = RemoverApi().process_images_backup_mode(
+        source=settings.AWS_MEDIA_BUCKET_NAME,
+        target=settings.AWS_MEDIA_BUCKET_NAME,
+        backup=settings.AWS_BACKUP_BUCKET_NAME,
+        images=images_paths
+    )
+
+    logger.info(remover_response.json())

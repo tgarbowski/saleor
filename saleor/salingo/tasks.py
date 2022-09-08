@@ -8,10 +8,9 @@ from django.conf import settings
 
 from ..celeryconf import app
 from saleor.salingo.business_rules import BusinessRulesEvaluator
-from saleor.product.models import Product, ProductChannelListing, ProductMedia, ProductVariant
+from saleor.product.models import Product, ProductChannelListing, ProductVariant
 from saleor.salingo.sql.raw_sql import duplicated_products
-from saleor.salingo.remover import (RemoverApi, get_media_to_remove, delete_products,
-                                    bulk_log_to_oembed_data, BackgroundRemoveStatus)
+from saleor.salingo.remover import delete_products, remove_background_with_backup
 from saleor.salingo.utils import date_x_days_before, datetime_x_days_before
 
 
@@ -60,26 +59,6 @@ def remove_products_with_no_media():
 
 
 @app.task()
-def remove_background(start_date, end_date):
-    images = get_media_to_remove(start_date=start_date, end_date=end_date)
-    images_paths = [image.image.name for image in images]
-    image_ids = [image.id for image in images]
-
-    product_medias = ProductMedia.objects.filter(pk__in=image_ids)
-
-    bulk_log_to_oembed_data(
-        product_medias=product_medias,
-        status=BackgroundRemoveStatus.PENDING.value
-    )
-
-    RemoverApi().process_images_backup_mode(
-        source=settings.AWS_MEDIA_BUCKET_NAME,
-        target=settings.AWS_MEDIA_BUCKET_NAME,
-        backup=settings.AWS_BACKUP_BUCKET_NAME,
-        images=images_paths
-    )
-
-@app.task()
 def rotate_channels():
     routing = BusinessRulesEvaluator(plugin_slug="salingo_routing", mode="commit")
     routing.evaluate_rules()
@@ -118,7 +97,7 @@ def cleanup_products():
 def publication_flow():
     cleanup_products()
     if settings.APP_ENVIRONMENT == 'production':
-        remove_background(
+        remove_background_with_backup(
             start_date=date_x_days_before(days=7),
             end_date=date.today()
         )
