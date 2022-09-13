@@ -58,10 +58,10 @@ products_media_to_remove_background = """
     """
 
 
-variant_id_sale_name = """
-    SELECT dsv.productvariant_id, ds."name"
-    FROM discount_sale_variants dsv
+product_id_sale_name = """
+    SELECT dsp.product_id, ds."name"
+    FROM discount_sale_products dsp
     join discount_sale ds
-    on dsv.sale_id = ds.id
-    WHERE dsv.productvariant_id in %s
+    on dsp.sale_id = ds.id
+    WHERE dsp.product_id in %s
 """
