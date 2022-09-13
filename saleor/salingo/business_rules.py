@@ -25,7 +25,7 @@ from saleor.discount.models import Sale
 from saleor.salingo.interface import (ProductRulesVariables, PricingCalculationOutput,
                                       RoutingOutput, Location, PricingVariables, PricingConfig,
                                       PriceEnum)
-from saleor.salingo.sql.raw_sql import variant_id_sale_name
+from saleor.salingo.sql.raw_sql import product_id_sale_name
 from saleor.salingo.utils import email_dict_errors
 from saleor.plugins.allegro.utils import get_allegro_channels_slugs
 
@@ -140,19 +140,26 @@ class RoutingExecutors:
 
     @classmethod
     def apply_discounts(cls, products: Dict[int, 'RoutingOutput']):
+        # Delete existing discounts
+        product_ids = []
+        for key, value in products.items():
+            product_ids.append(value.id)
+
+        delete_discounts(products_ids=product_ids)
+        # Apply discounts
         discount_name = get_first_product(products=products).discount_name
 
         if not discount_name:
             return
 
-        variant_ids_discount = []
+        product_ids_discount = []
         for key, value in products.items():
             if value.discount_name:
-                variant_ids_discount.append(value.variant_id)
+                product_ids_discount.append(value.id)
 
-        if variant_ids_discount:
+        if product_ids_discount:
             assign_discounts(
-                variant_ids=variant_ids_discount,
+                products_ids=product_ids_discount,
                 sale_name=discount_name
             )
 
@@ -531,10 +538,10 @@ class Resolvers:
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
         failed_products_skus = []
-        variant_ids = []
+        product_ids = []
 
         for pcl, pvcl in zip(product_channel_listings, product_variant_channel_listing):
-            variant_ids.append(pvcl.variant.id)
+            product_ids.append(pcl.product_id)
 
             if pvcl.variant.product_id != pcl.product_id:
                 raise Exception(f'Wrong channel listings merge for SKU = {pvcl.variant.sku}. '
@@ -580,11 +587,11 @@ class Resolvers:
                 msg = f'{pvcl.variant.sku} {exception}'
                 failed_products_skus.append(msg)
 
-        variants_sale_name = variantid_salename(tuple(variant_ids))
+        products_sale_name = productid_salename(tuple(product_ids))
 
         for product in products:
-            if product.variant_id in variants_sale_name:
-                product.discount = variants_sale_name[product.variant_id]
+            if product.id in products_sale_name:
+                product.discount = products_sale_name[product.id]
 
         if failed_products_skus:
             email_dict_errors(failed_products_skus)
@@ -748,22 +755,29 @@ def get_first_product(products):
     return products[first_variant_id]
 
 
-def assign_discounts(variant_ids: List[int], sale_name: str) -> None:
+def assign_discounts(products_ids: List[int], sale_name: str) -> None:
     try:
         sale = Sale.objects.get(name=sale_name)
-        sale.variants.add(*variant_ids)
+        sale.products.add(*products_ids)
     except ObjectDoesNotExist:
         logger.info(f'Wrong sale name: {sale_name}')
 
 
-def variantid_salename(variant_ids) -> Dict:
-    """ produce dict product_variant_id:sale_name"""
-    variants_sale_name = dict()
+def productid_salename(product_ids) -> Dict:
+    """ produce dict product_id:sale_name"""
+    products_sale_name = dict()
 
     with connection.cursor() as cursor:
-        cursor.execute(variant_id_sale_name, [variant_ids])
+        cursor.execute(product_id_sale_name, [product_ids])
         row = cursor.fetchall()
         for r in row:
-            variants_sale_name[r[0]] = r[1]
+            products_sale_name[r[0]] = r[1]
 
-    return variants_sale_name
+    return products_sale_name
+
+
+def delete_discounts(products_ids: List[int]) -> None:
+    sales = Sale.objects.all()
+
+    for sale in sales:
+        sale.products.remove(*sale.products.filter(pk__in=products_ids))
