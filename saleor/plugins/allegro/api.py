@@ -226,13 +226,13 @@ class AllegroAPI:
 
         return response
 
-    def get_request(self, endpoint, params=None):
+    def get_request(self, endpoint, params=None, api_version='public.v1'):
         try:
             url = self.env + '/' + endpoint
 
             headers = {'Authorization': 'Bearer ' + self.token,
-                       'Accept': 'application/vnd.allegro.public.v1+json',
-                       'Content-Type': 'application/vnd.allegro.public.v1+json'}
+                       'Accept': f'application/vnd.allegro.{api_version}+json',
+                       'Content-Type': f'application/vnd.allegro.{api_version}+json'}
 
             logger.info(f'GET request url: {url}')
 
@@ -316,6 +316,11 @@ class AllegroAPI:
 
         response = self.get_request(endpoint)
 
+        return json.loads(response.text)
+
+    def get_customer_returns(self):
+        endpoint = 'order/customer-returns?limit=1000'
+        response = self.get_request(endpoint=endpoint, api_version='beta.v1')
         return json.loads(response.text)
 
     def get_require_parameters(self, category_id, required_type):

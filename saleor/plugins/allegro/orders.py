@@ -139,21 +139,20 @@ def get_processed_allegro_orders_ids(past_days: int) -> List[int]:
 
 
 def filter_unprocessed_orders(checkout_forms, processed_allegro_orders_ids):
+    # TODO: processed_allegro_orders_ids as set
     checkout_forms = [checkout_form for checkout_form in checkout_forms
                       if checkout_form['id'] not in processed_allegro_orders_ids]
 
     return checkout_forms
 
 
-def get_allegro_orders(channel_slug: str, past_days: int) -> List[Dict]:
+def get_allegro_orders(channel_slug: str, past_days: int, statuses: List[str]) -> List[Dict]:
     from .api import AllegroAPI
 
     allegro_api = AllegroAPI(channel=channel_slug)
 
     updated_at_from = timezone.now() - timedelta(days=past_days)
     updated_at_from = datetime.strftime(updated_at_from, "%Y-%m-%dT%H:%M:%S")
-
-    statuses = ['READY_FOR_PROCESSING']
 
     orders = allegro_api.get_orders(statuses=statuses, updated_at_from=updated_at_from)
 
@@ -263,7 +262,11 @@ def save_allegro_order(checkout_form, channel_global_id):
 
 
 def insert_allegro_orders(channel_slug, past_days):
-    orders = get_allegro_orders(channel_slug=channel_slug, past_days=past_days)
+    orders = get_allegro_orders(
+        channel_slug=channel_slug,
+        past_days=past_days,
+        statuses=['READY_FOR_PROCESSING']
+    )
     # Get already processed orders from db last x days
     processed_allegro_orders_ids = get_processed_allegro_orders_ids(past_days=past_days)
     # Filter processed orders from allegro orders
@@ -274,3 +277,110 @@ def insert_allegro_orders(channel_slug, past_days):
 
     for unprocessed_order in unprocessed_orders:
         save_allegro_order(checkout_form=unprocessed_order, channel_global_id=channel_global_id)
+
+
+from saleor.plugins.sumi.plugin import SumiPlugin
+from saleor.warehouse.models import Stock
+from django.db import transaction
+from dataclasses import dataclass
+from datetime import datetime
+from saleor.plugins.allegro.utils import get_datetime_now
+from saleor.plugins.allegro.api import AllegroAPI
+
+
+@dataclass
+class AllegroSoldOffer:
+    sku: str = ''
+    sale_date: datetime = None
+    price: float = None
+    status: str = 'SOLD'
+
+
+def sell_products(skus: List[str]):
+    # wtf if Stock.objects.exists():
+    products = [AllegroSoldOffer()]
+
+    for product in products:
+        try:
+            product_variant = ProductVariant.objects.get(sku=product.get('sku'))
+        except ProductVariant.DoesNotExist:
+            continue
+
+        stock = Stock.objects.filter(product_variant=product_variant).first()
+
+        if stock.quantity > 0:
+            save_sold_product_metadata(
+                product=product_variant.product,
+                product_data=product
+            )
+
+
+def save_sold_product_metadata(product, product_data):
+    product.store_value_in_private_metadata(
+        {
+            'publish.status.date': datetime.strptime(product_data.sale_date,'%Y-%m-%dT%H:%M:%SZ').strftime("%Y-%m-%d %H:%M:%S"),
+            'publish.allegro.price': product_data.price,
+            'publish.allegro.status': product_data.status
+        }
+    )
+
+    product.save(update_fields=["private_metadata"])
+
+
+def cancel_reservation(skus: List[str]):
+    # TODO: get stocks and variants in 1 query
+    product_variants = ProductVariant.objects.filter(sku=skus)
+
+    for product_variant in product_variants:
+        try:
+            stock = Stock.objects.get(product_variant=product_variant)
+        except Stock.DoesNotExist:
+            continue
+
+        if SumiPlugin.is_product_sold(product_variant.product):
+            cancel_sold_product_reservation(stock)
+
+
+@transaction.atomic
+def cancel_sold_product_reservation(product_variant_stock):
+    try:
+        save_cancel_reservation_data(product_variant_stock.product_variant.product)
+        product_variant_stock.increase_stock(1)
+    except Exception:
+        transaction.set_rollback(True)
+
+def save_cancel_reservation_data(product):
+    product.store_value_in_private_metadata(
+        {'publish.status.date': get_datetime_now()}
+    )
+    # product.delete_value_from_private_metadata('publish.allegro.price')
+    product.save(update_fields=["private_metadata"])
+
+
+def get_returned_products_skus() -> List[str]:
+    api = AllegroAPI(channel='allegro')
+
+    customer_returns = api.get_customer_returns()
+    # Extract offer_ids
+    offer_ids = []
+    skus = []
+
+    for customer_return in customer_returns['customerReturns']:
+        for item in customer_return['items']:
+            offer_ids.append(item['offerId'])
+    # get skus by offer_ids
+    for offer_id in offer_ids:
+        offer = api.get_offer(offer_id)
+        sku = offer.get('external').get('id')
+        skus.append(sku)
+    return skus
+
+
+def get_cancelled_products():
+    cancelled_offers = get_allegro_orders(
+        channel_slug='allegro',
+        past_days=360,
+        statuses=['CANCELLED']
+    )
+
+    print('cancelled_offers', cancelled_offers)
