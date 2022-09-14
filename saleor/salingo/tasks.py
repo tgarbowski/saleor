@@ -7,7 +7,7 @@ from django.db import connection
 from django.conf import settings
 
 from ..celeryconf import app
-from saleor.salingo.business_rules import BusinessRulesEvaluator
+from saleor.salingo.business_rules import BusinessRulesEvaluator, get_publishable_channel_variants
 from saleor.product.models import Product, ProductChannelListing, ProductVariant
 from saleor.salingo.sql.raw_sql import duplicated_products
 from saleor.salingo.remover import delete_products, remove_background_with_backup
@@ -74,9 +74,9 @@ def calculate_prices():
 def publish_local_shop(channel_slug):
     current_date = date.today()
 
+    publishable_variants = get_publishable_channel_variants(channel_slug)
     channel_listings = ProductChannelListing.objects.filter(
-        channel__slug=channel_slug,
-        is_published=False
+        product__variants__in=publishable_variants
     )
     channel_listings.update(
         available_for_purchase=current_date,
