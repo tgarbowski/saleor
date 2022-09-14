@@ -11,11 +11,12 @@ import traceback
 import rule_engine
 
 from django.db import connection, transaction
+from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
 
 from saleor.channel.models import Channel
-from saleor.product.models import (Category, Product, ProductVariantChannelListing,
-                                   ProductChannelListing)
+from saleor.product.models import (Category, Product, ProductVariant,
+                                   ProductVariantChannelListing, ProductChannelListing)
 from saleor.plugins.models import PluginConfiguration
 from saleor.salingo.utils import patch_async
 from saleor.plugins.allegro.api import AllegroAPI
@@ -526,6 +527,9 @@ class Resolvers:
         ).select_related('channel', 'product').order_by('product_id')[:LIMIT]
 
         product_ids = list(product_channel_listings.values_list('product_id', flat=True))
+        variant_ids = list(ProductVariant.objects.filter(
+            product_id__in=product_ids
+        ).values_list('pk', flat=True))
         if not product_ids: return
         product_channel_listings = product_channel_listings.iterator()
         product_variant_channel_listing = ProductVariantChannelListing.objects.filter(
@@ -538,15 +542,14 @@ class Resolvers:
         category_tree_ids = cls.get_main_category_tree_ids()
         products = []
         failed_products_skus = []
-        product_ids = []
+        not_publishable = filter_not_publishable_variants(variant_ids)
 
         for pcl, pvcl in zip(product_channel_listings, product_variant_channel_listing):
-            product_ids.append(pcl.product_id)
+            validate_listings_integrity(pcl=pcl, pvcl=pvcl)
+            # Skip sold/out of stock products
+            if pvcl.variant_id in not_publishable:
+                continue
 
-            if pvcl.variant.product_id != pcl.product_id:
-                raise Exception(f'Wrong channel listings merge for SKU = {pvcl.variant.sku}. '
-                                f'PVCL product_id = {pvcl.variant.product_id} != '
-                                f'PCL product_id = {pcl.product_id}')
             try:
                 products.append(ProductRulesVariables(
                     id=pvcl.variant.product.id,
@@ -781,3 +784,64 @@ def delete_discounts(products_ids: List[int]) -> None:
 
     for sale in sales:
         sale.products.remove(*sale.products.filter(pk__in=products_ids))
+
+
+def get_variants_out_of_stock(variant_ids: List[int]) -> List[int]:
+    from saleor.warehouse.models import Stock
+
+    all_variants_stocks = (
+        Stock.objects.filter(product_variant__in=variant_ids).annotate_available_quantity()
+    )
+    out_of_stocks = all_variants_stocks.filter(
+        available_quantity=0
+    ).values_list('product_variant_id', flat=True)
+
+    return list(out_of_stocks)
+
+
+def get_sold_allegro_variants(variant_ids: List[int]) -> List[int]:
+    status_sold = {'private_metadata__publish.allegro.status': 'sold'}
+    allegro_price_null = {'private_metadata__publish.allegro.price__isnull': False}
+
+    products = Product.objects.filter(
+        Q(**status_sold) | Q(**allegro_price_null)
+    ).values_list('pk', flat=True)
+
+    variants = ProductVariant.objects.filter(
+        product__in=products,
+        pk__in=variant_ids
+    ).values_list('pk', flat=True)
+
+    return list(variants)
+
+
+def filter_not_publishable_variants(variant_ids):
+    sold = set(get_sold_allegro_variants(variant_ids))
+    out_of_stock = set(get_variants_out_of_stock(variant_ids))
+
+    return sold | out_of_stock
+
+
+def get_publishable_channel_variants(channel_slug):
+    products = ProductChannelListing.objects.filter(
+        channel__slug=channel_slug,
+        is_published=False
+    ).values_list('product_id', flat=True)
+
+    variants = ProductVariant.objects.filter(
+        product__in=products
+    ).values_list('pk', flat=True)
+    variant_ids = list(variants)
+
+    not_publishable_variants = filter_not_publishable_variants(variant_ids=variant_ids)
+
+    publishable_variants = [variant_id for variant_id in variant_ids if
+                           variant_id not in not_publishable_variants]
+    return publishable_variants
+
+
+def validate_listings_integrity(pcl, pvcl):
+    if pvcl.variant.product_id != pcl.product_id:
+        raise Exception(f'Wrong channel listings merge for SKU = {pvcl.variant.sku}. '
+                        f'PVCL product_id = {pvcl.variant.product_id} != '
+                        f'PCL product_id = {pcl.product_id}')
