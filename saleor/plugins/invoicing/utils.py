@@ -144,33 +144,41 @@ def generate_correction_invoice_pdf(invoice, order):
     fulfilled_products = OrderLine.objects.filter(id__in=fulfilled_order_lines)
     not_fulfilled_products = OrderLine.objects.filter(id__in=not_fulfilled_order_lines)
 
-    merge_products = create_merge_products(fulfilled_products, not_fulfilled_products)
-    corrected_positions_summary_net = sum([position.total_price_net for position in merge_products])
-    corrected_positions_summary_gross = sum([position.total_price_gross for position in merge_products])
-    shipping_price_net = gross_to_net(order.shipping_price_gross_amount)
-
-    if order.status != OrderStatus.RETURNED:
-        corrected_positions_summary_net += shipping_price_net
-        corrected_positions_summary_gross += order.shipping_price_gross_amount.quantize(TWO_PLACES)
+    merge_lines = create_merge_products(fulfilled_products, not_fulfilled_products)
     # Original invoice
     original_invoice_payload = invoice.parent.private_metadata.get("lines")
+    original_invoice_discounts = invoice.parent.private_metadata.get("discounts")
     original_invoice = original_invoice_lines_to_lines(original_invoice_payload)
+    # Shipment
+    shipment_quantity = 1 if order.status != OrderStatus.RETURNED else 0
+    shipment = get_additional_position(quantity=shipment_quantity,
+                                       gross_amount=order.shipping_price_gross_amount,
+                                       name="TRANSPORT Usługa transportowa")
+    merge_lines.append(shipment)
+    # Discounts
+    if original_invoice_discounts:
+        discount_position = \
+            get_additional_position(
+                quantity=1,
+                gross_amount=-Decimal(int(
+                    original_invoice_discounts[0].get("discount").get("rw"))/100),
+                name=original_invoice_discounts[0].get("discount").get("na"))
+        original_invoice.append(discount_position)
+        merge_lines.append(discount_position)
+    # Original invoice summary
     original_positions_summary_net = sum([position.total_price_net for position in original_invoice])
     original_positions_summary_gross = sum([position.total_price_gross for position in original_invoice])
     original_positions_summary = create_positions_summary(original_positions_summary_net, original_positions_summary_gross)
     # Corrected invoice
+    corrected_positions_summary_net = sum([position.total_price_net for position in merge_lines])
+    corrected_positions_summary_gross = sum([position.total_price_gross for position in merge_lines])
     corrected_positions_summary = create_positions_summary(corrected_positions_summary_net, corrected_positions_summary_gross)
     final_summary = corrected_positions_summary.total_gross_amount - original_positions_summary.total_gross_amount
-    # Shipment
-    shipment_quantity = 1 if order.status != OrderStatus.RETURNED else 0
-    shipment = get_shipment_position(quantity=shipment_quantity, gross_amount=order.shipping_price_gross_amount)
 
     creation_date = datetime.now(tz=pytz.utc)
-    rec_payload = get_receipt_payload(merge_products, shipment, corrected_positions_summary.total_gross_amount)
+    rec_payload = get_receipt_payload(merge_lines, corrected_positions_summary.total_gross_amount)
     invoice.private_metadata = rec_payload
     invoice.save()
-
-    merge_products.append(shipment)
 
     rendered_template = get_template("invoices/correction_invoice.html").render(
         {
@@ -179,7 +187,7 @@ def generate_correction_invoice_pdf(invoice, order):
             "order": order,
             "font_path": f"file://{font_path}",
             "original_invoice": original_invoice,
-            "merge_products": merge_products,
+            "merge_products": merge_lines,
             "shipment": shipment,
             "is_invoice": bool(strtobool(order.metadata.get("invoice"))),
             "final_summary": final_summary,
@@ -228,7 +236,7 @@ def create_merge_products(fulfilled_products, not_fulfilled_products):
     return merge_products
 
 
-def get_receipt_payload(merge_products, shipping, corrected_positions_summary):
+def get_receipt_payload(merge_products, corrected_positions_summary):
     lines_json = []
 
     for line_fulfilled in merge_products:
@@ -239,14 +247,6 @@ def get_receipt_payload(merge_products, shipping, corrected_positions_summary):
             "pr": price_to_minor_unit(value=line_fulfilled.total_price_gross, currency='PLN')
         }
         lines_json.append(line)
-
-    shipping_position = {
-        "na": "TRANSPORT Usługa transportowa",
-        "il": shipping.quantity,
-        "vtp": "23,00",
-        "pr": price_to_minor_unit(value=shipping.total_price_gross, currency='PLN')
-    }
-    lines_json.append(shipping_position)
 
     summary = {
         "to": price_to_minor_unit(value=corrected_positions_summary, currency='PLN')
