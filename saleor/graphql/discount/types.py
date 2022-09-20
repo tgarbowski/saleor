@@ -119,7 +119,6 @@ class Sale(ChannelContextTypeWithMetadata, ModelObjectType):
         return create_connection_slice(qs, info, kwargs, CollectionCountableConnection)
 
     @staticmethod
-    @permission_required(DiscountPermissions.MANAGE_DISCOUNTS)
     def resolve_products(root: ChannelContext[models.Sale], info, **kwargs):
         qs = root.node.products.all()
         qs = ChannelQsContext(qs=qs, channel_slug=root.channel_slug)
