@@ -23,17 +23,6 @@ def get_receipt_payload(order):
         }
         lines_json.append(line)
 
-    discount = get_voucher_discount_for_order(order)
-
-    if discount.amount > 0:
-        discount_position = {
-            "na": order.voucher.code,
-            "il": 1,
-            "vtp": "23,00",
-            "pr": f'-{price_to_minor_unit(value=discount.amount, currency="PLN")}'
-        }
-        lines_json.append(discount_position)
-
     shipping_position = {
         "na": "TRANSPORT Usługa transportowa",
         "il": 1,
@@ -48,8 +37,21 @@ def get_receipt_payload(order):
 
     payload = {
         "lines": lines_json,
-        "summary": summary
+        "summary": summary,
     }
+
+    discount = get_voucher_discount_for_order(order)
+    if discount.amount > 0:
+        discount_position = [{
+            "type": "bill",
+            "discount": {
+                "na": order.voucher.code,
+                "rd": "true",
+                "rw": price_to_minor_unit(value=discount.amount, currency="PLN")
+            }
+        }]
+        payload["discounts"] = discount_position
+
     return payload
 
 
