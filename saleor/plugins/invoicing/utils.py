@@ -172,10 +172,6 @@ def generate_correction_invoice_pdf(invoice, order):
     # Corrected invoice
     corrected_positions_summary_net = sum([position.total_price_net for position in merge_lines])
     corrected_positions_summary_gross = sum([position.total_price_gross for position in merge_lines])
-    # shipping_price_net = gross_to_net(order.shipping_price_gross_amount)
-    # if order.status != OrderStatus.RETURNED:
-    #     corrected_positions_summary_net += shipping_price_net
-    #     corrected_positions_summary_gross += order.shipping_price_gross_amount.quantize(TWO_PLACES)
     corrected_positions_summary = create_positions_summary(corrected_positions_summary_net, corrected_positions_summary_gross)
     final_summary = corrected_positions_summary.total_gross_amount - original_positions_summary.total_gross_amount
 
