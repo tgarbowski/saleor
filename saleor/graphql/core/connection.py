@@ -391,7 +391,6 @@ def filter_connection_queryset(iterable, args, request=None, root=None):
     filterset_class = args[FILTERSET_CLASS]
     filter_field_name = args[FILTERS_NAME]
     filter_input = args.get(filter_field_name)
-
     if filter_input:
         # for nested filters get channel from ChannelContext object
         if "channel" not in args and root and hasattr(root, "channel_slug"):
@@ -406,7 +405,6 @@ def filter_connection_queryset(iterable, args, request=None, root=None):
             or filter_channel
             or get_default_channel_slug_or_graphql_error()
         )
-
         if isinstance(iterable, ChannelQsContext):
             queryset = iterable.qs
         else:
@@ -415,12 +413,9 @@ def filter_connection_queryset(iterable, args, request=None, root=None):
         filterset = filterset_class(filter_input, queryset=queryset, request=request)
         if not filterset.is_valid():
             raise GraphQLError(json.dumps(filterset.errors.get_json_data()))
-
         if isinstance(iterable, ChannelQsContext):
             return ChannelQsContext(filterset.qs, iterable.channel_slug)
-
         return filterset.qs
-
     return iterable
 
 

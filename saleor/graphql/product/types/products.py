@@ -1174,6 +1174,7 @@ class Product(ChannelContextTypeWithMetadata, ModelObjectType):
 
     @staticmethod
     def __resolve_references(roots: List["Product"], info, **_kwargs):
+        print("\n\n\ntest2\n\n\n")
         requestor = get_user_or_app_from_context(info.context)
         channels = defaultdict(set)
         roots_ids = []

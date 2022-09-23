@@ -21,6 +21,7 @@ from ...attribute.models import (
     AttributeValue,
 )
 from ...channel.models import Channel
+from ...discount.models import Sale
 from ...product import ProductTypeKind
 from ...product.models import (
     Category,
@@ -307,6 +308,12 @@ def filter_products_by_collections(qs, collection_pks):
     return qs.filter(Exists(collection_products.filter(product_id=OuterRef("pk"))))
 
 
+def filter_products_by_sales(qs, sale_ids):
+    sales = Sale.objects.filter(pk__in=sale_ids)
+    print("\n\n\n", sales, sale_ids, "\n\n\n")
+    return qs.filter(Exists(sales.filter(pk=OuterRef("pk"))))
+
+
 def filter_products_by_stock_availability(qs, stock_availability, channel_slug):
     allocations = (
         Allocation.objects.values("stock_id")
@@ -407,6 +414,20 @@ def filter_categories(qs, _, value):
             value, product_types.Category
         )
         qs = filter_products_by_categories(qs, category_pks)
+    return qs
+
+
+def filter_sales(qs, _, value):
+    if value:
+        _, sale_pks = resolve_global_ids_to_primary_keys(
+            value, Sale
+        )
+        qs = filter_products_by_sales(qs, sale_pks)
+    # if value:
+    #     _, category_pks = resolve_global_ids_to_primary_keys(
+    #         value, product_types.Category
+    #     )
+    #     qs = filter_products_by_categories(qs, category_pks)
     return qs
 
 
@@ -629,6 +650,7 @@ class ProductFilter(MetadataFilterBase):
     is_published = django_filters.BooleanFilter(method="filter_is_published")
     collections = GlobalIDMultipleChoiceFilter(method=filter_collections)
     categories = GlobalIDMultipleChoiceFilter(method=filter_categories)
+    sales = GlobalIDMultipleChoiceFilter(method=filter_sales)
     has_category = django_filters.BooleanFilter(method=filter_has_category)
     price = ObjectTypeFilter(input_class=PriceRangeInput, method="filter_variant_price")
     minimal_price = ObjectTypeFilter(

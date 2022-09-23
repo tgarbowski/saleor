@@ -349,6 +349,7 @@ class ProductQueries(graphene.ObjectType):
 
     @traced_resolver
     def resolve_products(self, info, channel=None, **kwargs):
+        print("\n\n\n", kwargs, "\n\n\n")
         requestor = get_user_or_app_from_context(info.context)
         has_required_permissions = has_one_of_permissions(
             requestor, ALL_PRODUCTS_PERMISSIONS
@@ -357,7 +358,9 @@ class ProductQueries(graphene.ObjectType):
             channel = get_default_channel_slug_or_graphql_error()
         qs = resolve_products(info, requestor, channel_slug=channel, **kwargs)
         kwargs["channel"] = channel
+        print("\n\nqs: ", qs)
         qs = filter_connection_queryset(qs, kwargs)
+        print("\n\nqs:  ", qs)
         return create_connection_slice(qs, info, kwargs, ProductCountableConnection)
 
     def resolve_product_type(self, info, id, **_kwargs):
