@@ -139,7 +139,6 @@ def invoice_correction_request(
             prefix=correction_prefix,
             last_correction_invoice=last_correction_invoice
         )
-
     invoice.update_invoice(number=invoice_number)
 
     file_content, creation_date = generate_correction_invoice_pdf(invoice, order)

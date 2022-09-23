@@ -89,12 +89,10 @@ class DiscountQueries(graphene.ObjectType):
         description="List of the shop's vouchers.",
     )
 
-    @permission_required(DiscountPermissions.MANAGE_DISCOUNTS)
     def resolve_sale(self, info, id, channel=None):
         _, id = from_global_id_or_error(id, Sale)
         return resolve_sale(id, channel)
 
-    @permission_required(DiscountPermissions.MANAGE_DISCOUNTS)
     def resolve_sales(self, info, channel=None, **kwargs):
         qs = resolve_sales(info, channel_slug=channel, **kwargs)
         kwargs["channel"] = channel
