@@ -21,7 +21,6 @@ from ...attribute.models import (
     AttributeValue,
 )
 from ...channel.models import Channel
-from ...discount.models import Sale
 from ...product import ProductTypeKind
 from ...product.models import (
     Category,
@@ -33,6 +32,7 @@ from ...product.models import (
     ProductVariant,
     ProductVariantChannelListing,
 )
+from ...discount.models import Sale
 from ...product.search import search_products
 from ...warehouse.models import Allocation, Stock, Warehouse
 from ..channel.filters import get_channel_slug_from_filter_data
@@ -309,9 +309,8 @@ def filter_products_by_collections(qs, collection_pks):
 
 
 def filter_products_by_sales(qs, sale_ids):
-    sales = Sale.objects.filter(pk__in=sale_ids)
-    print("\n\n\n", sales, sale_ids, "\n\n\n")
-    return qs.filter(Exists(sales.filter(pk=OuterRef("pk"))))
+    sales = Sale.objects.filter(pk__in=sale_ids).values('products')
+    return qs.filter(Exists(sales.filter(products=OuterRef("pk"))))
 
 
 def filter_products_by_stock_availability(qs, stock_availability, channel_slug):
@@ -420,7 +419,7 @@ def filter_categories(qs, _, value):
 def filter_sales(qs, _, value):
     if value:
         _, sale_pks = resolve_global_ids_to_primary_keys(
-            value, Sale
+            value, product_types.Sale
         )
         qs = filter_products_by_sales(qs, sale_pks)
     # if value:

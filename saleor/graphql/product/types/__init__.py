@@ -17,3 +17,7 @@ from .products import (
     ProductVariant,
     ProductVariantCountableConnection,
 )
+from .discounts import (
+    Sale,
+    SaleCountableConnection
+)

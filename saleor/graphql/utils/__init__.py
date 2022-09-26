@@ -37,7 +37,6 @@ def resolve_global_ids_to_primary_keys(
         except Exception:
             invalid_ids.append(graphql_id)
             continue
-
         # Raise GraphQL error if ID of a different type was passed
         if used_type and str(used_type) != str(node_type):
             if not raise_error:
@@ -49,7 +48,6 @@ def resolve_global_ids_to_primary_keys(
 
     if invalid_ids:
         raise GraphQLError(ERROR_COULD_NO_RESOLVE_GLOBAL_ID % invalid_ids)
-
     return used_type, pks
 
 
