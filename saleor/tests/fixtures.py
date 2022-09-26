@@ -132,6 +132,7 @@ from .utils import dummy_editorjs
 
 from saleor.graphql.wms.tests.fixtures import (wms_document, wms_docposition, setup_wms,
                                                permission_manage_wmsdocument, wms_deliverer)
+from saleor.plugins.allegro.tests.fixtures import external_order_app, smart_voucher
 
 
 class CaptureQueriesContext(BaseCaptureQueriesContext):

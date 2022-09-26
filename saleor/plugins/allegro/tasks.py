@@ -14,7 +14,7 @@ from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish
 from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
-from .orders import insert_allegro_orders
+from .orders import cancel_allegro_orders, insert_allegro_orders
 
 logger = logging.getLogger(__name__)
 
@@ -374,3 +374,11 @@ def save_allegro_orders_task():
 
     for channel in channels:
         insert_allegro_orders(channel_slug=channel, past_days=1)
+
+
+@app.task()
+def cancel_allegro_order_task():
+    channels = get_allegro_channels_slugs()
+
+    for channel in channels:
+        cancel_allegro_orders(channel_slug=channel, past_days=1)

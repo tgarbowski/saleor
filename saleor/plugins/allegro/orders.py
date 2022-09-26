@@ -1,141 +1,124 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List
-import json
+from decimal import Decimal
+import logging
+from typing import Dict, List, Optional
 
 from graphql_relay import from_global_id, to_global_id
-import requests
 
-from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
-from django.conf import settings
 
 from saleor.order.models import Order
-from saleor.product.models import ProductVariant
+from saleor.product.models import Product, ProductVariant, ProductVariantChannelListing
 from saleor.app.models import App
 
 from saleor.order.actions import mark_order_as_paid
 from saleor.plugins.manager import get_plugins_manager
 from saleor.shipping.models import ShippingMethod
 from saleor.order.models import Voucher
-from saleor.app.models import AppToken
 from saleor.channel.models import Channel
 
+from saleor.salingo.orders import (DRAFT_ORDER_CREATE_MUTATION, DRAFT_ORDER_COMPLETE_MUTATION,
+                                   MUTATION_ORDER_CANCEL, InternalApiClient)
+from saleor.plugins.allegro.utils import get_datetime_now
+from saleor.plugins.allegro.api import AllegroAPI
+from saleor.plugins.allegro import ProductPublishState
+from saleor.discount.models import Sale
+from saleor.plugins.allegro.utils import skus_to_product_ids, format_allegro_datetime
 
-DRAFT_ORDER_CREATE_MUTATION = """
-    mutation draftCreate(
-        $user: ID, $discount: PositiveDecimal, $lines: [OrderLineCreateInput],
-        $shippingAddress: AddressInput, $billingAddress: AddressInput,
-        $shippingMethod: ID, $voucher: ID, $customerNote: String, $channel: ID,
-        $redirectUrl: String
-        ) {
-            draftOrderCreate(
-                input: {user: $user, discount: $discount,
-                lines: $lines, shippingAddress: $shippingAddress,
-                billingAddress: $billingAddress,
-                shippingMethod: $shippingMethod, voucher: $voucher,
-                channelId: $channel,
-                redirectUrl: $redirectUrl,
-                customerNote: $customerNote}) {
-                    errors {
-                        field
-                        code
-                        variants
-                        message
-                        addressType
-                    }
-                    order {
-                        id
-                    }
-                }
+
+TWO_PLACES = Decimal("0.01")
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AllegroOrderPosition:
+    quantity: int
+    sku: str = ''
+    sale_date: str = ''
+    price: Decimal = None
+
+
+class AllegroOrderExtractor:
+    @staticmethod
+    def shipping_address(checkout_form) -> Dict:
+        return {
+            'firstName': checkout_form['delivery']['address']['firstName'],
+            'lastName': checkout_form['delivery']['address']['lastName'],
+            'companyName': '',
+            'streetAddress1': checkout_form['delivery']['address']['street'],
+            'city': checkout_form['delivery']['address']['city'],
+            'postalCode': checkout_form['delivery']['address']['zipCode'],
+            'country': checkout_form['delivery']['address']['countryCode'],
+            'phone': checkout_form['delivery']['address']['phoneNumber'],
+            'vatId': ''
         }
-    """
 
-DRAFT_ORDER_COMPLETE_MUTATION = """
-    mutation draftComplete($id: ID!) {
-        draftOrderComplete(id: $id) {
-            errors {
-                field
-                code
-                message
-                variants
-            }
-            order {
-                status
-                origin
-            }
+    @staticmethod
+    def billing_address(checkout_form) -> Dict:
+        return {
+            'firstName': checkout_form['buyer']['firstName'],
+            'lastName': checkout_form['buyer']['lastName'],
+            'companyName': '',
+            'phone': checkout_form['buyer']['phoneNumber'],
+            'streetAddress1': checkout_form['buyer']['address']['street'],
+            'city': checkout_form['buyer']['address']['city'],
+            'postalCode': checkout_form['buyer']['address']['postCode'],
+            'country': checkout_form['buyer']['address']['countryCode'],
+            'vatId': ''
         }
-    }
-"""
+
+    @staticmethod
+    def is_smart(checkout_form: dict) -> bool:
+        return checkout_form['delivery']['smart']
+
+    @staticmethod
+    def delivery_method_name(checkout_form) -> str:
+        return checkout_form['delivery']['method']['name']
+
+    @staticmethod
+    def buyer_email(checkout_form) -> str:
+        return checkout_form['buyer']['email']
+
+    @staticmethod
+    def pickup_point_id(checkout_form) -> Optional[str]:
+        pickup_point = checkout_form['delivery'].get('pickupPoint')
+        return pickup_point['id'] if pickup_point else None
+
+    @staticmethod
+    def order_positions(line_items) -> List[AllegroOrderPosition]:
+        positions = []
+        for line_item in line_items:
+            position = AllegroOrderPosition(
+                sku=line_item['offer']['external']['id'],
+                sale_date=format_allegro_datetime(line_item['boughtAt']),
+                price=Decimal(line_item['price']['amount']).quantize(TWO_PLACES),
+                quantity=line_item['quantity']
+            )
+            positions.append(position)
+        return positions
+
+    @staticmethod
+    def order_id(checkout_form):
+        return checkout_form['id']
 
 
-def get_allegro_shipping_address(checkout_form):
-    shipping_address = {
-        'firstName': checkout_form['delivery']['address']['firstName'],
-        'lastName': checkout_form['delivery']['address']['lastName'],
-        'companyName': '',
-        'streetAddress1': checkout_form['delivery']['address']['street'],
-        'city': checkout_form['delivery']['address']['city'],
-        'postalCode': checkout_form['delivery']['address']['zipCode'],
-        'country': checkout_form['delivery']['address']['countryCode'],
-        'phone': checkout_form['delivery']['address']['phoneNumber'],
-        'vatId': ''
-    }
-    return shipping_address
-
-
-def get_allegro_billing_address(checkout_form):
-    billing_address = {
-        'firstName': checkout_form['buyer']['firstName'],
-        'lastName': checkout_form['buyer']['lastName'],
-        'companyName': '',
-        'phone': checkout_form['buyer']['phoneNumber'],
-        'streetAddress1': checkout_form['buyer']['address']['street'],
-        'city': checkout_form['buyer']['address']['city'],
-        'postalCode': checkout_form['buyer']['address']['postCode'],
-        'country': checkout_form['buyer']['address']['countryCode'],
-        'vatId': ''
-    }
-    return billing_address
-
-
-def get_shipping_method_by_name(allegro_shipping_name: str) -> "ShippingMethod":
-    shipping_method = ShippingMethod.objects.filter(name=allegro_shipping_name).first()
-
-    # TODO: return None here
-    if not shipping_method:
-        shipping_method = None
-
-    return shipping_method
-
-
-def is_smart(checkout_form: dict) -> bool:
-    return checkout_form['delivery']['smart']
-
-
-def prepare_variant_list(line_items: dict) -> list:
+def prepare_draft_order_lines(line_items: List[AllegroOrderPosition]) -> List:
     variant_list = []
-
+    # TODO: 1 query, join products
     for line_item in line_items:
-        sku = line_item['offer']['external']['id']
-        quantity = int(line_item['quantity'])
+        product_variant = ProductVariant.objects.get(sku=line_item.sku)
 
-        product_variant = ProductVariant.objects.get(sku=sku)
-        variant_id = to_global_id("ProductVariant", product_variant.id)
+        remove_product_discounts(product=product_variant.product)
+        update_price(variant_id=product_variant.pk, price_amount=line_item.price)
+
         variant_list.append(
-            {"variantId": variant_id, "quantity": quantity}
+            {
+                "variantId": to_global_id("ProductVariant", product_variant.id),
+                "quantity": line_item.quantity
+            }
         )
     return variant_list
-
-
-def get_processed_allegro_orders_ids(past_days: int) -> List[int]:
-    date_from = timezone.now() - timedelta(days=past_days)
-
-    allegro_orders_ids = Order.objects.filter(
-        metadata__allegro_order_id__isnull=False,
-        created__gte=date_from
-    ).values_list('metadata__allegro_order_id', flat=True)
-
-    return list(allegro_orders_ids)
 
 
 def filter_unprocessed_orders(checkout_forms, processed_allegro_orders_ids):
@@ -147,8 +130,6 @@ def filter_unprocessed_orders(checkout_forms, processed_allegro_orders_ids):
 
 
 def get_allegro_orders(channel_slug: str, past_days: int, statuses: List[str]) -> List[Dict]:
-    from .api import AllegroAPI
-
     allegro_api = AllegroAPI(channel=channel_slug)
 
     updated_at_from = timezone.now() - timedelta(days=past_days)
@@ -159,14 +140,12 @@ def get_allegro_orders(channel_slug: str, past_days: int, statuses: List[str]) -
     return orders['checkoutForms']
 
 
-def prepare_draft_order_create_input(checkout_form, channel_global_id):
-    shipping_address = get_allegro_shipping_address(checkout_form)
-    billing_address = get_allegro_billing_address(checkout_form)
+def prepare_draft_order_create_input(checkout_form, channel_id):
+    allegro_positions = AllegroOrderExtractor.order_positions(checkout_form['lineItems'])
+    lines = prepare_draft_order_lines(allegro_positions)
 
-    line_items = checkout_form['lineItems']
-    variant_list = prepare_variant_list(line_items)
+    delivery_method_name = AllegroOrderExtractor.delivery_method_name(checkout_form)
 
-    delivery_method_name = checkout_form['delivery']['method']['name']
     shipping_method = get_shipping_method_by_name(delivery_method_name)
 
     if shipping_method:
@@ -175,14 +154,14 @@ def prepare_draft_order_create_input(checkout_form, channel_global_id):
         shipping_method_id = None
 
     draft_order_create_input = {
-        "lines": variant_list,
-        "billingAddress": billing_address,
-        "shippingAddress": shipping_address,
+        "lines": lines,
+        "billingAddress": AllegroOrderExtractor.billing_address(checkout_form),
+        "shippingAddress": AllegroOrderExtractor.shipping_address(checkout_form),
         "shippingMethod": shipping_method_id,
-        "channel": channel_global_id
+        "channel": to_global_id("Channel", channel_id)
     }
 
-    smart = checkout_form['delivery']['smart']
+    smart = AllegroOrderExtractor.is_smart(checkout_form)
     # Make delivery free in case of SMART package
     if smart:
         voucher = Voucher.objects.get(name='SMART')
@@ -192,195 +171,183 @@ def prepare_draft_order_create_input(checkout_form, channel_global_id):
     return draft_order_create_input
 
 
-def post_graphql(query, variables=None):
-    data = {"query": query}
-    if variables is not None:
-        data["variables"] = variables
-
-    data = json.dumps(data, cls=DjangoJSONEncoder)
-
-    app_token = AppToken.objects.get(app__name='orders').auth_token
-
-    headers = {
-        "content-type": "application/json",
-        "Authorization": f'Bearer {app_token}'
-    }
-
-    result = requests.post(url=settings.API_URI, data=data, headers=headers)
-    return result.json()
-
-
-def save_allegro_order(checkout_form, channel_global_id):
-    app = App.objects.get(name='orders')
-
-    allegro_order_id = checkout_form['id']
-    user_email = checkout_form['buyer']['email']
+def save_additional_allegro_order_data(order, checkout_form):
     # delivery_cost = checkout_form['delivery']['cost']['amount']
-    delivery_method_name = checkout_form['delivery']['method']['name']
-    smart = checkout_form['delivery']['smart']
-    draft_order_create_input = prepare_draft_order_create_input(checkout_form, channel_global_id)
-    pickup_point = checkout_form['delivery'].get('pickupPoint')
-    pickup_point_id = pickup_point['id'] if pickup_point else None
+    pickup_point_id = AllegroOrderExtractor.pickup_point_id(checkout_form)
 
-    draft_order_create_response = post_graphql(
-        DRAFT_ORDER_CREATE_MUTATION,
-        draft_order_create_input
-    )
-
-    order_id = draft_order_create_response['data']['draftOrderCreate']['order']['id']
-    order = from_global_id(order_id)
-    order = Order.objects.get(pk=order[1])
-    # Store additional order data
-    order.user_email = user_email
-    order.shipping_method_name = delivery_method_name
+    order.user_email = AllegroOrderExtractor.buyer_email(checkout_form)
+    order.shipping_method_name = AllegroOrderExtractor.delivery_method_name(checkout_form)
     order.store_value_in_metadata(
-        {"allegro_order_id": allegro_order_id,
-         "smart": smart
+        {
+            "allegro_order_id": AllegroOrderExtractor.order_id(checkout_form),
+            "smart": AllegroOrderExtractor.is_smart(checkout_form)
         }
     )
     if pickup_point_id:
         order.store_value_in_metadata({"locker_id": pickup_point_id})
     order.save()
-    # Complete order
-    draft_order_complete_input = {"id": order_id}
-    draft_order_complete_response = post_graphql(
-        DRAFT_ORDER_COMPLETE_MUTATION,
-        draft_order_complete_input
-    )
-
-    if draft_order_complete_response['data']['draftOrderComplete']['errors']:
-        return
-    # Mark order as paid
-    manager = get_plugins_manager()
-
-    mark_order_as_paid(
-        order=order,
-        request_user=None,
-        manager=manager,
-        app=app
-    )
 
 
-def insert_allegro_orders(channel_slug, past_days):
+def insert_allegro_orders(channel_slug: str, past_days: int):
     orders = get_allegro_orders(
         channel_slug=channel_slug,
         past_days=past_days,
         statuses=['READY_FOR_PROCESSING']
     )
-    # Get already processed orders from db last x days
-    processed_allegro_orders_ids = get_processed_allegro_orders_ids(past_days=past_days)
-    # Filter processed orders from allegro orders
+
+    processed_allegro_orders_ids = get_processed_not_canceled_allegro_orders_ids(
+        channel_slug=channel_slug,
+        past_days=past_days
+    )
     unprocessed_orders = filter_unprocessed_orders(orders, processed_allegro_orders_ids)
-    # For each order insert to db
-    channel = Channel.objects.get(slug=channel_slug)
-    channel_global_id = to_global_id("Channel", channel.id)
+
+    channel_id = Channel.objects.get(slug=channel_slug).pk
+    api_client = InternalApiClient(app=get_order_app())
 
     for unprocessed_order in unprocessed_orders:
-        save_allegro_order(checkout_form=unprocessed_order, channel_global_id=channel_global_id)
+        insert_allegro_order(
+            api_client=api_client,
+            checkout_form=unprocessed_order,
+            channel_id=channel_id
+        )
+
+def insert_allegro_order(api_client, checkout_form, channel_id) -> Optional[int]:
+    # Create draft order
+    draft_order_create_input = prepare_draft_order_create_input(checkout_form, channel_id)
+    draft_order_create_response = api_client.post_graphql(
+        DRAFT_ORDER_CREATE_MUTATION,
+        draft_order_create_input
+    ).json()
+    if draft_order_create_response['data']['draftOrderCreate']['errors']:
+        logger.error('Draft order create error')
+        return
+    order_id_global = draft_order_create_response['data']['draftOrderCreate']['order']['id']
+    order = get_order_from_global_id(order_id_global)
+    # Save sold products private metadata
+    allegro_positions = AllegroOrderExtractor.order_positions(checkout_form['lineItems'])
+    for allegro_position in allegro_positions:
+        update_sold_product_private_metadata(allegro_position)
+    # Store additional order data
+    save_additional_allegro_order_data(order=order, checkout_form=checkout_form)
+    # Complete order
+    draft_order_complete_input = {"id": order_id_global}
+    draft_order_complete_response = api_client.post_graphql(
+        DRAFT_ORDER_COMPLETE_MUTATION,
+        draft_order_complete_input
+    ).json()
+
+    if draft_order_complete_response['data']['draftOrderComplete']['errors']:
+        logger.error('Draft order complete error')
+        return
+    # Mark order as paid
+    mark_order_as_paid(
+        order=order,
+        request_user=None,
+        manager=get_plugins_manager(),
+        app=api_client.app
+    )
+    return order.id
 
 
-from saleor.plugins.sumi.plugin import SumiPlugin
-from saleor.warehouse.models import Stock
-from django.db import transaction
-from dataclasses import dataclass
-from datetime import datetime
-from saleor.plugins.allegro.utils import get_datetime_now
-from saleor.plugins.allegro.api import AllegroAPI
+def cancel_allegro_orders(channel_slug: str, past_days: int):
+    orders = get_allegro_orders(
+        channel_slug=channel_slug,
+        past_days=past_days,
+        statuses=['CANCELED']
+    )
+    # TODO: set more past days here
+    processed_allegro_orders_ids = get_processed_not_canceled_allegro_orders_ids(
+        channel_slug=channel_slug,
+        past_days=past_days
+    )
+    unprocessed_orders = filter_unprocessed_orders(orders, processed_allegro_orders_ids)
+    api_client = InternalApiClient(app=get_order_app())
+
+    for unprocessed_order in unprocessed_orders:
+        cancel_allegro_order(api_client=api_client, checkout_form=unprocessed_order)
+
+def cancel_allegro_order(api_client, checkout_form):
+    allegro_order_id = AllegroOrderExtractor.order_id(checkout_form)
+    order = get_order_by_allegro_id(allegro_order_id)
+    cancel_order_input = {"id": to_global_id("Order", order.pk)}
+
+    api_client.post_graphql(
+        MUTATION_ORDER_CANCEL,
+        cancel_order_input
+    )
+    update_cancelled_order_products_private_metadata()
 
 
-@dataclass
-class AllegroSoldOffer:
-    sku: str = ''
-    sale_date: datetime = None
-    price: float = None
-    status: str = 'SOLD'
+# DB read queries
+def get_processed_not_canceled_allegro_orders_ids(channel_slug: str, past_days: int) -> List[int]:
+    date_from = timezone.now() - timedelta(days=past_days)
+
+    allegro_orders_ids = Order.objects.filter(
+        metadata__allegro_order_id__isnull=False,
+        created__gte=date_from,
+        channel__slug=channel_slug
+    ).exclude(status='canceled').values_list('metadata__allegro_order_id', flat=True)
+
+    return list(allegro_orders_ids)
 
 
-def sell_products(skus: List[str]):
-    # wtf if Stock.objects.exists():
-    products = [AllegroSoldOffer()]
-
-    for product in products:
-        try:
-            product_variant = ProductVariant.objects.get(sku=product.get('sku'))
-        except ProductVariant.DoesNotExist:
-            continue
-
-        stock = Stock.objects.filter(product_variant=product_variant).first()
-
-        if stock.quantity > 0:
-            save_sold_product_metadata(
-                product=product_variant.product,
-                product_data=product
-            )
+def get_shipping_method_by_name(shipping_method_name: str) -> "ShippingMethod":
+    return ShippingMethod.objects.filter(name=shipping_method_name).first()
 
 
-def save_sold_product_metadata(product, product_data):
+def get_order_by_allegro_id(allegro_id: str) -> Order:
+    return Order.objects.get(metadata__allegro_order_id=allegro_id)
+
+
+def get_order_from_global_id(order_id_global: str) -> Order:
+    order_id = from_global_id(order_id_global)
+    return Order.objects.get(pk=order_id[1])
+
+
+def get_order_app():
+    return App.objects.get(name='orders')
+
+# DB write queries
+def update_sold_product_private_metadata(product_data: AllegroOrderPosition):
+    """Saves allegro related private metadata"""
+    try:
+        product = ProductVariant.objects.get(sku=product_data.sku).product
+    except ProductVariant.DoesNotExist:
+        return
+
     product.store_value_in_private_metadata(
         {
-            'publish.status.date': datetime.strptime(product_data.sale_date,'%Y-%m-%dT%H:%M:%SZ').strftime("%Y-%m-%d %H:%M:%S"),
+            'publish.status.date': product_data.sale_date,
             'publish.allegro.price': product_data.price,
-            'publish.allegro.status': product_data.status
+            'publish.allegro.status': ProductPublishState.SOLD.value
         }
     )
-
     product.save(update_fields=["private_metadata"])
 
 
-def cancel_reservation(skus: List[str]):
-    # TODO: get stocks and variants in 1 query
-    product_variants = ProductVariant.objects.filter(sku=skus)
+def update_cancelled_order_products_private_metadata(skus: List[str]):
+    # TODO: pass products instances here
+    products = Product.objects.filter(pk__in=skus_to_product_ids(skus))
 
-    for product_variant in product_variants:
-        try:
-            stock = Stock.objects.get(product_variant=product_variant)
-        except Stock.DoesNotExist:
-            continue
-
-        if SumiPlugin.is_product_sold(product_variant.product):
-            cancel_sold_product_reservation(stock)
+    for product in products:
+        if is_product_sold(product):
+            product.store_value_in_private_metadata({'publish.status.date': get_datetime_now()})
+            product.delete_value_from_private_metadata('publish.allegro.price')
+            product.save(update_fields=["private_metadata"])
 
 
-@transaction.atomic
-def cancel_sold_product_reservation(product_variant_stock):
-    try:
-        save_cancel_reservation_data(product_variant_stock.product_variant.product)
-        product_variant_stock.increase_stock(1)
-    except Exception:
-        transaction.set_rollback(True)
-
-def save_cancel_reservation_data(product):
-    product.store_value_in_private_metadata(
-        {'publish.status.date': get_datetime_now()}
-    )
-    # product.delete_value_from_private_metadata('publish.allegro.price')
-    product.save(update_fields=["private_metadata"])
+def update_price(variant_id, price_amount):
+    pvcl = ProductVariantChannelListing.objects.get(variant_id=variant_id)
+    pvcl.price_amount = price_amount
+    pvcl.save(update_fields=['price_amount'])
 
 
-def get_returned_products_skus() -> List[str]:
-    api = AllegroAPI(channel='allegro')
+def remove_product_discounts(product):
+    sales = Sale.objects.all()
+    for sale in sales:
+        sale.products.remove(product)
 
-    customer_returns = api.get_customer_returns()
-    # Extract offer_ids
-    offer_ids = []
-    skus = []
+# Parsers
+def is_product_sold(product) -> bool:
+    return product.private_metadata.get('publish.allegro.status') == ProductPublishState.SOLD.value
 
-    for customer_return in customer_returns['customerReturns']:
-        for item in customer_return['items']:
-            offer_ids.append(item['offerId'])
-    # get skus by offer_ids
-    for offer_id in offer_ids:
-        offer = api.get_offer(offer_id)
-        sku = offer.get('external').get('id')
-        skus.append(sku)
-    return skus
-
-
-def get_cancelled_products():
-    cancelled_offers = get_allegro_orders(
-        channel_slug='allegro',
-        past_days=360,
-        statuses=['CANCELLED']
-    )
-
-    print('cancelled_offers', cancelled_offers)

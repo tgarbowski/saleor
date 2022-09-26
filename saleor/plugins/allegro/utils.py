@@ -179,12 +179,20 @@ def get_date_now():
         SalingoDatetimeFormats.date)
 
 
+def format_allegro_datetime(allegro_datetime: str) -> str:
+    return datetime.strptime(
+        allegro_datetime,
+        '%Y-%m-%dT%H:%M:%S.%fZ'
+    ).strftime(SalingoDatetimeFormats.datetime_with_seconds)
+
+
 def product_ids_to_skus(product_ids):
     return list(
         ProductVariant.objects
             .filter(product_id__in=product_ids)
             .values_list("sku", flat=True)
     )
+
 
 def skus_to_product_ids(skus):
     return list(

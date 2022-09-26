@@ -1,6 +1,6 @@
 import json
 import logging
-import urllib
+import urllib.parse
 import uuid
 
 from datetime import datetime, timedelta
@@ -124,13 +124,28 @@ class AllegroAPI:
         return product
 
     def get_orders(self, statuses, updated_at_from):
-        order_statuses_dict = {"status": statuses}
-        order_statuses_params = urllib.parse.urlencode(order_statuses_dict, True)
+        def get_100_orders(offset=0):
+            parameters = {
+                "status": statuses,
+                "offset": offset,
+                "updatedAt.gte": f'{updated_at_from}Z'
+            }
+            encoded_parameters = urllib.parse.urlencode(parameters, True)
+            endpoint = f'order/checkout-forms?{encoded_parameters}'
+            response = self.get_request(endpoint=endpoint)
+            return response.json()
 
-        endpoint = f'order/checkout-forms?{order_statuses_params}&updatedAt.gte={updated_at_from}Z'
+        orders = []
+        zero_offset_offers = get_100_orders()
+        total_count = zero_offset_offers['totalCount']
 
-        response = self.get_request(endpoint=endpoint)
-        return response.json()
+        if zero_offset_offers['count'] < total_count:
+            for offset in range(100, total_count, 100):
+                offset_orders = get_100_orders(offset=offset)
+                orders.append(offset_orders)
+
+        return orders
+
 
     def publish_to_allegro(self, allegro_product):
 
