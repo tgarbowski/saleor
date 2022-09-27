@@ -68,10 +68,12 @@ def get_nodes(
     schema=None,
 ):
     """Return a list of nodes.
+
     If the `graphene_type` argument is provided, the IDs will be validated
     against this type. If the type was not provided, it will be looked up in
     the schema. Raises an error if not all IDs are of the same
     type.
+
     If the `graphene_type` is of type str, the model keyword argument must be provided.
     """
     nodes_type, pks = resolve_global_ids_to_primary_keys(
@@ -108,8 +110,10 @@ def get_nodes(
 def format_permissions_for_display(permissions):
     """Transform permissions queryset into Permission list.
     Keyword Arguments:
+
         permissions - queryset with permissions
     """
+
     permissions_data = permissions.annotate(
         formated_codename=Concat("content_type__app_label", Value("."), "codename")
     ).values("name", "formated_codename")

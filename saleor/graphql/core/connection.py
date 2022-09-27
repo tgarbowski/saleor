@@ -78,6 +78,7 @@ def _prepare_filter(
     cursor: List[str], sorting_fields: List[str], sorting_direction: str
 ) -> Q:
     """Create filter arguments based on sorting fields.
+
     :param cursor: list of values that are passed from page_info, used for filtering.
     :param sorting_fields: list of fields that were used for sorting.
     :param sorting_direction: keyword direction ('lt', gt').
