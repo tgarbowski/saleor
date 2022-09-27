@@ -32,6 +32,7 @@ from ...product.models import (
     ProductVariant,
     ProductVariantChannelListing,
 )
+import saleor.graphql.discount.types as discount_types
 from ...discount.models import Sale
 from ...product.search import search_products
 from ...warehouse.models import Allocation, Stock, Warehouse
@@ -419,14 +420,9 @@ def filter_categories(qs, _, value):
 def filter_sales(qs, _, value):
     if value:
         _, sale_pks = resolve_global_ids_to_primary_keys(
-            value, product_types.Sale
+            value, discount_types.Sale
         )
         qs = filter_products_by_sales(qs, sale_pks)
-    # if value:
-    #     _, category_pks = resolve_global_ids_to_primary_keys(
-    #         value, product_types.Category
-    #     )
-    #     qs = filter_products_by_categories(qs, category_pks)
     return qs
 
 

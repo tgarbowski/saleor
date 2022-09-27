@@ -78,7 +78,6 @@ def _prepare_filter(
     cursor: List[str], sorting_fields: List[str], sorting_direction: str
 ) -> Q:
     """Create filter arguments based on sorting fields.
-
     :param cursor: list of values that are passed from page_info, used for filtering.
     :param sorting_fields: list of fields that were used for sorting.
     :param sorting_direction: keyword direction ('lt', gt').
@@ -391,6 +390,7 @@ def filter_connection_queryset(iterable, args, request=None, root=None):
     filterset_class = args[FILTERSET_CLASS]
     filter_field_name = args[FILTERS_NAME]
     filter_input = args.get(filter_field_name)
+
     if filter_input:
         # for nested filters get channel from ChannelContext object
         if "channel" not in args and root and hasattr(root, "channel_slug"):
@@ -405,16 +405,21 @@ def filter_connection_queryset(iterable, args, request=None, root=None):
             or filter_channel
             or get_default_channel_slug_or_graphql_error()
         )
+
         if isinstance(iterable, ChannelQsContext):
             queryset = iterable.qs
         else:
             queryset = iterable
+
         filterset = filterset_class(filter_input, queryset=queryset, request=request)
         if not filterset.is_valid():
             raise GraphQLError(json.dumps(filterset.errors.get_json_data()))
+
         if isinstance(iterable, ChannelQsContext):
             return ChannelQsContext(filterset.qs, iterable.channel_slug)
+
         return filterset.qs
+
     return iterable
 
 

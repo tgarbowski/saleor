@@ -37,6 +37,7 @@ def resolve_global_ids_to_primary_keys(
         except Exception:
             invalid_ids.append(graphql_id)
             continue
+
         # Raise GraphQL error if ID of a different type was passed
         if used_type and str(used_type) != str(node_type):
             if not raise_error:
@@ -48,6 +49,7 @@ def resolve_global_ids_to_primary_keys(
 
     if invalid_ids:
         raise GraphQLError(ERROR_COULD_NO_RESOLVE_GLOBAL_ID % invalid_ids)
+
     return used_type, pks
 
 
@@ -66,12 +68,10 @@ def get_nodes(
     schema=None,
 ):
     """Return a list of nodes.
-
     If the `graphene_type` argument is provided, the IDs will be validated
     against this type. If the type was not provided, it will be looked up in
     the schema. Raises an error if not all IDs are of the same
     type.
-
     If the `graphene_type` is of type str, the model keyword argument must be provided.
     """
     nodes_type, pks = resolve_global_ids_to_primary_keys(
@@ -107,10 +107,8 @@ def get_nodes(
 
 def format_permissions_for_display(permissions):
     """Transform permissions queryset into Permission list.
-
     Keyword Arguments:
         permissions - queryset with permissions
-
     """
     permissions_data = permissions.annotate(
         formated_codename=Concat("content_type__app_label", Value("."), "codename")
