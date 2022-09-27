@@ -109,11 +109,11 @@ def get_nodes(
 
 def format_permissions_for_display(permissions):
     """Transform permissions queryset into Permission list.
+
     Keyword Arguments:
-
         permissions - queryset with permissions
-    """
 
+    """
     permissions_data = permissions.annotate(
         formated_codename=Concat("content_type__app_label", Value("."), "codename")
     ).values("name", "formated_codename")
