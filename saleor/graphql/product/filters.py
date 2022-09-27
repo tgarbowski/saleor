@@ -32,6 +32,8 @@ from ...product.models import (
     ProductVariant,
     ProductVariantChannelListing,
 )
+import saleor.graphql.discount.types as discount_types
+from ...discount.models import Sale
 from ...product.search import search_products
 from ...warehouse.models import Allocation, Stock, Warehouse
 from ..channel.filters import get_channel_slug_from_filter_data
@@ -307,6 +309,11 @@ def filter_products_by_collections(qs, collection_pks):
     return qs.filter(Exists(collection_products.filter(product_id=OuterRef("pk"))))
 
 
+def filter_products_by_sales(qs, sale_ids):
+    sales = Sale.objects.filter(pk__in=sale_ids).values('products')
+    return qs.filter(Exists(sales.filter(products=OuterRef("pk"))))
+
+
 def filter_products_by_stock_availability(qs, stock_availability, channel_slug):
     allocations = (
         Allocation.objects.values("stock_id")
@@ -407,6 +414,15 @@ def filter_categories(qs, _, value):
             value, product_types.Category
         )
         qs = filter_products_by_categories(qs, category_pks)
+    return qs
+
+
+def filter_sales(qs, _, value):
+    if value:
+        _, sale_pks = resolve_global_ids_to_primary_keys(
+            value, discount_types.Sale
+        )
+        qs = filter_products_by_sales(qs, sale_pks)
     return qs
 
 
@@ -629,6 +645,7 @@ class ProductFilter(MetadataFilterBase):
     is_published = django_filters.BooleanFilter(method="filter_is_published")
     collections = GlobalIDMultipleChoiceFilter(method=filter_collections)
     categories = GlobalIDMultipleChoiceFilter(method=filter_categories)
+    sales = GlobalIDMultipleChoiceFilter(method=filter_sales)
     has_category = django_filters.BooleanFilter(method=filter_has_category)
     price = ObjectTypeFilter(input_class=PriceRangeInput, method="filter_variant_price")
     minimal_price = ObjectTypeFilter(
