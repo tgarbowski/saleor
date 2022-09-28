@@ -3,7 +3,7 @@ from decimal import Decimal
 import graphene
 
 from saleor.order.models import Order, OrderLine
-from saleor.plugins.allegro.orders import insert_allegro_order
+from saleor.plugins.allegro.orders import insert_allegro_order, cancel_allegro_order
 from saleor.plugins.allegro import ProductPublishState
 
 
@@ -193,7 +193,7 @@ CHECKOUT_FORM_SMART = {
         "calculatedNumberOfPackages": 1,
     },
     "invoice": {
-        "required": True,
+        "required": False,
         "address": {
             "street": "Grunwaldzka 182",
             "city": "Poznań",
@@ -250,14 +250,14 @@ CHECKOUT_FORM_SMART = {
 
 def test_save_allegro_order_discounted_product(
     sale,
-    external_order_app,
-    staff_api_client,
+    order_app_api_client,
     variant_with_many_stocks_different_shipping_zones,
     channel_USD,
-    shipping_method,
+    allegro_shipping_method,
+    permission_manage_orders
 ):
     order_id = insert_allegro_order(
-        api_client=staff_api_client,
+        api_client=order_app_api_client,
         checkout_form=CHECKOUT_FORM,
         channel_id=channel_USD.id
     )
@@ -265,7 +265,7 @@ def test_save_allegro_order_discounted_product(
     order = Order.objects.get(pk=order_id)
 
     assert order_id is not None
-    assert order.shipping_method.name == shipping_method.name
+    assert order.shipping_method.name == allegro_shipping_method.name
     assert order.status == 'unfulfilled'
     assert order.undiscounted_total_gross_amount == Decimal(133.45).quantize(TWO_PLACES)
     assert order.shipping_price_gross_amount == Decimal(10.00)
@@ -273,15 +273,14 @@ def test_save_allegro_order_discounted_product(
 
 
 def test_save_allegro_order_smart(
-    external_order_app,
-    staff_api_client,
+    order_app_api_client,
     variant_with_many_stocks_different_shipping_zones,
     channel_USD,
-    shipping_method,
+    allegro_shipping_method,
     smart_voucher
 ):
     order_id = insert_allegro_order(
-        api_client=staff_api_client,
+        api_client=order_app_api_client,
         checkout_form=CHECKOUT_FORM_SMART,
         channel_id=channel_USD.id
     )
@@ -290,7 +289,7 @@ def test_save_allegro_order_smart(
     order_lines = OrderLine.objects.filter(order=order)
 
     assert order_id is not None
-    assert order.shipping_method.name == shipping_method.name
+    assert order.shipping_method.name == allegro_shipping_method.name
     assert order.status == 'unfulfilled'
     assert order.undiscounted_total_gross_amount == Decimal(133.45).quantize(TWO_PLACES)
     assert order.shipping_price_gross_amount == Decimal(10.00)
@@ -310,14 +309,13 @@ def test_save_allegro_order_smart(
 
 
 def test_save_allegro_order(
-    external_order_app,
-    staff_api_client,
+    order_app_api_client,
     variant_with_many_stocks_different_shipping_zones,
     channel_USD,
-    shipping_method
+    allegro_shipping_method
 ):
     order_id = insert_allegro_order(
-        api_client=staff_api_client,
+        api_client=order_app_api_client,
         checkout_form=CHECKOUT_FORM,
         channel_id=channel_USD.id
     )
@@ -326,7 +324,7 @@ def test_save_allegro_order(
     order_lines = OrderLine.objects.filter(order=order)
 
     assert order_id is not None
-    assert order.shipping_method.name == shipping_method.name
+    assert order.shipping_method.name == allegro_shipping_method.name
     assert order.status == 'unfulfilled'
 
     assert order.shipping_price_gross_amount == Decimal(10.00)
@@ -343,3 +341,16 @@ def test_save_allegro_order(
         assert product.get_value_from_private_metadata(
             'publish.allegro.price'
         ) == '123.45'
+
+
+def test_cancel_allegro_order(
+    allegro_order,
+    order_app_api_client
+):
+    cancel_allegro_order(
+        api_client=order_app_api_client,
+        checkout_form=CHECKOUT_FORM
+    )
+
+    order = Order.objects.get(pk=allegro_order.pk)
+    assert order.status == 'canceled'

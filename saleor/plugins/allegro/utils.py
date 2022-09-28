@@ -1,5 +1,6 @@
 from datetime import datetime
 import pytz
+from typing import List
 
 from django.core.mail import EmailMultiAlternatives
 from django.contrib.postgres.aggregates.general import ArrayAgg
@@ -324,6 +325,16 @@ def get_allegro_channels_slugs() -> [str]:
     channels = PluginConfiguration.objects.filter(
         identifier='allegro',
         active=True
+    ).values_list('channel__slug', flat=True)
+
+    return list(channels)
+
+
+def get_specified_allegro_channels_slugs(channel_slugs: List[str]) -> [str]:
+    channels = PluginConfiguration.objects.filter(
+        identifier='allegro',
+        active=True,
+        channel__slug__in=channel_slugs
     ).values_list('channel__slug', flat=True)
 
     return list(channels)

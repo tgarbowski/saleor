@@ -10,7 +10,7 @@ from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish
                     update_allegro_purchased_error, email_bulk_unpublish_result,
                     get_datetime_now, product_ids_to_skus, get_products_by_channels,
                     AllegroProductPublishValidator, AllegroErrorHandler,
-                    get_product_media_urls, get_allegro_channels_slugs)
+                    get_product_media_urls, get_allegro_channels_slugs, get_specified_allegro_channels_slugs)
 from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
@@ -369,16 +369,20 @@ def bulk_allegro_unpublish(channel, product_ids):
 
 
 @app.task()
-def save_allegro_orders_task():
-    channels = get_allegro_channels_slugs()
+def save_allegro_orders_task(channels_datetime):
+    slugs = list(channels_datetime.keys())
+    channels = get_specified_allegro_channels_slugs(channel_slugs=slugs)
 
     for channel in channels:
-        insert_allegro_orders(channel_slug=channel, past_days=1)
+        datetime_from = channels_datetime[channel]
+        insert_allegro_orders(channel_slug=channel, datetime_from=datetime_from)
 
 
 @app.task()
-def cancel_allegro_order_task():
-    channels = get_allegro_channels_slugs()
+def cancel_allegro_orders_task(channels_datetime):
+    slugs = list(channels_datetime.keys())
+    channels = get_specified_allegro_channels_slugs(channel_slugs=slugs)
 
     for channel in channels:
-        cancel_allegro_orders(channel_slug=channel, past_days=1)
+        datetime_from = channels_datetime[channel]
+        cancel_allegro_orders(channel_slug=channel, datetime_from=datetime_from)

@@ -133,16 +133,24 @@ class AllegroAPI:
             encoded_parameters = urllib.parse.urlencode(parameters, True)
             endpoint = f'order/checkout-forms?{encoded_parameters}'
             response = self.get_request(endpoint=endpoint)
-            return response.json()
+            return response
 
         orders = []
-        zero_offset_offers = get_100_orders()
-        total_count = zero_offset_offers['totalCount']
+        first_100_orders = get_100_orders()
 
-        if zero_offset_offers['count'] < total_count:
+        if first_100_orders.status_code != 200:
+            logger.info(f'Fetching orders error: {first_100_orders.json()}')
+            return orders
+
+        first_100_orders = first_100_orders.json()
+        orders.extend(first_100_orders['checkoutForms'])
+        total_count = first_100_orders['totalCount']
+
+        if first_100_orders['count'] < total_count:
             for offset in range(100, total_count, 100):
                 offset_orders = get_100_orders(offset=offset)
-                orders.append(offset_orders)
+                if offset_orders.status_code == 200:
+                    orders.extend(offset_orders.json()['checkoutForms'])
 
         return orders
 
