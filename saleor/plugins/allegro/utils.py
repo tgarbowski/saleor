@@ -1,5 +1,6 @@
 from datetime import datetime
 import pytz
+from typing import List
 
 from django.core.mail import EmailMultiAlternatives
 from django.contrib.postgres.aggregates.general import ArrayAgg
@@ -179,12 +180,20 @@ def get_date_now():
         SalingoDatetimeFormats.date)
 
 
+def format_allegro_datetime(allegro_datetime: str) -> str:
+    return datetime.strptime(
+        allegro_datetime,
+        '%Y-%m-%dT%H:%M:%S.%fZ'
+    ).strftime(SalingoDatetimeFormats.datetime_with_seconds)
+
+
 def product_ids_to_skus(product_ids):
     return list(
         ProductVariant.objects
             .filter(product_id__in=product_ids)
             .values_list("sku", flat=True)
     )
+
 
 def skus_to_product_ids(skus):
     return list(
@@ -316,6 +325,16 @@ def get_allegro_channels_slugs() -> [str]:
     channels = PluginConfiguration.objects.filter(
         identifier='allegro',
         active=True
+    ).values_list('channel__slug', flat=True)
+
+    return list(channels)
+
+
+def get_specified_allegro_channels_slugs(channel_slugs: List[str]) -> [str]:
+    channels = PluginConfiguration.objects.filter(
+        identifier='allegro',
+        active=True,
+        channel__slug__in=channel_slugs
     ).values_list('channel__slug', flat=True)
 
     return list(channels)

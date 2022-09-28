@@ -593,6 +593,14 @@ if APP_ENVIRONMENT in ['production']:
             'task': 'saleor.salingo.tasks.publication_flow',
             'schedule': crontab(minute=30, hour=0),
             "options": {"queue": CELERY_LONG_TASKS_QUEUE}
+        },
+        'save_allegro_orders_task': {
+            'task': 'saleor.plugins.allegro.tasks.save_allegro_orders_task',
+            'schedule': 600.0,
+            "options": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+            'args': (
+                {'salingo-man': "2022-09-28T19:00:00"},
+            )
         }
     })
 
@@ -610,7 +618,10 @@ if APP_ENVIRONMENT in ['development']:
         'save_allegro_orders_task': {
             'task': 'saleor.plugins.allegro.tasks.save_allegro_orders_task',
             'schedule': 600.0,
-            "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
+            "options": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+            'args': (
+                {'salingo-man': "2022-09-28T19:00:00"},
+            )
         },
         'refresh_token_task': {
             'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
