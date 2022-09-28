@@ -2249,6 +2249,12 @@ type ExtInvoiceCorrectionRequest {
   invoice: Invoice
 }
 
+type ExtMigloCsv {
+  exportErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [InvoiceError!]!
+  invoice: Invoice
+}
+
 input ExtReceiptInput {
   receiptNumber: String
   metadata: GenericScalar
@@ -2268,13 +2274,9 @@ type ExtReceiptUpdate {
 }
 
 type ExtTallyCsv {
-  invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  exportErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
   errors: [InvoiceError!]!
-}
-
-type ExtMigloCsv {
-  invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
-  errors: [InvoiceError!]!
+  invoice: Invoice
 }
 
 type ExternalAuthentication {
@@ -3957,8 +3959,8 @@ type Mutation {
   extReceiptRequest(orderId: ID!): ExtReceiptRequest
   extReceiptUpdate(id: ID!, input: ExtReceiptInput!): ExtReceiptUpdate
   extInvoiceCorrectionRequest(orderId: ID!): ExtInvoiceCorrectionRequest
-  extTallyCsv(month: Int!, year: Int!): ExtTallyCsv
-  extMigloCsv(month: Int!, year: Int!): ExtMigloCsv
+  extTallyCsv(month: String!, year: String!): ExtTallyCsv
+  extMigloCsv(month: String!, year: String!): ExtMigloCsv
   wmsDocumentCreate(input: WmsDocumentInput!): WmsDocumentCreate
   wmsDocumentUpdate(id: ID!, input: WmsDocumentInput!): WmsDocumentUpdate
   wmsDocumentDelete(id: ID!): WmsDocumentDelete
@@ -5711,6 +5713,7 @@ input ProductFilterInput {
   created: DateRangeInput
   warehouseLocation: WarehouseLocationRangeInput
   metadata: [MetadataFilter]
+  sales: [ID]
   price: PriceRangeInput
   minimalPrice: PriceRangeInput
   productTypes: [ID]
