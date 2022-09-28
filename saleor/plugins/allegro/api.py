@@ -1,6 +1,6 @@
 import json
 import logging
-import urllib
+import urllib.parse
 import uuid
 
 from datetime import datetime, timedelta
@@ -124,13 +124,36 @@ class AllegroAPI:
         return product
 
     def get_orders(self, statuses, updated_at_from):
-        order_statuses_dict = {"status": statuses}
-        order_statuses_params = urllib.parse.urlencode(order_statuses_dict, True)
+        def get_100_orders(offset=0):
+            parameters = {
+                "status": statuses,
+                "offset": offset,
+                "updatedAt.gte": f'{updated_at_from}Z'
+            }
+            encoded_parameters = urllib.parse.urlencode(parameters, True)
+            endpoint = f'order/checkout-forms?{encoded_parameters}'
+            response = self.get_request(endpoint=endpoint)
+            return response
 
-        endpoint = f'order/checkout-forms?{order_statuses_params}&updatedAt.gte={updated_at_from}Z'
+        orders = []
+        first_100_orders = get_100_orders()
 
-        response = self.get_request(endpoint=endpoint)
-        return response.json()
+        if first_100_orders.status_code != 200:
+            logger.info(f'Fetching orders error: {first_100_orders.json()}')
+            return orders
+
+        first_100_orders = first_100_orders.json()
+        orders.extend(first_100_orders['checkoutForms'])
+        total_count = first_100_orders['totalCount']
+
+        if first_100_orders['count'] < total_count:
+            for offset in range(100, total_count, 100):
+                offset_orders = get_100_orders(offset=offset)
+                if offset_orders.status_code == 200:
+                    orders.extend(offset_orders.json()['checkoutForms'])
+
+        return orders
+
 
     def publish_to_allegro(self, allegro_product):
 
@@ -226,13 +249,13 @@ class AllegroAPI:
 
         return response
 
-    def get_request(self, endpoint, params=None):
+    def get_request(self, endpoint, params=None, api_version='public.v1'):
         try:
             url = self.env + '/' + endpoint
 
             headers = {'Authorization': 'Bearer ' + self.token,
-                       'Accept': 'application/vnd.allegro.public.v1+json',
-                       'Content-Type': 'application/vnd.allegro.public.v1+json'}
+                       'Accept': f'application/vnd.allegro.{api_version}+json',
+                       'Content-Type': f'application/vnd.allegro.{api_version}+json'}
 
             logger.info(f'GET request url: {url}')
 
@@ -316,6 +339,11 @@ class AllegroAPI:
 
         response = self.get_request(endpoint)
 
+        return json.loads(response.text)
+
+    def get_customer_returns(self):
+        endpoint = 'order/customer-returns?limit=1000'
+        response = self.get_request(endpoint=endpoint, api_version='beta.v1')
         return json.loads(response.text)
 
     def get_require_parameters(self, category_id, required_type):
