@@ -24,6 +24,7 @@ from ..giftcard.models import GiftCard
 from ..order import FulfillmentStatus, OrderStatus
 from ..order.fetch import OrderLineInfo
 from ..order.models import Order, OrderLine
+from ..payment.utils import price_to_minor_unit
 from ..product.utils.digital_products import get_default_digital_content_settings
 from ..shipping.interface import ShippingMethodData
 from ..shipping.models import ShippingMethod, ShippingMethodChannelListing
@@ -788,6 +789,25 @@ def get_voucher_discount_for_order(order: Order) -> Money:
     if order.voucher.type == VoucherType.SPECIFIC_PRODUCT:
         return get_products_voucher_discount_for_order(order)
     raise NotImplementedError("Unknown discount type")
+
+
+def get_manual_discounts_for_order(order: Order) -> Money:
+    """Calculate discount value depending on discount types.
+    """
+    order_discounts = OrderDiscount.objects.filter(order_id=order, type="manual")
+    return order_discounts
+
+
+def get_order_discount_position(name: str, value: Union[Decimal, Decimal]):
+    discount_position = {
+        "type": "bill",
+        "discount": {
+            "na": name,
+            "rd": "true",
+            "rw": price_to_minor_unit(value=value, currency="PLN")
+        }
+    }
+    return discount_position
 
 
 def match_orders_with_new_user(user: User) -> None:

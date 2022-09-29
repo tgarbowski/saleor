@@ -19,7 +19,8 @@ from saleor.graphql.salingo.utils import get_invoice_correct_payload
 from saleor.order.models import OrderLine
 from saleor.payment.utils import price_from_minor_unit, price_to_minor_unit
 from saleor.order import OrderStatus
-from ...order.utils import get_voucher_discount_for_order
+from ...order.utils import get_voucher_discount_for_order, \
+    get_manual_discounts_for_order
 
 MAX_PRODUCTS_WITH_TABLE = 3
 MAX_PRODUCTS_WITHOUT_TABLE = 4
@@ -108,11 +109,20 @@ def generate_invoice_pdf(invoice, order):
                                        gross_amount=order.shipping_price_gross_amount,
                                        name="TRANSPORT Usługa transportowa")
     fulfilled_order_lines.append(shipment)
-    discount = get_voucher_discount_for_order(order)
-    if discount.amount > 0:
-        voucher = get_additional_position(quantity=1, gross_amount=-discount.amount,
-                                          name=order.voucher.code)
-        fulfilled_order_lines.append(voucher)
+    voucher = get_voucher_discount_for_order(order)
+    if voucher.amount > 0:
+        voucher_line = get_additional_position(quantity=1, gross_amount=-voucher.amount,
+                                               name=order.voucher.code)
+        fulfilled_order_lines.append(voucher_line)
+
+    order_manual_discounts = get_manual_discounts_for_order(order)
+    for order_discount in order_manual_discounts:
+        discount_name = "Discount" if order_discount.reason is None \
+            else order_discount.reason
+        discount_line = get_additional_position(quantity=1,
+                                                gross_amount=-order_discount.amount_value,
+                                                name=discount_name)
+        fulfilled_order_lines.append(discount_line)
 
     order_net_total = sum([position.total_price_net for position in fulfilled_order_lines])
     order_gross_total = sum([position.total_price_gross for position in fulfilled_order_lines])
@@ -145,6 +155,7 @@ def generate_correction_invoice_pdf(invoice, order):
     not_fulfilled_products = OrderLine.objects.filter(id__in=not_fulfilled_order_lines)
 
     merge_lines = create_merge_products(fulfilled_products, not_fulfilled_products)
+    payload_lines = create_merge_products(fulfilled_products, not_fulfilled_products)
     # Original invoice
     original_invoice_payload = invoice.parent.private_metadata.get("lines")
     original_invoice_discounts = invoice.parent.private_metadata.get("discounts")
@@ -155,16 +166,18 @@ def generate_correction_invoice_pdf(invoice, order):
                                        gross_amount=order.shipping_price_gross_amount,
                                        name="TRANSPORT Usługa transportowa")
     merge_lines.append(shipment)
+    payload_lines.append(shipment)
     # Discounts
     if original_invoice_discounts:
-        discount_position = \
-            get_additional_position(
-                quantity=1,
-                gross_amount=-Decimal(int(
-                    original_invoice_discounts[0].get("discount").get("rw"))/100),
-                name=original_invoice_discounts[0].get("discount").get("na"))
-        original_invoice.append(discount_position)
-        merge_lines.append(discount_position)
+        for discount in original_invoice_discounts:
+            discount_position = \
+                get_additional_position(
+                    quantity=1,
+                    gross_amount=-Decimal(int(
+                        discount.get("discount").get("rw"))/100),
+                    name=discount.get("discount").get("na"))
+            original_invoice.append(discount_position)
+            merge_lines.append(discount_position)
     # Original invoice summary
     original_positions_summary_net = sum([position.total_price_net for position in original_invoice])
     original_positions_summary_gross = sum([position.total_price_gross for position in original_invoice])
@@ -176,7 +189,8 @@ def generate_correction_invoice_pdf(invoice, order):
     final_summary = corrected_positions_summary.total_gross_amount - original_positions_summary.total_gross_amount
 
     creation_date = datetime.now(tz=pytz.utc)
-    rec_payload = get_receipt_payload(merge_lines, corrected_positions_summary.total_gross_amount)
+    rec_payload = get_receipt_payload(payload_lines, original_invoice_discounts,
+                                      corrected_positions_summary.total_gross_amount)
     invoice.private_metadata = rec_payload
     invoice.save()
 
@@ -236,7 +250,7 @@ def create_merge_products(fulfilled_products, not_fulfilled_products):
     return merge_products
 
 
-def get_receipt_payload(merge_products, corrected_positions_summary):
+def get_receipt_payload(merge_products, discounts, corrected_positions_summary):
     lines_json = []
 
     for line_fulfilled in merge_products:
@@ -254,7 +268,8 @@ def get_receipt_payload(merge_products, corrected_positions_summary):
 
     payload = {
         "lines": lines_json,
-        "summary": summary
+        "summary": summary,
+        "discounts": discounts
     }
     return payload
 
