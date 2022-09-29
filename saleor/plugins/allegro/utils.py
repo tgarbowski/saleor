@@ -183,7 +183,7 @@ def get_date_now():
 def format_allegro_datetime(allegro_datetime: str) -> str:
     return datetime.strptime(
         allegro_datetime,
-        '%Y-%m-%dT%H:%M:%S.%fZ'
+        '%Y-%m-%dT%H:%M:%SZ'
     ).strftime(SalingoDatetimeFormats.datetime_with_seconds)
 
 
