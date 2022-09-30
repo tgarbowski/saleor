@@ -386,3 +386,9 @@ def cancel_allegro_orders_task(channels_datetime):
     for channel in channels:
         datetime_from = channels_datetime[channel]
         cancel_allegro_orders(channel_slug=channel, datetime_from=datetime_from)
+
+
+def change_allegro_order_status(order, status):
+    allegro_order_id = order.get_value_from_metadata("allegro_order_id")
+    api = AllegroAPI(channel=order.channel.slug)
+    api.update_order_status(order_id=allegro_order_id, status=status)

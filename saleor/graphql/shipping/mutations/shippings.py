@@ -33,6 +33,8 @@ from ....plugins.dpd.api import DpdApi
 from saleor.plugins.inpost.plugin import create_shipping_information, create_inpost_shipment, generate_inpost_label
 from saleor.plugins.dpd.utils import create_dpd_shipment, generate_dpd_label
 from saleor.plugins.gls.utils import create_gls_shipment, generate_gls_label
+from saleor.plugins.allegro.utils import get_allegro_channels_slugs
+from saleor.plugins.allegro.tasks import change_allegro_order_status
 
 
 class ShippingPostalCodeRulesCreateInputRange(graphene.InputObjectType):
@@ -813,6 +815,10 @@ class LabelCreate(BaseMutation):
 
         if courier == "GLS":
             label_b64 = generate_gls_label(package_id=package_id)
+
+        if label_b64 and order.channel.slug in get_allegro_channels_slugs():
+            # Notify allegro (update order status)
+            change_allegro_order_status(order=order, status="SENT")
 
         return LabelCreate(
             label=label_b64

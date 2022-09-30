@@ -14,6 +14,8 @@ from django.shortcuts import redirect
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
+from .utils import get_allegro_channels_slugs
+from .tasks import change_allegro_order_status
 
 
 logger = logging.getLogger(__name__)
@@ -232,6 +234,10 @@ class AllegroPlugin(BasePlugin):
             structure_to_add = config_structure.get(configuration_field.get("name"))
             if structure_to_add:
                 configuration_field.update(structure_to_add)
+
+    def order_fulfilled(self, order: "Order", previous_value: Any) -> Any:
+        if order.channel.slug in get_allegro_channels_slugs():
+            change_allegro_order_status(order=order, status="PROCESSING")
 
     @staticmethod
     def calculate_prices(product_id):

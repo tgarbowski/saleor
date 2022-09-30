@@ -123,6 +123,13 @@ class AllegroAPI:
 
         return product
 
+    def update_order_status(self, order_id, status):
+        endpoint = f'order/checkout-forms/{order_id}/fulfillment'
+        payload = {
+            "status": status
+        }
+        return self.put_request(endpoint=endpoint, data=payload)
+
     def get_orders(self, statuses, updated_at_from):
         def get_100_orders(offset=0):
             parameters = {
