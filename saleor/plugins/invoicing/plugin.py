@@ -11,7 +11,8 @@ from ...core import JobStatus
 from ...invoice.models import Invoice
 from ...order.models import Order
 from ..base_plugin import BasePlugin, ConfigurationTypeField
-from .utils import (generate_invoice_number, generate_invoice_pdf, generate_correction_invoice_pdf,
+from .utils import (generate_invoice_number, generate_invoice_pdf,
+                    generate_correction_invoice_pdf,
                     generate_correction_invoice_number)
 from saleor.plugins.allegro.utils import get_plugin_configuration
 

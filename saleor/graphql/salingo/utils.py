@@ -6,6 +6,10 @@ from django.db.models import Max, Q
 from saleor.payment.utils import price_to_minor_unit
 from saleor.order.models import FulfillmentLine, OrderLine
 from saleor.order.utils import get_voucher_discount_for_order
+from saleor.salingo.discounts import (
+    get_manual_discounts_for_order,
+    get_order_discount_position
+)
 
 
 def get_receipt_payload(order):
@@ -32,26 +36,29 @@ def get_receipt_payload(order):
     lines_json.append(shipping_position)
 
     summary = {
-        "to": price_to_minor_unit(value=order.total_gross_amount, currency='PLN')
+        "to": price_to_minor_unit(value=order.total_paid_amount, currency='PLN')
     }
 
     payload = {
         "lines": lines_json,
         "summary": summary,
     }
+    discounts = []
 
-    discount = get_voucher_discount_for_order(order)
-    if discount.amount > 0:
-        discount_position = [{
-            "type": "bill",
-            "discount": {
-                "na": order.voucher.code,
-                "rd": "true",
-                "rw": price_to_minor_unit(value=discount.amount, currency="PLN")
-            }
-        }]
-        payload["discounts"] = discount_position
+    order_manual_discounts = get_manual_discounts_for_order(order)
+    for order_discount in order_manual_discounts:
+        discount_name = order_discount.reason or "Discount"
+        discount_position = get_order_discount_position(discount_name,
+                                                        order_discount.amount_value)
+        discounts.append(discount_position)
 
+    voucher = get_voucher_discount_for_order(order)
+    if voucher.amount > 0:
+        discount_position = get_order_discount_position(order.voucher.code,
+                                                        voucher.amount)
+        discounts.append(discount_position)
+
+    payload["discounts"] = discounts
     return payload
 
 
