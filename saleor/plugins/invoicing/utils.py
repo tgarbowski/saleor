@@ -19,8 +19,8 @@ from saleor.graphql.salingo.utils import get_invoice_correct_payload
 from saleor.order.models import OrderLine
 from saleor.payment.utils import price_from_minor_unit, price_to_minor_unit
 from saleor.order import OrderStatus
-from ...order.utils import get_voucher_discount_for_order, \
-    get_manual_discounts_for_order
+from ...order.utils import get_voucher_discount_for_order
+from ...salingo.discounts import get_manual_discounts_for_order
 
 MAX_PRODUCTS_WITH_TABLE = 3
 MAX_PRODUCTS_WITHOUT_TABLE = 4
@@ -170,12 +170,10 @@ def generate_correction_invoice_pdf(invoice, order):
     # Discounts
     if original_invoice_discounts:
         for discount in original_invoice_discounts:
-            discount_position = \
-                get_additional_position(
-                    quantity=1,
-                    gross_amount=-Decimal(int(
-                        discount.get("discount").get("rw"))/100),
-                    name=discount.get("discount").get("na"))
+            discount_position = get_additional_position(quantity=1,
+                                                        gross_amount=-Decimal(int(
+                                                            discount.get("discount").get("rw"))/100),
+                                                        name=discount.get("discount").get("na"))
             original_invoice.append(discount_position)
             merge_lines.append(discount_position)
     # Original invoice summary

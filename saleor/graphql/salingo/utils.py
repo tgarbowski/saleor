@@ -5,8 +5,11 @@ from django.db.models import Max, Q
 
 from saleor.payment.utils import price_to_minor_unit
 from saleor.order.models import FulfillmentLine, OrderLine
-from saleor.order.utils import get_voucher_discount_for_order, \
-    get_order_discount_position, get_manual_discounts_for_order
+from saleor.order.utils import get_voucher_discount_for_order
+from saleor.salingo.discounts import (
+    get_manual_discounts_for_order,
+    get_order_discount_position
+)
 
 
 def get_receipt_payload(order):
@@ -44,8 +47,7 @@ def get_receipt_payload(order):
 
     order_manual_discounts = get_manual_discounts_for_order(order)
     for order_discount in order_manual_discounts:
-        discount_name = "Discount" if order_discount.reason is None \
-            else order_discount.reason
+        discount_name = order_discount.reason or "Discount"
         discount_position = get_order_discount_position(discount_name,
                                                         order_discount.amount_value)
         discounts.append(discount_position)
