@@ -117,8 +117,7 @@ def generate_invoice_pdf(invoice, order):
 
     order_manual_discounts = get_manual_discounts_for_order(order)
     for order_discount in order_manual_discounts:
-        discount_name = "Discount" if order_discount.reason is None \
-            else order_discount.reason
+        discount_name = order_discount.reason or "Discount"
         discount_line = get_additional_position(quantity=1,
                                                 gross_amount=-order_discount.amount_value,
                                                 name=discount_name)
