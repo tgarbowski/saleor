@@ -123,6 +123,25 @@ class AllegroAPI:
 
         return product
 
+    def get_available_shipping_carriers(self):
+        endpoint = 'order/carriers'
+        return self.get_request(endpoint=endpoint)
+
+    def add_parcel_tracking_number(self, order_id, carrier_id, waybill):
+        endpoint = f'order/checkout-forms/{order_id}/shipments'
+        payload = {
+            "carrierId": carrier_id,
+            "waybill": waybill
+        }
+        return self.post_request(endpoint=endpoint, data=payload, api_version=self.api_public)
+
+    def update_order_status(self, order_id, status):
+        endpoint = f'order/checkout-forms/{order_id}/fulfillment'
+        payload = {
+            "status": status
+        }
+        return self.put_request(endpoint=endpoint, data=payload)
+
     def get_orders(self, statuses, updated_at_from):
         def get_100_orders(offset=0):
             parameters = {

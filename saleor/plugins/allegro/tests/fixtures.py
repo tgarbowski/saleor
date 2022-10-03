@@ -12,7 +12,7 @@ from saleor.graphql.tests.fixtures import ApiClient
 def smart_voucher(channel_USD):
     voucher = Voucher.objects.create(
         name='SMART',
-        code="unique",
+        code="SMART",
         type=VoucherType.SHIPPING,
         discount_value_type='percentage',
         apply_once_per_order=False
