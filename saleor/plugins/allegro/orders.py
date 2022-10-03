@@ -184,7 +184,7 @@ def prepare_draft_order_create_input(checkout_form, channel_id):
     smart = AllegroOrderExtractor.is_smart(checkout_form)
     # Make delivery free in case of SMART package
     if smart:
-        voucher = Voucher.objects.get(name='SMART')
+        voucher = Voucher.objects.get(code='SMART')
         voucher_id = to_global_id("Voucher", voucher.id)
         draft_order_create_input['voucher'] = voucher_id
 
@@ -194,7 +194,7 @@ def prepare_draft_order_create_input(checkout_form, channel_id):
 def save_additional_allegro_order_data(order, checkout_form):
     pickup_point_id = AllegroOrderExtractor.pickup_point_id(checkout_form)
 
-    order.user_email = AllegroOrderExtractor.buyer_email(checkout_form)
+    order.user_email = mangle_email(AllegroOrderExtractor.buyer_email(checkout_form))
     order.shipping_method_name = AllegroOrderExtractor.delivery_method_name(checkout_form)
     order.store_value_in_metadata(
         {
@@ -392,3 +392,7 @@ def datetime_minus_days(days: int):
     updated_at_from = timezone.now() - timedelta(days=days)
     updated_at_from = datetime.strftime(updated_at_from, "%Y-%m-%dT%H:%M:%S")
     return updated_at_from
+
+
+def mangle_email(email: str) -> str:
+    return email.replace('@', '@mangled-')

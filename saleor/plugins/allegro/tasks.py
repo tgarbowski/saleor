@@ -15,6 +15,8 @@ from saleor.plugins.manager import get_plugins_manager
 from saleor.product.models import Category, Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
 from .orders import cancel_allegro_orders, insert_allegro_orders
+from saleor.order.models import Fulfillment
+
 
 logger = logging.getLogger(__name__)
 
@@ -386,3 +388,27 @@ def cancel_allegro_orders_task(channels_datetime):
     for channel in channels:
         datetime_from = channels_datetime[channel]
         cancel_allegro_orders(channel_slug=channel, datetime_from=datetime_from)
+
+
+def change_allegro_order_status(order, status):
+    allegro_order_id = order.get_value_from_metadata("allegro_order_id")
+    api = AllegroAPI(channel=order.channel.slug)
+    api.update_order_status(order_id=allegro_order_id, status=status)
+
+
+def update_allegro_tracking_number(order):
+    fulfillment = Fulfillment.objects.filter(order=order).exclude(
+        tracking_number__exact=''
+    ).first()
+
+    tracking_number = fulfillment.tracking_number
+    allegro_order_id = order.get_value_from_metadata("allegro_order_id")
+    shipping_method = order.shipping_method
+    allegro_shipping_method_id = shipping_method.get_value_from_metadata("allegro_id")
+
+    api = AllegroAPI(channel=order.channel.slug)
+    api.add_parcel_tracking_number(
+        order_id=allegro_order_id,
+        carrier_id=allegro_shipping_method_id,
+        waybill=tracking_number
+    )
