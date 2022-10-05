@@ -225,12 +225,15 @@
     <div class="address section-right">
       <span class="header-title">Nabywca/płatnik</span>
       <br />
-
-      {% if order.billing_address.vat_id and order.billing_address.company_name %}
-      <span class="normal-text">{{ order.billing_address.company_name }}</span>
-      <br />
-      <span class="normal-text">{{ order.billing_address.vat_id }}</span>
-      <br />
+      {% if order.billing_address.vat_id or order.billing_address.company_name %}
+        {% if order.billing_address.company_name %}
+          <span class="normal-text">{{ order.billing_address.company_name }}</span>
+          <br />
+        {% endif %}
+        {% if order.billing_address.vat_id %}
+          <span class="normal-text">{{ order.billing_address.vat_id }}</span>
+          <br />
+        {% endif %}
       {% else %}
       <span class="normal-text">
         {{ order.billing_address.first_name }}
