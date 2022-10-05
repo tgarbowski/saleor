@@ -5836,6 +5836,7 @@ enum ProductOrderField {
   LAST_MODIFIED_AT
   COLLECTION
   RATING
+  CREATED
 }
 
 type ProductPricingInfo {
