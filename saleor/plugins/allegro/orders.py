@@ -25,6 +25,7 @@ from saleor.plugins.allegro.api import AllegroAPI
 from saleor.plugins.allegro import ProductPublishState
 from saleor.discount.models import Sale
 from saleor.plugins.allegro.utils import skus_to_product_ids, format_allegro_datetime
+from saleor.discount import DiscountValueType, OrderDiscountType, VoucherType
 
 
 TWO_PLACES = Decimal("0.01")
@@ -249,6 +250,9 @@ def insert_allegro_order(api_client, checkout_form, channel_id) -> Optional[int]
         return
     order_id_global = draft_order_create_response['data']['draftOrderCreate']['order']['id']
     order = get_order_from_global_id(order_id_global)
+    # Add shipping discount
+    if order.voucher and order.voucher.type == VoucherType.SHIPPING:
+        add_order_discount(order=order)
     # Save sold products private metadata
     allegro_positions = AllegroOrderExtractor.order_positions(checkout_form['lineItems'])
     for allegro_position in allegro_positions:
@@ -396,3 +400,20 @@ def datetime_minus_days(days: int):
 
 def mangle_email(email: str) -> str:
     return email.replace('@', '@mangled-')
+
+
+def add_order_discount(order: Order):
+    discount = order.voucher.get_discount_amount_for(
+        price=order.shipping_price_gross,
+        channel=order.channel
+    )
+
+    order.discounts.create(
+        type=OrderDiscountType.VOUCHER,
+        value_type=DiscountValueType.FIXED,
+        value=discount.amount,
+        name='',
+        translated_name='',
+        currency='PLN',
+        amount_value=discount.amount,
+    )
