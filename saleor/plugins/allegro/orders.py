@@ -78,17 +78,27 @@ class AllegroOrderExtractor:
 
     @staticmethod
     def billing_address_invoice(checkout_form) -> Dict:
-        return {
-            'firstName': checkout_form['invoice']['address']['naturalPerson']['firstName'],
-            'lastName': checkout_form['invoice']['address']['naturalPerson']['lastName'],
-            'companyName': checkout_form['invoice']['address']['company']['name'],
+        address = {
+            'firstName': '',
+            'lastName': '',
+            'companyName': '',
             'phone': '',
-            'streetAddress1': checkout_form['invoice']['address']['street'],
-            'city': checkout_form['invoice']['address']['city'],
-            'postalCode': checkout_form['invoice']['address']['zipCode'],
-            'country': checkout_form['invoice']['address']['countryCode'],
-            'vatId': checkout_form['invoice']['address']['company']['taxId']
+            'streetAddress1': checkout_form['invoice']['address'].get('street', ''),
+            'city': checkout_form['invoice']['address'].get('city', ''),
+            'postalCode': checkout_form['invoice']['address'].get('zipCode', ''),
+            'country': checkout_form['invoice']['address'].get('countryCode', ''),
+            'vatId': ''
         }
+
+        if checkout_form['invoice']['address']['naturalPerson']:
+            address['firstName'] = checkout_form['invoice']['address']['naturalPerson'].get('firstName', '')
+            address['lastName'] = checkout_form['invoice']['address']['naturalPerson'].get('lastName', '')
+
+        if checkout_form['invoice']['address']['company']:
+            address['companyName'] = checkout_form['invoice']['address']['company'].get('name', '')
+            address['vatId'] = checkout_form['invoice']['address']['company'].get('taxId', '')
+
+        return address
 
     @staticmethod
     def is_smart(checkout_form: dict) -> bool:
