@@ -1,7 +1,6 @@
 from decimal import Decimal
 
-import graphene
-
+from saleor.discount.models import OrderDiscount
 from saleor.order.models import Order, OrderLine
 from saleor.plugins.allegro.orders import insert_allegro_order, cancel_allegro_order
 from saleor.plugins.allegro import ProductPublishState
@@ -287,6 +286,7 @@ def test_save_allegro_order_smart(
 
     order = Order.objects.get(pk=order_id)
     order_lines = OrderLine.objects.filter(order=order)
+    discount = OrderDiscount.objects.get(order=order)
 
     assert order_id is not None
     assert order.shipping_method.name == allegro_shipping_method.name
@@ -294,6 +294,7 @@ def test_save_allegro_order_smart(
     assert order.undiscounted_total_gross_amount == Decimal(133.45).quantize(TWO_PLACES)
     assert order.shipping_price_gross_amount == Decimal(10.00)
     assert order.total_gross_amount == Decimal(123.45).quantize(TWO_PLACES)
+    assert discount.value == Decimal(10.00)
 
     for order_line in order_lines:
         product = order_line.variant.product

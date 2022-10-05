@@ -599,7 +599,11 @@ if APP_ENVIRONMENT in ['production']:
             'schedule': 600.0,
             "options": {"queue": CELERY_TASK_DEFAULT_QUEUE},
             'args': (
-                {'salingo-man': "2022-09-28T19:00:00"},
+                {
+                    'salingo-man': "2022-09-28T19:00:00",
+                    'salingo-woman': "2022-10-04T13:58:00",
+                    'salingo-kids': "2022-10-04T09:57:00"
+                },
             )
         }
     })
