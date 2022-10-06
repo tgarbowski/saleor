@@ -90,24 +90,23 @@ def create_dpd_shipment(shipping: Shipping, package, fulfillment):
     response_package = dpd_api.generate_package_shipment(
         packageData=package_data,
         receiverData=receiver,
-        senderData=sender,
-        # servicesData=data['input'].get('services')
+        senderData=sender
     )
-    '''
-    if package.Status != 'OK':
-        return DpdPackageCreate(
-            status=package.Status
-        )
-    '''
+
     json_package = prepare_package_info_from_dpd_api_response(
         response_package=response_package,
         package=package
     )
 
+    try:
+        waybill = response_package.Packages.Package[0].Parcels.Parcel[0].Waybill
+    except:
+        waybill = response_package.Packages.Package[0].PackageId
+
     save_package_data_to_fulfillment(
         fulfillment=fulfillment,
         json_package=json_package,
-        tracking_number=response_package.Packages.Package[0].PackageId
+        tracking_number=waybill
     )
 
     return response_package
