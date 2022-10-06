@@ -5,6 +5,7 @@ from phonenumber_field.modelfields import PhoneNumber
 from ..base_plugin import BasePlugin, ConfigurationTypeField
 
 from saleor.site.models import SiteSettings
+from saleor.order.models import Fulfillment
 
 from saleor.payment.interface import AddressData
 from saleor.shipping.interface import ShippingMethodData
@@ -144,7 +145,7 @@ def create_inpost_package(package):
     return parcels
 
 
-def save_package_data_to_fulfillment(fulfillment, parcels, package_id):
+def save_package_data_to_fulfillment(fulfillment, parcels, package_id, tracking_number):
     # length dimensions come in cm, inpost api requires mm
     new_parcels = []
 
@@ -165,8 +166,9 @@ def save_package_data_to_fulfillment(fulfillment, parcels, package_id):
             "parcels": new_parcels
         }
     }
+
     fulfillment.store_value_in_private_metadata(package_data)
-    fulfillment.tracking_number = parcels[0]['id']
+    fulfillment.tracking_number = tracking_number or package_id
     fulfillment.save()
 
 
@@ -198,11 +200,21 @@ def create_inpost_shipment(shipping: Shipping, package, fulfillment):
 
     inpost_api = InpostApi()
     response = inpost_api.create_package(package=inpost_shipment)
+    package_id = response.get('id')
+    tracking_number = response.get('tracking_number')
+
+    if not tracking_number:
+        try:
+            package_info = inpost_api.get_package(package_id=package_id)
+            tracking_number = package_info.get('tracking_number')
+        except:
+            pass
 
     save_package_data_to_fulfillment(
         fulfillment=fulfillment,
         parcels=response.get('parcels'),
-        package_id=response.get('id')
+        package_id=package_id,
+        tracking_number=tracking_number
     )
 
     return response
@@ -212,3 +224,13 @@ def generate_inpost_label(package_id: str):
     inpost_api = InpostApi()
     response = inpost_api.get_label(shipment_id=package_id)
     return response
+
+
+def update_inpost_tracking_number(order, package_id):
+    api = InpostApi()
+    package_info = api.get_package(package_id=package_id)
+    tracking_number = package_info.get('tracking_number')
+    if tracking_number:
+        fulfillment = Fulfillment.objects.get(order=order, private_metadata__package__id=int(package_id))
+        fulfillment.tracking_number = tracking_number
+        fulfillment.save()

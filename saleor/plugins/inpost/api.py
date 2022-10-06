@@ -37,3 +37,13 @@ class InpostApi:
         response = requests.post(url=url, headers=headers, json=payload)
 
         return response.json()
+
+    def get_package(self, package_id: str):
+        access_token = self.config.get('access_token')
+        api_url = self.config.get('api_url')
+
+        url = f'{api_url}shipments/{package_id}'
+        headers = {"Authorization": f'Bearer {access_token}'}
+
+        response = requests.get(url=url, headers=headers)
+        return response.json()

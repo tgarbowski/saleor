@@ -35,6 +35,7 @@ from saleor.plugins.dpd.utils import create_dpd_shipment, generate_dpd_label
 from saleor.plugins.gls.utils import create_gls_shipment, generate_gls_label
 from saleor.plugins.allegro.utils import get_allegro_channels_slugs
 from saleor.plugins.allegro.tasks import change_allegro_order_status, update_allegro_tracking_number
+from saleor.plugins.inpost.plugin import update_inpost_tracking_number
 
 
 class ShippingPostalCodeRulesCreateInputRange(graphene.InputObjectType):
@@ -810,6 +811,8 @@ class LabelCreate(BaseMutation):
             label_b64 = base64.b64encode(label).decode('ascii')
 
         if courier == "INPOST":
+            if order.tracking_number and len(order.tracking_number) != 24:
+                update_inpost_tracking_number(order, package_id)
             label = generate_inpost_label(package_id=package_id)
             label_b64 = base64.b64encode(label).decode('ascii')
 
