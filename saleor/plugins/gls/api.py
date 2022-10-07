@@ -1,7 +1,13 @@
+import logging
+from typing import Dict
+
 import zeep
 from zeep.exceptions import Fault
 
 from saleor.plugins.manager import get_plugins_manager
+
+
+logger = logging.getLogger(__name__)
 
 
 class GlsApi():
@@ -31,24 +37,36 @@ class GlsApi():
                 self.config.password
             )
             return session_id
-        except Exception as e:
-            print(e.code)
+        except Fault as e:
+            logger.error(e.code)
 
     def generate_package_shipment(self, payload) -> int:
         """Returns package id"""
         try:
-            package = self.service.adePreparingBox_Insert(self.session_id, payload)
-            return package
+            return self.service.adePreparingBox_Insert(self.session_id, payload)
         except Fault as e:
-            print(e.code)
+            logger.error(e.code)
 
     def generate_label(self, number, mode) -> str:
         """Returns label as b64 string"""
         try:
-            label = self.service.adePreparingBox_GetConsignLabels(self.session_id, number, mode)
-            return label
+            return self.service.adePreparingBox_GetConsignLabels(self.session_id, number, mode)
         except Fault as e:
-            print(e.code)
+            logger.error(e.code)
+
+    def get_packages(self, id_start=0):
+        """Returns packages info"""
+        try:
+            return self.service.adePreparingBox_GetConsignIDs(self.session_id, id_start)
+        except Fault as e:
+            logger.error(e.code)
+
+    def get_package(self, package_id) -> Dict:
+        """Returns package info"""
+        try:
+            return self.service.adePreparingBox_GetConsign(self.session_id, package_id)
+        except Fault as e:
+            logger.error(e.code)
 
 
 def get_gls_config():

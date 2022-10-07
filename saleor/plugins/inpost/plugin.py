@@ -226,15 +226,7 @@ def generate_inpost_label(package_id: str):
     return response
 
 
-def update_inpost_tracking_number(order, package_id):
+def get_inpost_tracking_number(package_id):
     api = InpostApi()
     package_info = api.get_package(package_id=package_id)
-    tracking_number = package_info.get('tracking_number')
-    if tracking_number:
-        fulfillment = get_fulfillment_by_package_id(order=order, package_id=package_id)
-        fulfillment.tracking_number = tracking_number
-        fulfillment.save()
-
-
-def get_fulfillment_by_package_id(order, package_id):
-    return Fulfillment.objects.get(order=order, private_metadata__package__id=int(package_id))
+    return package_info.get('tracking_number')

@@ -608,15 +608,6 @@ if APP_ENVIRONMENT in ['production']:
         }
     })
 
-if APP_ENVIRONMENT in ['staging']:
-    CELERY_BEAT_SCHEDULE.update({
-        'publication_flow': {
-            'task': 'saleor.salingo.tasks.publication_flow',
-            'schedule': crontab(minute=30, hour=0),
-            "options": {"queue": CELERY_LONG_TASKS_QUEUE}
-        }
-    })
-
 if APP_ENVIRONMENT in ['development']:
     CELERY_BEAT_SCHEDULE.update({
         'save_allegro_orders_task': {
