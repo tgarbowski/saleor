@@ -78,3 +78,12 @@ def generate_gls_label(package_id: str):
         mode='roll_160x100_zebra'
     )
     return label
+
+
+def get_gls_tracking_number(package_id):
+    api = GlsApi()
+    package = api.get_package(package_id=package_id)
+    try:
+        return package['parcels']['items'][0]['number']
+    except:
+        return None
