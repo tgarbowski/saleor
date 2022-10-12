@@ -39,7 +39,9 @@ class ExtReceiptRequest(ModelMutation):
 
     @staticmethod
     def clean_order(order):
-        if order.status != OrderStatus.FULFILLED:
+        if not (order.status == OrderStatus.FULFILLED
+                or order.status == OrderStatus.PARTIALLY_FULFILLED
+                or order.status == OrderStatus.PARTIALLY_RETURNED):
             raise ValidationError(
                 {
                     "orderId": ValidationError(
