@@ -34,8 +34,8 @@ CHECKOUT_FORM = {
         "type": "CASH_ON_DELIVERY",
         "provider": "P24",
         "finishedAt": "2018-10-12T10:12:32.321Z",
-        "paidAmount": {"amount": "123.45", "currency": "PLN"},
-        "reconciliation": {"amount": "123.45", "currency": "PLN"},
+        "paidAmount": {"amount": "133.45", "currency": "PLN"},
+        "reconciliation": {"amount": "133.45", "currency": "PLN"},
     },
     "status": "READY_FOR_PROCESSING",
     "fulfillment": {"status": "SENT", "shipmentSummary": {"lineItemsSent": "SOME"}},
@@ -65,7 +65,7 @@ CHECKOUT_FORM = {
                 "city": "Poznań",
             },
         },
-        "cost": {"amount": "123.45", "currency": "PLN"},
+        "cost": {"amount": "10.00", "currency": "PLN"},
         "time": {
             "guaranteed": {"from": "2018-01-01T16:00:00Z", "to": "2018-01-01T18:00:00Z"}
         },
@@ -122,7 +122,7 @@ CHECKOUT_FORM = {
         }
     ],
     "discounts": [{"type": "COUPON"}],
-    "summary": {"totalToPay": {"amount": "123.45", "currency": "PLN"}},
+    "summary": {"totalToPay": {"amount": "133.45", "currency": "PLN"}},
     "updatedAt": "2011-12-03T10:15:30.133Z",
     "revision": "819b5836",
 }
@@ -184,7 +184,7 @@ CHECKOUT_FORM_SMART = {
                 "city": "Poznań",
             },
         },
-        "cost": {"amount": "123.45", "currency": "PLN"},
+        "cost": {"amount": "0.00", "currency": "PLN"},
         "time": {
             "guaranteed": {"from": "2018-01-01T16:00:00Z", "to": "2018-01-01T18:00:00Z"}
         },
@@ -286,15 +286,14 @@ def test_save_allegro_order_smart(
 
     order = Order.objects.get(pk=order_id)
     order_lines = OrderLine.objects.filter(order=order)
-    discount = OrderDiscount.objects.get(order=order)
 
     assert order_id is not None
     assert order.shipping_method.name == allegro_shipping_method.name
     assert order.status == 'unfulfilled'
-    assert order.undiscounted_total_gross_amount == Decimal(133.45).quantize(TWO_PLACES)
-    assert order.shipping_price_gross_amount == Decimal(10.00)
+    assert order.undiscounted_total_gross_amount == Decimal(123.45).quantize(TWO_PLACES)
+    assert order.shipping_price_gross_amount == Decimal(0.00)
+    assert order.shipping_price_net_amount == Decimal(0.00)
     assert order.total_gross_amount == Decimal(123.45).quantize(TWO_PLACES)
-    assert discount.value == Decimal(10.00)
 
     for order_line in order_lines:
         product = order_line.variant.product
