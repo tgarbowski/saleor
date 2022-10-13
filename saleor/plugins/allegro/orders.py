@@ -26,6 +26,7 @@ from saleor.plugins.allegro import ProductPublishState
 from saleor.discount.models import Sale
 from saleor.plugins.allegro.utils import skus_to_product_ids, format_allegro_datetime
 from saleor.discount import DiscountValueType, OrderDiscountType, VoucherType
+from saleor.order.utils import recalculate_order
 
 
 TWO_PLACES = Decimal("0.01")
@@ -138,6 +139,10 @@ class AllegroOrderExtractor:
     def order_id(checkout_form):
         return checkout_form['id']
 
+    @staticmethod
+    def shipping_cost(checkout_form):
+        return checkout_form['delivery']['cost']['amount']
+
 
 def prepare_draft_order_lines(line_items: List[AllegroOrderPosition]) -> List:
     variant_list = []
@@ -191,13 +196,6 @@ def prepare_draft_order_create_input(checkout_form, channel_id):
         "shippingMethod": shipping_method_id,
         "channel": to_global_id("Channel", channel_id)
     }
-
-    smart = AllegroOrderExtractor.is_smart(checkout_form)
-    # Make delivery free in case of SMART package
-    if smart:
-        voucher = Voucher.objects.get(code='SMART')
-        voucher_id = to_global_id("Voucher", voucher.id)
-        draft_order_create_input['voucher'] = voucher_id
 
     return draft_order_create_input
 
@@ -260,15 +258,16 @@ def insert_allegro_order(api_client, checkout_form, channel_id) -> Optional[int]
         return
     order_id_global = draft_order_create_response['data']['draftOrderCreate']['order']['id']
     order = get_order_from_global_id(order_id_global)
-    # Add shipping discount
-    if order.voucher and order.voucher.type == VoucherType.SHIPPING:
-        add_order_discount(order=order)
     # Save sold products private metadata
     allegro_positions = AllegroOrderExtractor.order_positions(checkout_form['lineItems'])
     for allegro_position in allegro_positions:
         update_sold_product_private_metadata(allegro_position)
     # Store additional order data
     save_additional_allegro_order_data(order=order, checkout_form=checkout_form)
+    # Set shipping_price and recalculate order
+    shipping_price = AllegroOrderExtractor.shipping_cost(checkout_form)
+    update_shipping_price(order=order, price=Decimal(shipping_price))
+    recalculate_order(order=order)
     # Complete order
     draft_order_complete_input = {"id": order_id_global}
     draft_order_complete_response = api_client.post_graphql(
@@ -396,6 +395,12 @@ def remove_product_discounts(product):
     sales = Sale.objects.all()
     for sale in sales:
         sale.products.remove(product)
+
+
+def update_shipping_price(order: Order, price: Decimal):
+    order.shipping_price_net_amount = price
+    order.shipping_price_gross_amount = price
+    order.save()
 
 # Parsers
 def is_product_sold(product) -> bool:

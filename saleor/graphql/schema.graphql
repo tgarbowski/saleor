@@ -4292,6 +4292,7 @@ type Order implements Node & ObjectWithMetadata {
   fulfillments: [Fulfillment]!
   lines: [OrderLine]!
   actions: [OrderAction]!
+  wmsDocuments: [WmsDocument]!
   availableShippingMethods: [ShippingMethod] @deprecated(reason: "Use `shippingMethods`, this field will be removed in 4.0")
   shippingMethods: [ShippingMethod]
   availableCollectionPoints: [Warehouse!]!
@@ -4609,6 +4610,7 @@ input OrderFilterInput {
   ids: [ID]
   giftCardUsed: Boolean
   giftCardBought: Boolean
+  wmsDocument: Boolean
 }
 
 type OrderFulfill {

@@ -9,6 +9,8 @@ from django.core.exceptions import ValidationError
 from graphene import relay
 from promise import Promise
 
+from ..salingo.dataloaders import WmsDocumentsByOrderIdLoader
+from ..wms.types import WmsDocument
 from ...account.models import Address
 from ...checkout.utils import get_external_shipping_id
 from ...core.anonymize import obfuscate_address, obfuscate_email
@@ -90,7 +92,7 @@ from .dataloaders import (
     OrderByIdLoader,
     OrderEventsByOrderIdLoader,
     OrderLineByIdLoader,
-    OrderLinesByOrderIdLoader,
+    OrderLinesByOrderIdLoader
 )
 from .enums import (
     FulfillmentStatusEnum,
@@ -641,6 +643,9 @@ class Order(ModelObjectType):
         ),
         required=True,
     )
+    wms_documents = graphene.List(
+        WmsDocument, required=True, description="List of wms documents for the order."
+    )
     available_shipping_methods = graphene.List(
         ShippingMethod,
         required=False,
@@ -979,6 +984,18 @@ class Order(ModelObjectType):
             FulfillmentsByOrderIdLoader(info.context)
             .load(root.id)
             .then(_resolve_fulfillments)
+        )
+
+    @staticmethod
+    def resolve_wms_documents(root: models.Order, info):
+        def _resolve_wms_documents(wms_documents):
+            return wms_documents
+
+
+        return (
+            WmsDocumentsByOrderIdLoader(info.context)
+            .load(root.id)
+            .then(_resolve_wms_documents)
         )
 
     @staticmethod

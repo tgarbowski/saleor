@@ -3,6 +3,7 @@ from django.db.models import Exists, IntegerField, OuterRef, Q
 from django.db.models.functions import Cast
 from django.utils import timezone
 
+from ..salingo.filters import filter_wms_documents
 from ...giftcard import GiftCardEvents
 from ...giftcard.models import GiftCardEvent
 from ...order.models import Order, OrderLine
@@ -157,6 +158,7 @@ class OrderFilter(DraftOrderFilter):
     ids = GlobalIDMultipleChoiceFilter(method=filter_by_id("Order"))
     gift_card_used = django_filters.BooleanFilter(method=filter_gift_card_used)
     gift_card_bought = django_filters.BooleanFilter(method=filter_gift_card_bought)
+    wms_document = django_filters.BooleanFilter(method=filter_wms_documents)
 
     class Meta:
         model = Order
