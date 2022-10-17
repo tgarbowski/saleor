@@ -105,10 +105,12 @@ def generate_invoice_pdf(invoice, order):
     fulfilled_order_lines = OrderLine.objects.filter(id__in=fulfilled_order_lines_ids)
     fulfilled_order_lines = get_order_line_positions(fulfilled_order_lines)
 
-    shipment = get_additional_position(quantity=1,
-                                       gross_amount=order.shipping_price_gross_amount,
-                                       name="TRANSPORT Usługa transportowa")
-    fulfilled_order_lines.append(shipment)
+    shipment = None
+    if not order.shipping_price_gross_amount == 0:
+        shipment = get_additional_position(quantity=1,
+                                           gross_amount=order.shipping_price_gross_amount,
+                                           name="TRANSPORT Usługa transportowa")
+        fulfilled_order_lines.append(shipment)
     voucher = get_voucher_discount_for_order(order)
     if voucher.amount > 0:
         voucher_line = get_additional_position(quantity=1, gross_amount=-voucher.amount,
