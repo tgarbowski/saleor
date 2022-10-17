@@ -27,13 +27,15 @@ def get_receipt_payload(order):
         }
         lines_json.append(line)
 
-    shipping_position = {
-        "na": "TRANSPORT Usługa transportowa",
-        "il": 1,
-        "vtp": "23,00",
-        "pr": price_to_minor_unit(value=order.shipping_price_gross_amount, currency='PLN')
-    }
-    lines_json.append(shipping_position)
+    if not order.shipping_price_gross_amount == 0:
+        shipping_position = {
+            "na": "TRANSPORT Usługa transportowa",
+            "il": 1,
+            "vtp": "23,00",
+            "pr": price_to_minor_unit(value=order.shipping_price_gross_amount,
+                                      currency='PLN')
+        }
+        lines_json.append(shipping_position)
 
     summary = {
         "to": price_to_minor_unit(value=order.total_paid_amount, currency='PLN')
