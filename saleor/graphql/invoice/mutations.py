@@ -239,7 +239,7 @@ class InvoiceDelete(ModelDeleteMutation):
     @staticmethod
     def clean_order(invoice: Invoice, order: Order):
         if not (invoice.number is None and invoice.parent is None and
-                order.metadata.get('invoice') == "false"):
+                order.metadata.get('invoice') == "false" or not order.metadata.get('invoice')):
             raise ValidationError(
             {
                 "orderId": ValidationError(
