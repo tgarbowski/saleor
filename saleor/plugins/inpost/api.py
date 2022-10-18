@@ -1,8 +1,9 @@
+from dataclasses import asdict
+
 import requests
 
-from .interface import InpostShipment
+from .interface import InpostPackage
 from saleor.plugins.manager import get_plugins_manager
-from dataclasses import asdict
 
 
 class InpostApi:
@@ -23,10 +24,12 @@ class InpostApi:
         url = f'{api_url}shipments/{shipment_id}/label?format=zpl'
         headers = {"Authorization": f'Bearer {access_token}'}
         response = requests.get(url=url, headers=headers)
+        if response.status_code == 200:
+            return response.content
+        else:
+            return response.json()
 
-        return response.content
-
-    def create_package(self, package: InpostShipment):
+    def create_package(self, package: InpostPackage):
         organization_id = self.config.get('organization_id')
         access_token = self.config.get('access_token')
         api_url = self.config.get('api_url')

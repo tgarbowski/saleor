@@ -1,5 +1,21 @@
+import base64
+
 from saleor.plugins.inpost.plugin import Shipping
 from .api import DpdApi
+from zeep.helpers import serialize_object
+from saleor.salingo.utils import find_keys
+from saleor.salingo.shipping import CarrierError, ShipmentStrategy
+
+
+class DpdShipment(ShipmentStrategy):
+    def create_package(self, shipping, package, fulfillment) -> str:
+        return create_dpd_shipment(shipping, package, fulfillment)
+
+    def generate_label(self, package_id) -> str:
+        return generate_dpd_label(package_id)
+
+    def get_tracking_number(self, package_id) -> str:
+        raise NotImplementedError
 
 
 def create_dpd_receiver(shipping: Shipping):
@@ -93,6 +109,10 @@ def create_dpd_shipment(shipping: Shipping, package, fulfillment):
         senderData=sender
     )
 
+    if response_package.Status != 'OK':
+        package_errors = get_dpd_response_errors(response_package, key='Info')
+        raise CarrierError(message=package_errors)
+
     json_package = prepare_package_info_from_dpd_api_response(
         response_package=response_package,
         package=package
@@ -108,13 +128,29 @@ def create_dpd_shipment(shipping: Shipping, package, fulfillment):
         json_package=json_package,
         tracking_number=waybill
     )
-
-    return response_package
+    package_id = response_package.Packages.Package[0].PackageId
+    return package_id
 
 
 def generate_dpd_label(package_id: str):
-    DPD_ApiInstance = DpdApi()
-    label = DPD_ApiInstance.generate_label(
+    api = DpdApi()
+    label = api.generate_label(
         packageId=package_id
     )
-    return label['documentData']
+    label_data = label.documentData
+    if label_data is None:
+        label_errors = get_dpd_response_errors(label, key='status')
+        raise CarrierError(message=label_errors)
+
+    label_b64 = base64.b64encode(label_data).decode('ascii')
+    return label_b64
+
+
+def get_dpd_response_errors(response, key) -> str:
+    try:
+        dict_response = serialize_object(response, target_cls=dict)
+        errors = list(find_keys(dict_response, key))
+        error = errors[0]
+    except:
+        error = ''
+    return error

@@ -20,7 +20,6 @@ from .mutations.shippings import (
     ShippingZoneCreate,
     ShippingZoneDelete,
     ShippingZoneUpdate,
-    DpdProtocolCreate,
     PackageCreate,
     LabelCreate
 )
@@ -82,7 +81,6 @@ class ShippingMutations(graphene.ObjectType):
     shipping_zone_bulk_delete = ShippingZoneBulkDelete.Field()
     shipping_zone_update = ShippingZoneUpdate.Field()
 
-    # dpd_protocol_create = DpdProtocolCreate.Field()
     package_create = PackageCreate.Field()
     label_create = LabelCreate.Field()
 

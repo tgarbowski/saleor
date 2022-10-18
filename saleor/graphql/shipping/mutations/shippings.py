@@ -29,13 +29,10 @@ from ...utils import resolve_global_ids_to_primary_keys
 from ...utils.validators import check_for_duplicates
 from ..enums import PostalCodeRuleInclusionTypeEnum, ShippingMethodTypeEnum
 from ..types import ShippingMethodPostalCodeRule, ShippingMethodType, ShippingZone
-from ....plugins.dpd.api import DpdApi
-from saleor.plugins.inpost.plugin import create_shipping_information, create_inpost_shipment, generate_inpost_label
-from saleor.plugins.dpd.utils import create_dpd_shipment, generate_dpd_label
-from saleor.plugins.gls.utils import create_gls_shipment, generate_gls_label
 from saleor.plugins.allegro.utils import get_allegro_channels_slugs
 from saleor.plugins.allegro.tasks import change_allegro_order_status, update_allegro_tracking_number
-from saleor.salingo.shipping import get_fulfillment_by_package_id, update_tracking_number
+from saleor.salingo.shipping import (create_shipping_information, get_fulfillment_by_package_id,
+                                     shipment_strategy, update_tracking_number)
 
 
 class ShippingPostalCodeRulesCreateInputRange(graphene.InputObjectType):
@@ -636,47 +633,6 @@ class ShippingPriceRemoveProductFromExclude(BaseMutation):
         )
 
 
-class DpdCreateProtocolInput(graphene.InputObjectType):
-    waybills = graphene.List(graphene.String)
-    packages = graphene.List(graphene.Int)
-    #senderData = SenderDataInput(required=True)
-
-
-class DpdProtocolCreate(BaseMutation):
-    protocol = graphene.Field(graphene.String, description='B64 protocol representation')
-
-    class Arguments:
-        input = DpdCreateProtocolInput(
-            required=True,
-            description=(
-                "Client-side generated data required to create dpd label."
-            ),
-        )
-
-    class Meta:
-        description = "Creates a new shipping price."
-        permissions = (ShippingPermissions.MANAGE_SHIPPING,)
-        error_type_class = ShippingError
-        error_type_field = "shipping_errors"
-
-    @classmethod
-    def perform_mutation(cls, _root, info, **data):
-        DPD_ApiInstance = DpdApi()
-
-        data['input']['senderData']['fid'] = DPD_ApiInstance.API_FID
-
-        protocol = DPD_ApiInstance.generate_protocol(
-            waybills=data['input'].get('waybills'),
-            packages=data['input'].get('packages'),
-            senderData=data['input']['senderData']
-        )
-        data = base64.b64encode(protocol['documentData']).decode('ascii')
-
-        return DpdProtocolCreate(
-            protocol=data
-        )
-
-
 class PackageInput(graphene.InputObjectType):
     weight = graphene.Float(description="Weight", required=True)
     sizeX = graphene.Int(description="Width")
@@ -731,7 +687,7 @@ class PackageCreate(BaseMutation):
 
             if courier == "INPOST":
                 if max_dimension > 64 or weight > 25:
-                     raise dimensions_error
+                    raise dimensions_error
             if courier == "DPD":
                 if max_dimension > 150 or weight > 31.5 or dimensions_sum > 300:
                     raise dimensions_error
@@ -750,31 +706,14 @@ class PackageCreate(BaseMutation):
         shipping = create_shipping_information(order=order)
         courier = order.shipping_method.metadata.get("courier")
         cls.validate_dimensions(package, courier)
-        # TODO: handle generic courier
-        if courier == "DPD":
-            shipment = create_dpd_shipment(
-                shipping=shipping,
-                package=package,
-                fulfillment=fulfillment
-            )
-            package_id = shipment.Packages.Package[0].PackageId
-        if courier == "INPOST":
-            shipment = create_inpost_shipment(
-                shipping=shipping,
-                package=package,
-                fulfillment=fulfillment
-            )
-            package_id = shipment['id']
-        if courier == "GLS":
-            package_id = create_gls_shipment(
-                shipping=shipping,
-                package=package,
-                fulfillment=fulfillment,
-                order=order
-            )
+
+        package_id = shipment_strategy(courier=courier).create_package(
+            shipping=shipping,
+            package=package,
+            fulfillment=fulfillment
+        )
 
         return PackageCreate(packageId=package_id)
-
 
 
 class LabelCreateInput(graphene.InputObjectType):
@@ -812,16 +751,7 @@ class LabelCreate(BaseMutation):
         if tracking_number == str(package_id):
             update_tracking_number(order=order, package_id=package_id)
 
-        if courier == "DPD":
-            label = generate_dpd_label(package_id=package_id)
-            label_b64 = base64.b64encode(label).decode('ascii')
-
-        if courier == "INPOST":
-            label = generate_inpost_label(package_id=package_id)
-            label_b64 = base64.b64encode(label).decode('ascii')
-
-        if courier == "GLS":
-            label_b64 = generate_gls_label(package_id=package_id)
+        label_b64 = shipment_strategy(courier=courier).generate_label(package_id=package_id)
 
         if label_b64 and order.channel.slug in get_allegro_channels_slugs():
             update_allegro_tracking_number(order=order)
