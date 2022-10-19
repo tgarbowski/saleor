@@ -1,9 +1,6 @@
 from dataclasses import dataclass
 from typing import List
 
-from saleor.payment.interface import AddressData
-from saleor.shipping.interface import ShippingMethodData
-
 
 @dataclass
 class InpostAddress:
@@ -47,7 +44,7 @@ class InpostParcel:
     is_non_standard: bool = False
 
 @dataclass
-class InpostShipment:
+class InpostPackage:
     """for locker service target_point must be provided in custom_attributes"""
     receiver: InpostReceiver
     parcels: List[InpostParcel] = None
@@ -55,20 +52,4 @@ class InpostShipment:
     additional_services: List[str] = None
     cod: dict = None
     service: str = None
-
-@dataclass
-class UserData:
-    email: str
-    address: AddressData
-
-# Shipping package interface
-@dataclass
-class Shipping:
-    courier: str
-    courier_service: str
-    shipping_method: ShippingMethodData
-    receiver: UserData
-    sender: AddressData
-    order_metadata: dict
-    shipping_method_metadata: dict
 

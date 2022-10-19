@@ -1,5 +1,17 @@
 from saleor.plugins.inpost.plugin import Shipping
-from .api import  GlsApi
+from .api import GlsApi
+from saleor.salingo.shipping import ShipmentStrategy
+
+
+class GlsShipment(ShipmentStrategy):
+    def create_package(self, shipping, package, fulfillment) -> str:
+        return create_gls_shipment(shipping, package, fulfillment)
+
+    def generate_label(self, package_id) -> str:
+        return generate_gls_label(package_id)
+
+    def get_tracking_number(self, package_id) -> str:
+        return get_gls_tracking_number(package_id)
 
 
 def create_gls_receiver(shipping: Shipping):
@@ -48,10 +60,10 @@ def save_package_data_to_fulfillment(fulfillment, package_id) -> None:
     fulfillment.save()
 
 
-def create_gls_shipment(shipping: Shipping, package, fulfillment, order):
+def create_gls_shipment(shipping: Shipping, package, fulfillment):
     gls_api = GlsApi()
 
-    total_gross_amount = order.total_gross_amount
+    total_gross_amount = fulfillment.order.total_gross_amount
     is_cod = shipping.shipping_method.metadata.get('cod')
     cod = get_cod_payload(cod_amount=total_gross_amount) if is_cod else {}
     receiver = create_gls_receiver(shipping=shipping)

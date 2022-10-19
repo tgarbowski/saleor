@@ -117,3 +117,16 @@ def email_dict_errors(errors: List[str]):
         recipient_list=['noreply.salingo@gmail.com'],
         html_message=html_msg
     )
+
+
+def find_keys(node, kv):
+    if isinstance(node, list):
+        for i in node:
+            for x in find_keys(i, kv):
+               yield x
+    elif isinstance(node, dict):
+        if kv in node:
+            yield node[kv]
+        for j in node.values():
+            for x in find_keys(j, kv):
+                yield x

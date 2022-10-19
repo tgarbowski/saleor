@@ -417,18 +417,6 @@ def mangle_email(email: str) -> str:
     return email.replace('@', '@mangled-')
 
 
-def add_order_discount(order: Order):
-    discount = order.voucher.get_discount_amount_for(
-        price=order.shipping_price_gross,
-        channel=order.channel
-    )
+def unmangle_email(email: str) -> str:
+    return email.replace('@mangled-', '@')
 
-    order.discounts.create(
-        type=OrderDiscountType.VOUCHER,
-        value_type=DiscountValueType.FIXED,
-        value=discount.amount,
-        name='',
-        translated_name='',
-        currency='PLN',
-        amount_value=discount.amount,
-    )
