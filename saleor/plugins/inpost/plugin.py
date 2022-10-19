@@ -3,18 +3,13 @@ from dataclasses import dataclass
 from phonenumber_field.modelfields import PhoneNumber
 
 from ..base_plugin import BasePlugin, ConfigurationTypeField
-
-from saleor.site.models import SiteSettings
-from saleor.order.models import Fulfillment
-
-from saleor.payment.interface import AddressData
-from saleor.shipping.interface import ShippingMethodData
-
 from .interface import (
     InpostAddress, InpostParcel, InpostDimension, InpostReceiver, InpostWeight,
-    InpostShipment, Shipping, UserData
+    InpostPackage
 )
 from .api import InpostApi
+from saleor.salingo.shipping import CarrierError, ShipmentStrategy, Shipping
+import base64
 
 
 WEBHOOK_PATH = "/webhooks"
@@ -68,35 +63,15 @@ class InpostPlugin(BasePlugin):
         return self.config
 
 
-def create_shipping_information(order: "Order"):
-    site_settings = SiteSettings.objects.first()
-    sender = AddressData(**site_settings.company_address.as_data())
-    receiver_address = AddressData(**order.shipping_address.as_data())
-    shipping_method = ShippingMethodData(
-        id='',
-        name=order.shipping_method_name,
-        price=order.shipping_price_gross,
-        metadata=order.shipping_method.metadata
-    )
-    courier = order.shipping_method.metadata["courier"]
-    courier_service = order.shipping_method.metadata.get("courier_service")
-    shipping_method_metadata = order.shipping_method.metadata
-    order_metadata = order.metadata
+class InpostShipment(ShipmentStrategy):
+    def create_package(self, shipping, package, fulfillment) -> str:
+        return create_inpost_shipment(shipping, package, fulfillment)
 
-    receiver = UserData(
-        address=receiver_address,
-        email=order.user_email
-    )
+    def generate_label(self, package_id) -> str:
+        return generate_inpost_label(package_id)
 
-    return Shipping(
-        receiver=receiver,
-        sender=sender,
-        shipping_method=shipping_method,
-        courier=courier,
-        courier_service=courier_service,
-        order_metadata=order_metadata,
-        shipping_method_metadata=shipping_method_metadata
-    )
+    def get_tracking_number(self, package_id) -> str:
+        return get_inpost_tracking_number(package_id)
 
 
 def create_inpost_address(shipping: Shipping) -> InpostAddress:
@@ -185,22 +160,29 @@ def create_custom_attributes(shipping: Shipping):
     return custom_attributes
 
 
-def create_inpost_shipment(shipping: Shipping, package, fulfillment):
+def create_inpost_shipment_payload(shipping: Shipping, package) -> InpostPackage:
     receiver = create_inpost_receiver(shipping=shipping)
     parcels = create_inpost_package(package=package)
     custom_attributes = create_custom_attributes(shipping=shipping)
     service = shipping.courier_service
 
-    inpost_shipment = InpostShipment(
+    return InpostPackage(
         receiver=receiver,
         parcels=parcels,
         service=service,
         custom_attributes=custom_attributes
     )
 
+
+def create_inpost_shipment(shipping: Shipping, package, fulfillment):
+    inpost_shipment = create_inpost_shipment_payload(shipping=shipping, package=package)
     inpost_api = InpostApi()
     response = inpost_api.create_package(package=inpost_shipment)
     package_id = response.get('id')
+
+    if not package_id:
+        raise CarrierError(get_inpost_errors(response))
+
     tracking_number = response.get('tracking_number')
 
     if not tracking_number:
@@ -217,16 +199,24 @@ def create_inpost_shipment(shipping: Shipping, package, fulfillment):
         tracking_number=tracking_number
     )
 
-    return response
+    return package_id
 
 
 def generate_inpost_label(package_id: str):
     inpost_api = InpostApi()
-    response = inpost_api.get_label(shipment_id=package_id)
-    return response
+    label = inpost_api.get_label(shipment_id=package_id)
+
+    if isinstance(label, dict):
+        raise CarrierError(get_inpost_errors(label))
+    label_b64 = base64.b64encode(label).decode('ascii')
+    return label_b64
 
 
 def get_inpost_tracking_number(package_id):
     api = InpostApi()
     package_info = api.get_package(package_id=package_id)
     return package_info.get('tracking_number')
+
+
+def get_inpost_errors(response):
+    return response.get('details') or response.get('description') or response.get('message') or ''

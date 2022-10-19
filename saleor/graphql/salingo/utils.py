@@ -10,10 +10,22 @@ from saleor.salingo.discounts import (
     get_manual_discounts_for_order,
     get_order_discount_position
 )
+from django.core.exceptions import ValidationError
+from ...invoice.error_codes import InvoiceErrorCode
 
 
 def get_receipt_payload(order):
     fulfilled_order_lines_ids, not_fulfilled_order_lines_ids = get_invoice_correct_payload(order=order)
+    order_lines = list(OrderLine.objects.filter(order=order).values_list('id', flat=True))
+    if len(fulfilled_order_lines_ids) + len(not_fulfilled_order_lines_ids) != len(order_lines):
+        raise ValidationError(
+            {
+                "orderId": ValidationError(
+                    "Receipt can only by created when order products are fulfilled or returned.",
+                    code=InvoiceErrorCode.NO_INVOICE_PLUGIN,
+                )
+            }
+        )
     lines_fulfilled = OrderLine.objects.filter(id__in=fulfilled_order_lines_ids)
     lines_json = []
 
