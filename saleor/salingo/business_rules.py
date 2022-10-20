@@ -96,12 +96,6 @@ class BusinessRulesEvaluator:
             if not rule_engine.Rule.is_valid(r):
                 raise Exception(f'Invalid engine rule: {r}')
 
-    def calculate_offset(self, current_offset):
-        if self.plugin_slug == 'salingo_routing' and self.mode == 'commit':
-            return current_offset
-        else:
-            return current_offset + 10000
-
 
 class ExecutorsFactory:
     @staticmethod
@@ -137,7 +131,8 @@ class RoutingExecutors:
     def handle_allegro_flow(cls, products: Dict[int, 'RoutingOutput']):
         purchased_product_ids = cls.remove_from_allegro(products)
         product_to_change = {k: v for (k, v) in products.items() if v.id not in purchased_product_ids}
-        cls.bulk_change_channel_listings(product_to_change)
+        if product_to_change:
+            cls.bulk_change_channel_listings(product_to_change)
 
     @classmethod
     def apply_discounts(cls, products: Dict[int, 'RoutingOutput']):
