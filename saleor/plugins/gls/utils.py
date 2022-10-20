@@ -1,6 +1,8 @@
+from zeep.exceptions import Fault
+
 from saleor.plugins.inpost.plugin import Shipping
 from .api import GlsApi
-from saleor.salingo.shipping import ShipmentStrategy
+from saleor.salingo.shipping import CarrierError, ShipmentStrategy
 
 
 class GlsShipment(ShipmentStrategy):
@@ -61,8 +63,6 @@ def save_package_data_to_fulfillment(fulfillment, package_id) -> None:
 
 
 def create_gls_shipment(shipping: Shipping, package, fulfillment):
-    gls_api = GlsApi()
-
     total_gross_amount = fulfillment.order.total_gross_amount
     is_cod = shipping.shipping_method.metadata.get('cod')
     cod = get_cod_payload(cod_amount=total_gross_amount) if is_cod else {}
@@ -70,9 +70,10 @@ def create_gls_shipment(shipping: Shipping, package, fulfillment):
     package_data = create_gls_package(package=package)
     payload = {**receiver, **package_data, **cod}
 
-    package_id = gls_api.generate_package_shipment(
-        payload=payload
-    )
+    try:
+        package_id = GlsApi().generate_package_shipment(payload=payload)
+    except Fault as error:
+        raise CarrierError(message=error.code)
 
     save_package_data_to_fulfillment(
         fulfillment=fulfillment,
@@ -83,18 +84,23 @@ def create_gls_shipment(shipping: Shipping, package, fulfillment):
 
 
 def generate_gls_label(package_id: str):
-    gls_api = GlsApi()
+    try:
+        label = GlsApi().generate_label(
+            number=int(package_id),
+            mode='roll_160x100_zebra'
+        )
+    except Fault as error:
+        raise CarrierError(message=error.code)
 
-    label = gls_api.generate_label(
-        number=int(package_id),
-        mode='roll_160x100_zebra'
-    )
     return label
 
 
 def get_gls_tracking_number(package_id):
-    api = GlsApi()
-    package = api.get_package(package_id=package_id)
+    try:
+        package = GlsApi().get_package(package_id=package_id)
+    except Fault as error:
+        raise CarrierError(message=error.code)
+
     try:
         return package['parcels']['items'][0]['number']
     except:
