@@ -1,3 +1,4 @@
+import base64
 from dataclasses import dataclass
 
 from phonenumber_field.modelfields import PhoneNumber
@@ -9,7 +10,7 @@ from .interface import (
 )
 from .api import InpostApi
 from saleor.salingo.shipping import CarrierError, ShipmentStrategy, Shipping
-import base64
+from saleor.plugins.allegro.utils import get_allegro_channels_slugs
 
 
 WEBHOOK_PATH = "/webhooks"
@@ -175,6 +176,9 @@ def create_inpost_shipment_payload(shipping: Shipping, package) -> InpostPackage
 
 
 def create_inpost_shipment(shipping: Shipping, package, fulfillment):
+    if fulfillment.order.channel.slug not in get_allegro_channels_slugs():
+        shipping.courier_service = 'inpost_locker_standard'
+
     inpost_shipment = create_inpost_shipment_payload(shipping=shipping, package=package)
     inpost_api = InpostApi()
     response = inpost_api.create_package(package=inpost_shipment)
