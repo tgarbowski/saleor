@@ -4,28 +4,26 @@ from decimal import Decimal
 import logging
 from typing import Dict, List, Optional
 
+from graphene.utils.str_converters import to_snake_case
 from graphql_relay import from_global_id, to_global_id
 
 from django.utils import timezone
 
+from saleor.account.forms import get_address_form
 from saleor.order.models import Order
-from saleor.product.models import Product, ProductVariant, ProductVariantChannelListing
+from saleor.product.models import ProductVariant, ProductVariantChannelListing
 from saleor.app.models import App
-
 from saleor.order.actions import mark_order_as_paid
 from saleor.plugins.manager import get_plugins_manager
 from saleor.shipping.models import ShippingMethod
-from saleor.order.models import Voucher
 from saleor.channel.models import Channel
-
 from saleor.salingo.orders import (DRAFT_ORDER_CREATE_MUTATION, DRAFT_ORDER_COMPLETE_MUTATION,
                                    MUTATION_ORDER_CANCEL, InternalApiClient)
 from saleor.plugins.allegro.utils import get_datetime_now
 from saleor.plugins.allegro.api import AllegroAPI
 from saleor.plugins.allegro import ProductPublishState
 from saleor.discount.models import Sale
-from saleor.plugins.allegro.utils import skus_to_product_ids, format_allegro_datetime
-from saleor.discount import DiscountValueType, OrderDiscountType, VoucherType
+from saleor.plugins.allegro.utils import format_allegro_datetime
 from saleor.order.utils import recalculate_order
 
 
@@ -196,8 +194,17 @@ def prepare_draft_order_create_input(checkout_form, channel_id):
         "shippingMethod": shipping_method_id,
         "channel": to_global_id("Channel", channel_id)
     }
-
+    # Allegro billing address might be invalid, set it to shipping address in that case
+    if not validate_camel_case_address(draft_order_create_input['billingAddress']):
+        draft_order_create_input['billingAddress'] = draft_order_create_input['shippingAddress']
     return draft_order_create_input
+
+
+def validate_camel_case_address(address: dict) -> bool:
+    model_arguments = {to_snake_case(k): v for k, v in address.items()}
+    model_arguments['street_address_1'] = model_arguments['street_address1']
+    address_form = get_address_form(model_arguments, country_code=model_arguments['country'])[0]
+    return address_form.is_valid()
 
 
 def save_additional_allegro_order_data(order, checkout_form):
