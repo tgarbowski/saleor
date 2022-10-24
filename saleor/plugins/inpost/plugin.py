@@ -151,12 +151,11 @@ def save_package_data_to_fulfillment(fulfillment, parcels, package_id, tracking_
 def create_custom_attributes(shipping: Shipping):
     locker_id = shipping.order_metadata.get("locker_id")
 
+    custom_attributes = {
+        "sending_method": "dispatch_order"
+    }
     if locker_id:
-        custom_attributes = {
-            "target_point": locker_id
-        }
-    else:
-        custom_attributes = None
+        custom_attributes['target_point'] = locker_id
 
     return custom_attributes
 
