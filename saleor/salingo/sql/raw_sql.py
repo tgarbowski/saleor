@@ -53,6 +53,7 @@ products_media_to_remove_background = """
     and aa."name" = 'Kolor'
     and aav."name" != 'biały'
     and ppt."name" not like 'Biustonosz%%'
+    and ppt."name" not like 'Biżuteria%%'
     and ppm.oembed_data ->>'background_remove_status' is null
     order by ppv.sku
     """
