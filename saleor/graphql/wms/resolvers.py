@@ -47,15 +47,6 @@ def resolve_wms_document_pdf(info, **_kwargs):
     return file
 
 
-def resolve_wms_documents_list_pdf(info, **_kwargs):
-    all_orders = Order.objects.all()
-    filtered_orders = OrderFilter(
-        data=_kwargs['filters'], queryset=all_orders
-    ).qs
-    file = generate_encoded_pdf_documents(filtered_orders)
-    return file
-
-
 def resolve_wms_actions_report(info, **_kwargs):
     report = wms_actions_report(_kwargs['startDate'], _kwargs['endDate'])
 
