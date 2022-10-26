@@ -227,7 +227,7 @@ CHECKOUT_FORM_SMART = {
                     "quantity": 1,
                 }
             ],
-            "boughtAt": "2018-01-01T10:23:43Z",
+            "boughtAt": "2018-01-01T10:23:43.194Z",
         }
     ],
     "surcharges": [
