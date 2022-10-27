@@ -18,7 +18,7 @@ def create_pdf_document(document_id):
                        'order', 'order__shipping_address').\
         get(pk=document_id)
     document_positions = WmsDocPosition.objects.select_related(
-        'product_variant').filter(document=document_id)
+        'product_variant', 'product_variant__product').filter(document=document_id)
     translated_document_type = translate_document_type(document.document_type)
     deliverer = document.deliverer
     warehouse_positions = []

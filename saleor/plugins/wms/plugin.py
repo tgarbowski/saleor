@@ -112,9 +112,9 @@ def wms_document_generate_number():
 
 def wms_document_create(
     order: "Order",
-    document_type: str
+    document_type: str,
+    warehouse: "Warehouse"
 ):
-    warehouse = Warehouse.objects.filter().first()
     number = wms_document_generate_number()
 
     return WmsDocument.objects.create(
@@ -141,7 +141,7 @@ def wms_create_position(order_line: "OrderLine", wms_document_id: str) -> "WmsDo
 
 
 def wms_positions_bulk_create(order: "Order", wms_document_id: str) -> None:
-    order_lines = OrderLine.objects.filter(order=order)
+    order_lines = OrderLine.objects.filter(order=order).select_related("variant__product")
     wms_positions = []
     for order_line in order_lines:
         wms_position = wms_create_position(

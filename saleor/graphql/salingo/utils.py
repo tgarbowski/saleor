@@ -14,6 +14,7 @@ from saleor.salingo.discounts import (
 from django.core.exceptions import ValidationError
 from ...invoice.error_codes import InvoiceErrorCode
 from ...plugins.wms.plugin import wms_document_create, wms_positions_bulk_create
+from ...warehouse.models import Warehouse
 from ...wms.models import WmsDocument
 
 
@@ -99,6 +100,7 @@ def get_invoice_correct_payload(order):
 
 
 def generate_wms_documents(orders):
+    warehouse = Warehouse.objects.filter().first()
     for order in orders:
         # Check if there is already a wms document and delete if true
         wms_document = WmsDocument.objects.filter(order=order)
@@ -108,7 +110,7 @@ def generate_wms_documents(orders):
         with transaction.atomic():
             wms_document = wms_document_create(
                 order=order,
-                document_type='GIN'
+                document_type='GIN',
+                warehouse=warehouse
             )
-            wms_document.save()
             wms_positions_bulk_create(order=order, wms_document_id=wms_document.id)
