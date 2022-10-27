@@ -209,7 +209,8 @@ class RoutingExecutors:
                 channel_id=channel_id,
                 publication_date=None,
                 is_published=False,
-                visible_in_listings=False
+                visible_in_listings=False,
+                available_for_purchase=None
             )
             ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids).update(
                 channel_id=channel_id)

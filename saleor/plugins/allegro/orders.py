@@ -246,11 +246,18 @@ def insert_allegro_orders(channel_slug: str, datetime_from: str):
     api_client = InternalApiClient(app=get_order_app())
 
     for unprocessed_order in unprocessed_orders:
-        insert_allegro_order(
-            api_client=api_client,
-            checkout_form=unprocessed_order,
-            channel_id=channel_id
-        )
+        allegro_order_id = AllegroOrderExtractor.order_id(unprocessed_order)
+        logger.info(f'Processing allegro order {allegro_order_id} in channel {channel_slug}')
+        try:
+            insert_allegro_order(
+                api_client=api_client,
+                checkout_form=unprocessed_order,
+                channel_id=channel_id
+            )
+        except ProductVariant.DoesNotExist:
+            error_message = f'Missing products for allegro order {allegro_order_id} in channel {channel_slug}'
+            logger.error(error_message)
+
 
 def insert_allegro_order(api_client, checkout_form, channel_id) -> Optional[int]:
     # Create draft order
