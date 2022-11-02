@@ -60,24 +60,6 @@ class WMSPlugin(BasePlugin):
         super().__init__(*args, **kwargs)
         configuration = {item["name"]: item["value"] for item in self.configuration}
 
-    def order_fully_paid(
-        self,
-        order,
-        previous_value,
-    ):
-        # Check if there is already a wms document and delete if true
-        wms_document = WmsDocument.objects.filter(order=order)
-        if wms_document:
-            return
-        # Create GRN document
-        with transaction.atomic():
-            wms_document = wms_document_create(
-                order=order,
-                document_type='GIN'
-            )
-            wms_document.save()
-            wms_positions_bulk_create(order=order, wms_document_id=wms_document.id)
-
     def order_fulfilled(
         self,
         order,
