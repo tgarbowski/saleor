@@ -99,6 +99,8 @@ def product_ids_to_variant_ids(product_ids):
 
 
 def delete_products(product_ids):
+    if not product_ids:
+        return
     # Remove attributes
     ProductBulkDelete.delete_assigned_attribute_values(instance_pks=product_ids)
 
