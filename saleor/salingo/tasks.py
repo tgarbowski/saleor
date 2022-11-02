@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 workstations = ['00', '01', '02', '03', '04', '05']
 
 
+def filter_products_in_channel(product_ids, channel_slug):
+    listings = ProductChannelListing.objects.filter(
+        product_id__in=product_ids,
+        channel__slug=channel_slug
+    )
+    return list(listings.values_list("product_id", flat=True))
+
+
 @app.task()
 def remove_duplicated_products():
     with connection.cursor() as cursor:
@@ -25,6 +33,7 @@ def remove_duplicated_products():
         rows = cursor.fetchall()
 
     product_ids = [row[0] for row in rows]
+    product_ids = filter_products_in_channel(product_ids=product_ids, channel_slug='unpublished')
     delete_products(product_ids=product_ids)
 
 
@@ -55,6 +64,7 @@ def remove_products_with_no_media():
     )
 
     product_ids = list(variants.values_list("product_id", flat=True))
+    product_ids = filter_products_in_channel(product_ids=product_ids, channel_slug='unpublished')
     delete_products(product_ids=product_ids)
 
 
