@@ -415,7 +415,7 @@ def clean_tally_fields(temp_file, delimiter):
                                 'tax_price_22_23_percent': float})
     table = etl.convert(table, {
         'net_price_22_23_percent': lambda v: str(round(v * 100 / 12300, 2)),
-        'tax_price_22_23_percent': lambda v: str(round(v * 22 / 12300, 2))})
+        'tax_price_22_23_percent': lambda v: str(round(v * 23 / 12300, 2))})
     table = etl.convert(table, "net_price_22_23_percent", "replace", ".", ",")
     table = etl.convert(table, "tax_price_22_23_percent", "replace", ".", ",")
     table = etl.convert(table, "created_date", "replace", " 00:00:00", "")
@@ -433,7 +433,7 @@ def clean_miglo_fields(temp_file, delimiter):
                                 'ParentBrutto': float})
     table = etl.convert(table, {
         'Netto': lambda v: str(round(v * 100 / 12300, 2)),
-        'Brutto': lambda v: str(round(v * 22 / 12300, 2))},
+        'Brutto': lambda v: str(round(v * 23 / 12300, 2))},
                         where = lambda r: r.DocType == '4')
 
     table = etl.convert(table, "DocDate", "replace", " 00:00:00", "")
@@ -452,7 +452,7 @@ def clean_miglo_fields(temp_file, delimiter):
                         lambda v, row: str(round((v - row.ParentBrutto) * 100 / 12300, 2)),
                         pass_row=True, where = lambda r: r.DocType == '9')
     table = etl.convert(table, 'Brutto',
-                        lambda v, row: str(round((v - row.ParentBrutto) * 22 / 12300, 2)),
+                        lambda v, row: str(round((v - row.ParentBrutto) * 23 / 12300, 2)),
                         pass_row=True, where = lambda r: r.DocType == '9')
     table = etl.transform.basics.cutout(table, "ParentBrutto")
 
