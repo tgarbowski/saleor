@@ -12,11 +12,9 @@ from .plugins.views import (
     handle_plugin_per_channel_webhook,
     handle_plugin_webhook,
 )
-from .plugins.views import handle_plugin_webhook
 from .plugins.allegro.plugin import AllegroAuth
 from .plugins.sumi.plugin import SumiPlugin
 from .product.views import digital_product
-from .core import views
 from .salingo.views import remover_notify
 
 urlpatterns = [
@@ -44,13 +42,8 @@ urlpatterns = [
     ),
     url(r".well-known/jwks.json", jwks, name="jwks"),
     url(r'^allegro/(?P<channel_slug>[.0-9A-Za-z_\-]+)?$', AllegroAuth.resolve_auth),
-    url(r'^sumi/reserve', SumiPlugin.create_reservation),
     url(r'^sumi/cancel', SumiPlugin.cancel_reservation),
-    url(r'^sumi/sell', SumiPlugin.sell_products),
-    url(r'^sumi/v2/sell', SumiPlugin.sell_products_v2),
     url(r'^sumi/token(?P<channel_slug>[.0-9A-Za-z_\-]+)?$', SumiPlugin.get_allegro_token),
-    url(r'^sumi/locate', SumiPlugin.locate_products),
-    url(r".well-known/jwks.json", jwks, name="jwks"),
     url(r"^remover/notify", remover_notify)
 ]
 
