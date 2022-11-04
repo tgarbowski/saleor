@@ -60,24 +60,6 @@ class WMSPlugin(BasePlugin):
         super().__init__(*args, **kwargs)
         configuration = {item["name"]: item["value"] for item in self.configuration}
 
-    def order_fully_paid(
-        self,
-        order,
-        previous_value,
-    ):
-        # Check if there is already a wms document and delete if true
-        wms_document = WmsDocument.objects.filter(order=order)
-        if wms_document:
-            return
-        # Create GRN document
-        with transaction.atomic():
-            wms_document = wms_document_create(
-                order=order,
-                document_type='GIN'
-            )
-            wms_document.save()
-            wms_positions_bulk_create(order=order, wms_document_id=wms_document.id)
-
     def order_fulfilled(
         self,
         order,
@@ -112,9 +94,9 @@ def wms_document_generate_number():
 
 def wms_document_create(
     order: "Order",
-    document_type: str
+    document_type: str,
+    warehouse: "Warehouse"
 ):
-    warehouse = Warehouse.objects.filter().first()
     number = wms_document_generate_number()
 
     return WmsDocument.objects.create(
@@ -141,7 +123,7 @@ def wms_create_position(order_line: "OrderLine", wms_document_id: str) -> "WmsDo
 
 
 def wms_positions_bulk_create(order: "Order", wms_document_id: str) -> None:
-    order_lines = OrderLine.objects.filter(order=order)
+    order_lines = OrderLine.objects.filter(order=order).select_related("variant__product")
     wms_positions = []
     for order_line in order_lines:
         wms_position = wms_create_position(
