@@ -231,6 +231,7 @@ class AllegroProductPublishValidator:
         self.is_cost_price_amount()
         self.is_bundled()
         self.is_allegro_publish_status()
+        self.is_allegro_price()
 
         AllegroErrorHandler.update_errors_in_private_metadata(self.product, self.errors, self.channel)
 
@@ -258,9 +259,7 @@ class AllegroProductPublishValidator:
             self.errors.append('003: cena zakupowa produktu wynosi 0')
 
     def is_bundled(self):
-        bundle_id = self.product.private_metadata.get("bundle.id")
-        is_bundled = bool(type(bundle_id) is str and len(bundle_id) > 0)
-        if is_bundled:
+        if self.product.get_value_from_private_metadata("bundle.id"):
             self.errors.append('003: produkt zbundlowany')
 
     def is_publish_status(self):
@@ -277,6 +276,10 @@ class AllegroProductPublishValidator:
 
         if publish_status_verify is False:
             self.errors.append('003: błędny status publikacji')
+
+    def is_allegro_price(self):
+        if self.product.get_value_from_private_metadata('publish.allegro.price'):
+            self.errors.append('003: publish.allegro.price still exists')
 
 
 class AllegroErrorHandler:
