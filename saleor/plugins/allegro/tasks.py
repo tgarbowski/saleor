@@ -338,8 +338,12 @@ def unpublish_from_multiple_channels(product_ids):
 
 
 def bulk_allegro_unpublish(channel, product_ids):
+    from .utils import returned_products
+
     allegro_api = AllegroAPI(channel=channel)
     skus = product_ids_to_skus(product_ids)
+    returned = returned_products()
+    skus = []
     logger.info(f'SKUS TO UNPUBLISH{skus}')
 
     total_count = len(skus)
