@@ -43,6 +43,7 @@ urlpatterns = [
     url(r".well-known/jwks.json", jwks, name="jwks"),
     url(r'^allegro/(?P<channel_slug>[.0-9A-Za-z_\-]+)?$', AllegroAuth.resolve_auth),
     url(r'^sumi/cancel', SumiPlugin.cancel_reservation),
+    url(r'^sumi/locate', SumiPlugin.locate_products),
     url(r'^sumi/token(?P<channel_slug>[.0-9A-Za-z_\-]+)?$', SumiPlugin.get_allegro_token),
     url(r"^remover/notify", remover_notify)
 ]
