@@ -6216,7 +6216,7 @@ input PublishableChannelListingInput {
 }
 
 type Query {
-  warehouseListPdf(orderIds: [ID!], filters: OrderFilterInput): String
+  warehouseListsGenerate(orderIds: [ID!], filters: OrderFilterInput): WarehousePdfFiles
   generatePaymentUrl(paymentId: ID!, channel: String): PaymentUrl
   wmsDeliverers(filter: WmsDelivererFilterInput, before: String, after: String, first: Int, last: Int): WMSDelivererCountableConnection
   wmsDeliverer(id: ID): WmsDeliverer
@@ -6225,7 +6225,6 @@ type Query {
   wmsDocuments(filter: WmsDocumentFilterInput, before: String, after: String, first: Int, last: Int): WMSDocumentCountableConnection
   wmsDocument(id: ID, number: String): WmsDocument
   wmsDocumentPdf(id: ID!): String
-  wmsDocumentsListPdf(filters: OrderFilterInput): String
   wmsActionsReport(startDate: Date!, endDate: Date!): GenericScalar
   wmsProductsReport(startDate: Date!, endDate: Date!): GenericScalar
   productTypeWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): ProductType
@@ -7618,6 +7617,11 @@ input WarehouseFilterInput {
 input WarehouseLocationRangeInput {
   gte: String
   lte: String
+}
+
+type WarehousePdfFiles {
+  warehouseList: String
+  wmsList: String
 }
 
 type WarehouseShippingZoneAssign {
