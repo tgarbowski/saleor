@@ -149,21 +149,22 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
 
 
 def update_allegro_purchased_error(skus, allegro_data):
-    product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
-    products_to_update = []
+    products = Product.objects.filter(pk__in=skus_to_product_ids(skus))
 
     if allegro_data['message'] == AllegroErrors.ALLEGRO_ERROR:
         error_message = allegro_data['errors']
     else:
         error_message = 'Produkt sprzedany lub licytowany'
 
-    for variant in product_variants:
-        product = variant.product
-        product.store_value_in_private_metadata({'publish.allegro.errors': [error_message]})
-        product.store_value_in_private_metadata({'allegro_unpublish_action': True})
-        products_to_update.append(product)
+    for product in products:
+        product.store_value_in_private_metadata(
+            {
+                'publish.allegro.errors': [error_message],
+                'allegro_unpublish_action': True
+            }
+        )
 
-    Product.objects.bulk_update(products_to_update, ['private_metadata'])
+    Product.objects.bulk_update(products, ['private_metadata'])
 
 
 def product_is_published(product_id):
@@ -202,10 +203,10 @@ def skus_to_product_ids(skus):
     )
 
 
-def get_products_by_channels(product_ids):
+def get_products_by_channels(product_ids, channel_slugs):
     # Returns list of dicts of product_ids per channel eg:
     # [{'channel__slug': 'allegro', 'product_ids': [1, 2, 3]}]
-    return ProductChannelListing.objects.values('channel__slug').annotate(
+    return ProductChannelListing.objects.filter(channel__slug__in=channel_slugs).values('channel__slug').annotate(
         product_ids=ArrayAgg(
             'product_id',
             filter=Q(product_id__in=product_ids)
@@ -340,3 +341,17 @@ def get_specified_allegro_channels_slugs(channel_slugs: List[str]) -> [str]:
     ).values_list('channel__slug', flat=True)
 
     return list(channels)
+
+
+def returned_products(product_ids) -> List[str]:
+    returned_product_ids = []
+    products = Product.objects.filter(pk__in=product_ids)
+
+    for product in products:
+        if (
+                product.get_value_from_private_metadata('publish.allegro.status') == 'moderated'
+                and product.get_value_from_private_metadata('publish.allegro.price')
+        ):
+            returned_product_ids.append(product.pk)
+
+    return returned_product_ids
