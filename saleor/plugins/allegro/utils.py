@@ -203,10 +203,10 @@ def skus_to_product_ids(skus):
     )
 
 
-def get_products_by_channels(product_ids):
+def get_products_by_channels(product_ids, channel_slugs):
     # Returns list of dicts of product_ids per channel eg:
     # [{'channel__slug': 'allegro', 'product_ids': [1, 2, 3]}]
-    return ProductChannelListing.objects.values('channel__slug').annotate(
+    return ProductChannelListing.objects.filter(channel__slug__in=channel_slugs).values('channel__slug').annotate(
         product_ids=ArrayAgg(
             'product_id',
             filter=Q(product_id__in=product_ids)
@@ -340,12 +340,15 @@ def get_specified_allegro_channels_slugs(channel_slugs: List[str]) -> [str]:
     return list(channels)
 
 
-def returned_products(skus: List[str]):
+def returned_products(product_ids) -> List[str]:
     returned_product_ids = []
-    products = Product.objects.filter(pk__in=skus_to_product_ids(skus))
+    products = Product.objects.filter(pk__in=product_ids)
 
     for product in products:
-        if product.get_value_from_private_metadata('publish.allegro.status') == 'moderated':
+        if (
+                product.get_value_from_private_metadata('publish.allegro.status') == 'moderated'
+                and product.get_value_from_private_metadata('publish.allegro.price')
+        ):
             returned_product_ids.append(product.pk)
 
-    return product_ids_to_skus(returned_product_ids)
+    return returned_product_ids

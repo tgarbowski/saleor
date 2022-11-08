@@ -444,8 +444,6 @@ class AllegroAPI:
             return {'status': 'OK', 'message': AllegroErrors.NO_OFFERS_FOUND, 'errors': []}
         # Check if someone doesnt bid or purchased any offer
         offers_bid_or_purchased = self.offers_bid_or_purchased(offers)
-        # TODO: move returned products elsewhere
-        offers_bid_or_purchased = self.offers_returned(offers_bid_or_purchased)
         # Append SKU/OFFER error list to errors section if some offer is bid or purchased
         if offers_bid_or_purchased:
             offers_to_remove = [offer['offer'] for offer in offers_bid_or_purchased]
@@ -488,14 +486,6 @@ class AllegroAPI:
 
         logger.info(f'OFFERS BID OR PURCHASED BASED ON ALLEGRO RESPONSE{offers_bid_or_purchased}')
         return offers_bid_or_purchased
-
-    def offers_returned(self, offers):
-        skus = [offer['sku'] for offer in offers]
-        skus_to_pass = returned_products(skus)
-        logger.info(f'SKUS TO PASS{skus_to_pass}')
-        filtered_offers = [offer for offer in offers if offer['sku'] not in skus_to_pass]
-        logger.info(f'OFFERS BID OR PURCHASED{filtered_offers}')
-        return filtered_offers
 
     def get_offers_by_skus(self, skus, publication_statuses):
         def get_offers_by_max_100_skus(sku_params, publication_statuses_params):

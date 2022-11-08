@@ -1,6 +1,5 @@
 import logging
 from datetime import datetime, timedelta
-import math
 
 from ...celeryconf import app
 from .api import AllegroAPI
@@ -10,9 +9,9 @@ from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish
                     update_allegro_purchased_error, email_bulk_unpublish_result,
                     get_datetime_now, product_ids_to_skus, get_products_by_channels,
                     AllegroProductPublishValidator, AllegroErrorHandler,
-                    get_product_media_urls, get_allegro_channels_slugs, get_specified_allegro_channels_slugs)
-from saleor.plugins.manager import get_plugins_manager
-from saleor.product.models import Category, Product, ProductVariant
+                    get_product_media_urls, get_allegro_channels_slugs, get_specified_allegro_channels_slugs,
+                    returned_products)
+from saleor.product.models import Product
 from saleor.plugins.allegro import ProductPublishState
 from .orders import cancel_allegro_orders, insert_allegro_orders
 from saleor.order.models import Fulfillment
@@ -239,98 +238,14 @@ def update_published_offers_parameters(category_slugs, limit, offset):
 
 
 @app.task()
-def bulk_allegro_unpublish_buy_now():
-    config = get_plugin_configuration()
-    allegro_api = AllegroAPI(config['token_value'], config['env'])
-    # fetch allegro BUY_NOW from db
-    buy_now_products = Category.objects.raw('''
-        select id from product_product
-        where private_metadata->>'publish.type'='BUY_NOW'
-    '''
-    )
-    products_ids = [product.id for product in buy_now_products]
-    skus = list(ProductVariant.objects.filter(product_id__in=products_ids).values_list('sku', flat=True))
-    # Unpublish BUY_NOW offers
-    total_count = len(skus)
-    limit = 1000
-    skus_purchased = []
-    uuids = []
-    for offset in range(0, total_count, limit):
-        update_skus = skus[offset:offset + limit]
-        allegro_data = allegro_api.bulk_offer_unpublish(skus=update_skus)
-        # Skus purchased or errors
-        if allegro_data['status'] == 'ERROR':
-            skus_purchased.extend(update_skus)
-        if allegro_data.get('message') == AllegroErrors.BID_OR_PURCHASED:
-            for error in allegro_data["errors"]:
-                skus_purchased.append(error['sku'])
-        if allegro_data.get('uuid'):
-            uuids.append(allegro_data['uuid'])
-
-    unpublished_skus = [sku for sku in skus if sku not in skus_purchased]
-    # Set private_metadata allegro.publish.status to 'unpublished' and update date
-    bulk_update_allegro_status_to_unpublished(unpublished_skus)
-    # Check unpublish status
-    if uuids:
-        trigger_time = datetime.now() + timedelta(minutes=10)
-        for uuid in uuids:
-            check_bulk_unpublish_status_task.s(uuid).apply_async(eta=trigger_time)
-
-
-@app.task()
-def bulk_allegro_publish_unpublished_to_auction(limit):
-    def calculate_date(i, day_limit):
-        # Start from tomorrow with day_limit per day and spread everyday between 7-8 pm
-        day = math.ceil((i + 1) / day_limit)
-        minute = int(60 * ((i - (day - 1) * day_limit) / day_limit))
-        starting_at = now + timedelta(days=day)
-        starting_at = starting_at.replace(hour=19, minute=minute)
-        return starting_at.strftime("%Y-%m-%d %H:%M")
-
-    config = get_plugin_configuration()
-    allegro_api = AllegroAPI(config['token_value'], config['env'])
-    manager = get_plugins_manager()
-    plugin = manager.get_plugin('allegro')
-    # fetch unpublished allegro BUY_NOW offers from db
-    # TODO is_publish is no longer a product_product field
-    buy_now_products = Category.objects.raw('''
-            select id from product_product
-            where private_metadata->>'publish.type'='BUY_NOW'
-            and private_metadata->>'publish.allegro.status'='unpublished'
-            and is_published = false
-            limit %s
-        ''',[limit]
-    )
-    instances_ids = [product.id for product in buy_now_products]
-    instances = Product.objects.filter(id__in=instances_ids)
-    instances_length = len(instances)
-    day_limit = 2000
-    now = datetime.now()
-    # dummy data to pass validation
-    dummy_data = {
-        "starting_at": "dummy_date",
-        "offer_type": "AUCTION"
-    }
-
-    for i, instance in enumerate(instances):
-        instance.delete_value_from_private_metadata('publish.allegro.date')
-        starting_at = calculate_date(i, day_limit)
-        products_bulk_ids = instances_ids if i == instances_length - 1 else None
-        offer_payload = {
-            "product": instance,
-            "offer_type": "AUCTION",
-            "starting_at": starting_at,
-            "products_bulk_ids": products_bulk_ids
-        }
-        plugin.product_published(offer_payload, None)
-
-
-@app.task()
 def unpublish_from_multiple_channels(product_ids):
-    products_per_channels = get_products_by_channels(product_ids)
+    products_per_channels = get_products_by_channels(
+        product_ids=product_ids,
+        channel_slugs=get_allegro_channels_slugs()
+    )
 
     for channel in products_per_channels:
-        if channel['channel__slug'] == 'allegro':
+        if channel['product_ids']:
             bulk_allegro_unpublish(
                 channel=channel['channel__slug'],
                 product_ids=channel['product_ids']
@@ -338,12 +253,10 @@ def unpublish_from_multiple_channels(product_ids):
 
 
 def bulk_allegro_unpublish(channel, product_ids):
-    from .utils import returned_products
-
     allegro_api = AllegroAPI(channel=channel)
+    returned_product_ids = returned_products(product_ids)
+    product_ids = [product_id for product_id in product_ids if product_id not in returned_product_ids]
     skus = product_ids_to_skus(product_ids)
-    returned = returned_products()
-    skus = []
     logger.info(f'SKUS TO UNPUBLISH{skus}')
 
     total_count = len(skus)
