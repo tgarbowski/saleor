@@ -4,7 +4,7 @@ import warnings
 from typing import List
 
 import graphene
-from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist, ValidationError
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import connection, transaction
 from graphql.error.base import GraphQLError
 
@@ -27,8 +27,12 @@ from .extra_methods import MODEL_EXTRA_METHODS, MODEL_EXTRA_PREFETCH
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
 from ..product.utils import create_collage
 from ...plugins.allegro.api import AllegroAPI
-from saleor.plugins.allegro.utils import (skus_to_product_ids, get_products_by_channels,
-                                          product_ids_to_skus)
+from saleor.plugins.allegro.utils import (
+    skus_to_product_ids,
+    get_products_by_channels,
+    product_ids_to_skus,
+    get_allegro_channels_slugs
+)
 from ...product.models import ProductVariant, ProductMedia
 from .types import ObjectWithMetadata
 from saleor.product.models import ProductChannelListing, ProductVariantChannelListing, Product
@@ -359,12 +363,13 @@ class BaseMetadataMutation(BaseMutation):
     @classmethod
     def bulk_allegro_offers_unpublish(cls, instance, data):
         data_skus = data['skus']
+        allegro_channel_slugs = get_allegro_channels_slugs()
         product_ids = skus_to_product_ids(data_skus)
-        products_per_channels = get_products_by_channels(product_ids)
+        products_per_channels = get_products_by_channels(product_ids, allegro_channel_slugs)
         products_allegro_sold_or_auctioned = []
 
         for channel in products_per_channels:
-            if channel['channel__slug'] in ['bundled', 'unpublished'] or not channel['product_ids']:
+            if not channel['product_ids']:
                 continue
             skus = product_ids_to_skus(channel['product_ids'])
             allegro_api = AllegroAPI(channel=channel['channel__slug'])

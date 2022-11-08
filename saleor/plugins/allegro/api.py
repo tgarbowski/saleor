@@ -14,7 +14,7 @@ from .parameters_mapper import ParametersMapperFactory
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
 from saleor.product.models import ProductVariant
-from .utils import AllegroErrorHandler
+from .utils import AllegroErrorHandler, returned_products
 from saleor.plugins.allegro import ProductPublishState
 
 logger = logging.getLogger(__name__)
@@ -417,6 +417,23 @@ class AllegroAPI:
 
         return json.loads(response.text)
 
+    def unpublish_offers(self, offers, unique_id):
+        endpoint = f'sale/offer-publication-commands/{unique_id}'
+        data = {
+            "publication": {
+                "action": "END",
+                "republish": False
+            },
+            "offerCriteria": [
+                {
+                    "offers": offers,
+                    "type": "CONTAINS_OFFERS"
+                }
+            ]
+        }
+        logger.info('Unique ID: ' + unique_id)
+        return self.put_request(endpoint=endpoint, data=data)
+
     def bulk_offer_unpublish(self, skus):
         offers = self.get_offers_by_skus(skus, publication_statuses=['ACTIVE', 'ACTIVATING', 'ENDED'])
         if not isinstance(offers, list):
@@ -442,21 +459,7 @@ class AllegroAPI:
             return {'status': 'OK', 'message': AllegroErrors.NO_OFFER_NEEDS_ENDING, 'errors': offers_bid_or_purchased}
 
         unique_id = str(uuid.uuid1())
-        endpoint = f'sale/offer-publication-commands/{unique_id}'
-        data = {
-            "publication": {
-                "action": "END",
-                "republish": False
-            },
-            "offerCriteria": [
-                {
-                    "offers": offers[:1000],
-                    "type": "CONTAINS_OFFERS"
-                }
-            ]
-        }
-        logger.info('Unique ID: ' + unique_id)
-        response = self.put_request(endpoint=endpoint, data=data)
+        response = self.unpublish_offers(offers=offers[:1000], unique_id=unique_id)
         logger.info('Offer Ending: ' + str(response.json()))
 
         if response.status_code != 201:
@@ -474,33 +477,14 @@ class AllegroAPI:
 
     def offers_bid_or_purchased(self, offers):
         offers_bid_or_purchased = [
-            {'sku': offer['external']['id'], 'offer': offer['id'],
-             'available': offer['stock']['available'], 'sold': offer['stock']['sold'],
-             'bidders_count': offer['saleInfo']['biddersCount'],'error_message': 'Sold or not available'}
-             for offer in offers
-             if offer['saleInfo']['biddersCount'] or offer['stock']['sold'] or not offer['stock']['available']]
+            {"sku": offer["external"]["id"], "offer": offer["id"]}
+            for offer in offers
+            if offer["saleInfo"]["biddersCount"]
+               or offer["stock"]["sold"]
+               or not offer["stock"]["available"]
+        ]
 
         logger.info(f'OFFERS BID OR PURCHASED BASED ON ALLEGRO RESPONSE{offers_bid_or_purchased}')
-        # Remove canceled allegro offers
-        if offers_bid_or_purchased:
-            skus = [offer['sku'] for offer in offers_bid_or_purchased]
-            skus_to_pass = []
-            product_variants = ProductVariant.objects.select_related('product').filter(sku__in=skus)
-
-            for product_variant in product_variants:
-                # Products returned from customer
-                if 'publish.allegro.status' in product_variant.product.private_metadata and \
-                        product_variant.product.private_metadata['publish.allegro.status'] == 'moderated' and \
-                        ('reserved' not in product_variant.metadata or product_variant.metadata['reserved'] is False):
-                    skus_to_pass.append(product_variant.sku)
-
-            logger.info(f'SKUS TO PASS{skus_to_pass}')
-
-            offers_bid_or_purchased = [offer for offer in offers_bid_or_purchased
-                                       if offer['sku'] not in skus_to_pass]
-
-        logger.info(f'OFFERS BID OR PURCHASED{offers_bid_or_purchased}')
-
         return offers_bid_or_purchased
 
     def get_offers_by_skus(self, skus, publication_statuses):
