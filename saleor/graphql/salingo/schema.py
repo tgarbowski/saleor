@@ -48,12 +48,13 @@ class ExternalQueries(graphene.ObjectType):
                 filtered_orders = OrderFilter(
                     data=filters, queryset=all_orders
                 ).qs
-                return filtered_orders.values_list('id', flat=True), filtered_orders
+                return list(
+                    filtered_orders.values_list('id', flat=True)), list(filtered_orders.reverse())
             return []
 
         order_ids, orders = get_orders(kwargs)
 
-        generate_wms_documents(orders.reverse())
+        generate_wms_documents(orders)
         wms_list = generate_encoded_pdf_documents(orders)
         warehouse_list = generate_warehouse_list(order_ids=order_ids)
 
