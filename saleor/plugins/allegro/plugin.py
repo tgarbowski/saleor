@@ -1,4 +1,3 @@
-import json
 import logging
 import webbrowser
 
@@ -7,8 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any, List
 
 import requests
-from django.core.mail import EmailMultiAlternatives
-from django.db import connection
+
 from django.shortcuts import redirect
 
 from saleor.plugins.base_plugin import BasePlugin, ConfigurationTypeField
@@ -238,69 +236,6 @@ class AllegroPlugin(BasePlugin):
     def order_fulfilled(self, order: "Order", previous_value: Any) -> Any:
         if order.channel.slug in get_allegro_channels_slugs():
             change_allegro_order_status(order=order, status="PROCESSING")
-
-    @staticmethod
-    def calculate_prices(product_id):
-        with connection.cursor() as cursor:
-            cursor.execute('select calculate_prices(%s)', [product_id])
-            data = cursor.fetchall()
-        return json.loads(data[0][0])
-
-    def calculate_hours_to_token_expire(self):
-        token_expire = datetime.strptime(self.config.token_access, '%d/%m/%Y %H:%M:%S')
-        duration = token_expire - datetime.now()
-        return divmod(duration.total_seconds(), 3600)[0]
-
-    def get_intervals_and_chunks(self):
-        return [int(self.config.interval_for_offer_publication),
-                int(self.config.offer_publication_chunks)]
-
-    def send_mail_with_publish_errors(self, publish_errors: Any,
-                                      previous_value: Any) -> Any:
-        if publish_errors is not None:
-            return self.send_mail(publish_errors)
-
-    @staticmethod
-    def create_table(errors):
-        html = '<table style="width:100%; margin-bottom: 1rem;">'
-        html += '<tr>'
-        html += '<th></th>'
-        html += '</tr>'
-        for error in errors:
-            html += '<tr>'
-            try:
-                if len(error.get('errors')) > 0:
-                    html += '<td style="width: 9rem;">' + str(error.get('sku')) + '</td>'
-                    html += '<td>' + str(error.get('errors')) + '</td>'
-            except:
-                if len(error) > 0:
-                    html += '<td>' + str(error) + '</td>'
-            html += '</tr>'
-        html += '<tr>'
-        html += '<td>' + '</td>'
-        html += '</tr>'
-        html += '</table>'
-        html += '<br>'
-        html += '<table style="width:100%; margin-bottom: 1rem;">'
-        html += '<tr>'
-        #html += '<td>' + 'Poprawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) == 0])) + '</td>'
-        html += '</tr>'
-        html += '<tr>'
-        #html += '<td>' + 'Niepropawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) > 0])) + '</td>'
-        html += '</tr>'
-        html += '</table>'
-
-        return html
-
-    def send_mail(self, errors):
-        subject = 'Logi z wystawiania ofert'
-        from_email = 'noreply.salingo@gmail.com'
-        to = 'noreply.salingo@gmail.com'
-        text_content = 'Logi z wystawiania ofert:'
-        html_content = self.create_table(errors)
-        message = EmailMultiAlternatives(subject, text_content, from_email, [to])
-        message.attach_alternative(html_content, "text/html")
-        return message.send()
 
 
 class AllegroAuth:

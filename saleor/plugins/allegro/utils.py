@@ -15,6 +15,7 @@ from saleor.plugins.models import PluginConfiguration
 from saleor.product.models import (Product, ProductVariant, Category, ProductChannelListing,
                                    ProductVariantChannelListing, ProductMedia)
 from saleor.salingo.utils import SalingoDatetimeFormats
+from saleor.salingo.sql.raw_sql import products_by_recursive_categories
 
 
 def email_errors(products_bulk_ids):
@@ -29,9 +30,50 @@ def email_errors(products_bulk_ids):
                 {'sku': product.variants.first().sku, 'errors': error})
 
     if publish_errors:
-        manager = get_plugins_manager()
-        plugin = manager.get_plugin('allegro')
-        plugin.send_mail_with_publish_errors(publish_errors, None)
+        send_mail_with_publish_errors(publish_errors)
+
+
+def send_mail_with_publish_errors(publish_errors):
+    subject = 'Logi z wystawiania ofert'
+    from_email = 'noreply.salingo@gmail.com'
+    to = 'noreply.salingo@gmail.com'
+    text_content = 'Logi z wystawiania ofert:'
+    html_content = create_table(publish_errors)
+    message = EmailMultiAlternatives(subject, text_content, from_email, [to])
+    message.attach_alternative(html_content, "text/html")
+    return message.send()
+
+
+def create_table(errors):
+    html = '<table style="width:100%; margin-bottom: 1rem;">'
+    html += '<tr>'
+    html += '<th></th>'
+    html += '</tr>'
+    for error in errors:
+        html += '<tr>'
+        try:
+            if len(error.get('errors')) > 0:
+                html += '<td style="width: 9rem;">' + str(error.get('sku')) + '</td>'
+                html += '<td>' + str(error.get('errors')) + '</td>'
+        except:
+            if len(error) > 0:
+                html += '<td>' + str(error) + '</td>'
+        html += '</tr>'
+    html += '<tr>'
+    html += '<td>' + '</td>'
+    html += '</tr>'
+    html += '</table>'
+    html += '<br>'
+    html += '<table style="width:100%; margin-bottom: 1rem;">'
+    html += '<tr>'
+    #html += '<td>' + 'Poprawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) == 0])) + '</td>'
+    html += '</tr>'
+    html += '<tr>'
+    #html += '<td>' + 'Niepropawnie przetworzone: ' + str(len([error for error in errors if len(error.get('errors')) > 0])) + '</td>'
+    html += '</tr>'
+    html += '</table>'
+
+    return html
 
 
 def get_plugin_configuration(plugin_id, channel=None):
@@ -100,52 +142,35 @@ def prepare_failed_tasks_email(skus):
 
 
 def get_products_by_recursive_categories(category_slugs, limit, offset):
-    products = Category.objects.raw('''
-        with recursive categories as (
-            select  id, "name", parent_id, "level"
-            from product_category
-            where slug in %s
-            union all
-            select pc.id, pc.name, pc.parent_id, pc."level"
-            from categories c, product_category pc
-            where pc.parent_id = c.id
-        )
-        select id from product_product pp where category_id in (select id from categories)
-        and private_metadata->>'publish.allegro.status'='published'
-        order by id
-        limit %s
-        offset %s
-    ''', [category_slugs, limit, offset])
-
-    return products
+    return Category.objects.raw(products_by_recursive_categories, [category_slugs, limit, offset])
 
 
 def bulk_update_allegro_status_to_unpublished(unpublished_skus):
     limit = 1000
     total_count = len(unpublished_skus)
-    if total_count > 0:
-        for offset in range(0, total_count, limit):
-            update_skus = unpublished_skus[offset:offset + limit]
-            product_variants = ProductVariant.objects.select_related('product').filter(
-                sku__in=update_skus).exclude(product__private_metadata__contains={"publish.allegro.status": "sold"})
-            products_to_update = []
-            for variant in product_variants:
-                product = variant.product
-                status_date = datetime.now(pytz.timezone('Europe/Warsaw')).strftime('%Y-%m-%d %H:%M:%S')
-                product.store_value_in_private_metadata(
-                    {'publish.status.date': status_date,
-                     'publish.allegro.status': ProductPublishState.MODERATED.value,
-                     'publish.allegro.errors': []
-                    })
-                products_to_update.append(product)
 
-            product_channel_listings = ProductChannelListing.objects.filter(
-                product__in=products_to_update)
-            for listing in product_channel_listings:
-                listing.is_published = False
+    for offset in range(0, total_count, limit):
+        update_skus = unpublished_skus[offset:offset + limit]
+        product_variants = ProductVariant.objects.select_related('product').filter(
+            sku__in=update_skus).exclude(product__private_metadata__contains={"publish.allegro.status": "sold"})
+        products_to_update = []
+        for variant in product_variants:
+            product = variant.product
+            status_date = datetime.now(pytz.timezone('Europe/Warsaw')).strftime('%Y-%m-%d %H:%M:%S')
+            product.store_value_in_private_metadata(
+                {'publish.status.date': status_date,
+                 'publish.allegro.status': ProductPublishState.MODERATED.value,
+                 'publish.allegro.errors': []
+                })
+            products_to_update.append(product)
 
-            Product.objects.bulk_update(products_to_update, ['private_metadata'], batch_size=100)
-            ProductChannelListing.objects.bulk_update(product_channel_listings, ['is_published'], batch_size=500)
+        product_channel_listings = ProductChannelListing.objects.filter(
+            product__in=products_to_update)
+        for listing in product_channel_listings:
+            listing.is_published = False
+
+        Product.objects.bulk_update(products_to_update, ['private_metadata'], batch_size=100)
+        ProductChannelListing.objects.bulk_update(product_channel_listings, ['is_published'], batch_size=500)
 
 
 def update_allegro_purchased_error(skus, allegro_data):
@@ -355,3 +380,13 @@ def returned_products(product_ids) -> List[str]:
             returned_product_ids.append(product.pk)
 
     return returned_product_ids
+
+
+def get_unpublishable_skus(product_ids):
+    returned_product_ids = returned_products(product_ids)
+    product_ids = [product_id for product_id in product_ids if product_id not in returned_product_ids]
+    return product_ids_to_skus(product_ids)
+
+
+def filter_out_missing_skus(skus):
+    return list(ProductVariant.objects.filter(sku__in=skus).values_list('sku', flat=True))

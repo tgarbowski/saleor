@@ -66,3 +66,21 @@ product_id_sale_name = """
     on dsp.sale_id = ds.id
     WHERE dsp.product_id in %s
 """
+
+
+products_by_recursive_categories = """
+    with recursive categories as (
+        select  id, "name", parent_id, "level"
+        from product_category
+        where slug in %s
+        union all
+        select pc.id, pc.name, pc.parent_id, pc."level"
+        from categories c, product_category pc
+        where pc.parent_id = c.id
+    )
+    select id from product_product pp where category_id in (select id from categories)
+    and private_metadata->>'publish.allegro.status'='published'
+    order by id
+    limit %s
+    offset %s
+"""

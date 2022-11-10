@@ -13,11 +13,14 @@ from .products_mapper import ProductMapperFactory
 from .parameters_mapper import ParametersMapperFactory
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
-from saleor.product.models import ProductVariant
-from .utils import AllegroErrorHandler, returned_products
+from .utils import AllegroErrorHandler
 from saleor.plugins.allegro import ProductPublishState
 
 logger = logging.getLogger(__name__)
+
+
+class AllegroClientError(Exception):
+    pass
 
 
 class AllegroAPI:
@@ -31,10 +34,12 @@ class AllegroAPI:
         self.set_config()
 
     def set_config(self):
-        config = self.get_plugin_config(self.channel)
-        self.plugin_config = config
-        self.token = config.get('token_value')
-        self.env = config.get('env')
+        #config = self.get_plugin_config(self.channel)
+        #self.plugin_config = config
+        #self.token = config.get('token_value')
+        #self.env = config.get('env')
+        self.token = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2NjgxMjY3MzQsInVzZXJfbmFtZSI6Ijg1MTI2ODg5IiwianRpIjoiMmRlMjkwOWQtODQxMC00NzZhLWEzODctOTBhMGY4ZWVhOTU5IiwiY2xpZW50X2lkIjoiZDViYjZlOWE1NDRhNGUyMzhiYzcwMDFhMDI5NWMxN2EiLCJzY29wZSI6WyJhbGxlZ3JvOmFwaTpvcmRlcnM6cmVhZCIsImFsbGVncm86YXBpOnByb2ZpbGU6d3JpdGUiLCJhbGxlZ3JvOmFwaTpzYWxlOm9mZmVyczp3cml0ZSIsImFsbGVncm86YXBpOmJpbGxpbmc6cmVhZCIsImFsbGVncm86YXBpOmNhbXBhaWducyIsImFsbGVncm86YXBpOmRpc3B1dGVzIiwiYWxsZWdybzphcGk6YmlkcyIsImFsbGVncm86YXBpOnNhbGU6b2ZmZXJzOnJlYWQiLCJhbGxlZ3JvOmFwaTpvcmRlcnM6d3JpdGUiLCJhbGxlZ3JvOmFwaTphZHMiLCJhbGxlZ3JvOmFwaTpwYXltZW50czp3cml0ZSIsImFsbGVncm86YXBpOnNhbGU6c2V0dGluZ3M6d3JpdGUiLCJhbGxlZ3JvOmFwaTpwcm9maWxlOnJlYWQiLCJhbGxlZ3JvOmFwaTpyYXRpbmdzIiwiYWxsZWdybzphcGk6c2FsZTpzZXR0aW5nczpyZWFkIiwiYWxsZWdybzphcGk6cGF5bWVudHM6cmVhZCIsImFsbGVncm86YXBpOm1lc3NhZ2luZyJdLCJhbGxlZ3JvX2FwaSI6dHJ1ZX0.N4ARA7adqT9tNS4r8Z4G_QGNa9pPCuG3yp6eRx9qDVxzyJMGKzyA7NFLVfbzeekVeelDknYfO5yCDXQhCwfVk5_r5QuuNqSjiYckFzYx3gXqZUyk3PDiZOY0QfLwjIjHm63im1Gmh1b_4s3rnmxAcb6gPPEQkOWGvGqYiaurDmeQDhKyEUvGoAaYQpuRBgcxiPW7oC0SvGcbWViePj-jk-mecxjg3uERDhDBwcQo-45hfPrTM2fgPVMzHREBIVT5GIZS6VR6LjmQPHah4oYPE8PdUIa4N1f4YcgXw0QJWlM0aKjLuKIl09XjMHjkbvEzL0y1n3EKXmwVaF7zkIUoBg'
+        self.env = 'https://api.allegro.pl'
 
     def get_plugin_config(self, channel):
         manager = get_plugins_manager()
@@ -486,6 +491,28 @@ class AllegroAPI:
 
         logger.info(f'OFFERS BID OR PURCHASED BASED ON ALLEGRO RESPONSE{offers_bid_or_purchased}')
         return offers_bid_or_purchased
+
+    def get_offers(self, publication_statuses):
+        def get_max_1000_offers(publication_statuses, offset=0):
+            parameters = {
+                "publication.status": publication_statuses,
+                "offset": offset,
+            }
+            encoded_parameters = urllib.parse.urlencode(parameters, True)
+            endpoint = f'sale/offers?{encoded_parameters}&limit=1000'
+            response = self.get_request(endpoint=endpoint)
+            if response.status_code != 200:
+                raise AllegroClientError('Connection error')
+            return response
+
+        first_1000_offers = get_max_1000_offers(publication_statuses).json()
+        total_count = first_1000_offers['totalCount']
+
+        if first_1000_offers['count'] == total_count:
+            yield first_1000_offers['offers']
+
+        for offset in range(0, total_count, 1000):
+            yield get_max_1000_offers(publication_statuses, offset=offset).json()['offers']
 
     def get_offers_by_skus(self, skus, publication_statuses):
         def get_offers_by_max_100_skus(sku_params, publication_statuses_params):
