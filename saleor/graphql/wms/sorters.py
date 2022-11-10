@@ -1,10 +1,7 @@
 import graphene
-from django.db.models import CharField, ExpressionWrapper, OuterRef, QuerySet, Subquery
 
-from ...payment.models import Payment
 from ..core.descriptions import DEPRECATED_IN_3X_INPUT
 from ..core.types import SortInputObjectType
-from ...wms.models import WmsDocument
 
 
 class WmsDocumentSortField(graphene.Enum):
