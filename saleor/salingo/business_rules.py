@@ -28,7 +28,7 @@ from saleor.salingo.interface import (ProductRulesVariables, PricingCalculationO
                                       PriceEnum)
 from saleor.salingo.sql.raw_sql import product_id_sale_name
 from saleor.salingo.utils import email_dict_errors
-from saleor.plugins.allegro.utils import get_allegro_channels_slugs
+from saleor.plugins.allegro.utils import get_allegro_channels_slugs, get_unpublishable_skus
 
 
 logger = logging.getLogger(__name__)
@@ -167,7 +167,10 @@ class RoutingExecutors:
         for key, value in products.items():
             product_ids.append(value.id)
 
-        skus_purchased = bulk_allegro_unpublish(channel=channel, product_ids=product_ids)
+        skus_purchased = bulk_allegro_unpublish(
+            channel=channel,
+            skus=get_unpublishable_skus(product_ids)
+        )
 
         return skus_to_product_ids(skus_purchased)
 
