@@ -34,12 +34,10 @@ class AllegroAPI:
         self.set_config()
 
     def set_config(self):
-        #config = self.get_plugin_config(self.channel)
-        #self.plugin_config = config
-        #self.token = config.get('token_value')
-        #self.env = config.get('env')
-        self.token = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2NjgxMjY3MzQsInVzZXJfbmFtZSI6Ijg1MTI2ODg5IiwianRpIjoiMmRlMjkwOWQtODQxMC00NzZhLWEzODctOTBhMGY4ZWVhOTU5IiwiY2xpZW50X2lkIjoiZDViYjZlOWE1NDRhNGUyMzhiYzcwMDFhMDI5NWMxN2EiLCJzY29wZSI6WyJhbGxlZ3JvOmFwaTpvcmRlcnM6cmVhZCIsImFsbGVncm86YXBpOnByb2ZpbGU6d3JpdGUiLCJhbGxlZ3JvOmFwaTpzYWxlOm9mZmVyczp3cml0ZSIsImFsbGVncm86YXBpOmJpbGxpbmc6cmVhZCIsImFsbGVncm86YXBpOmNhbXBhaWducyIsImFsbGVncm86YXBpOmRpc3B1dGVzIiwiYWxsZWdybzphcGk6YmlkcyIsImFsbGVncm86YXBpOnNhbGU6b2ZmZXJzOnJlYWQiLCJhbGxlZ3JvOmFwaTpvcmRlcnM6d3JpdGUiLCJhbGxlZ3JvOmFwaTphZHMiLCJhbGxlZ3JvOmFwaTpwYXltZW50czp3cml0ZSIsImFsbGVncm86YXBpOnNhbGU6c2V0dGluZ3M6d3JpdGUiLCJhbGxlZ3JvOmFwaTpwcm9maWxlOnJlYWQiLCJhbGxlZ3JvOmFwaTpyYXRpbmdzIiwiYWxsZWdybzphcGk6c2FsZTpzZXR0aW5nczpyZWFkIiwiYWxsZWdybzphcGk6cGF5bWVudHM6cmVhZCIsImFsbGVncm86YXBpOm1lc3NhZ2luZyJdLCJhbGxlZ3JvX2FwaSI6dHJ1ZX0.N4ARA7adqT9tNS4r8Z4G_QGNa9pPCuG3yp6eRx9qDVxzyJMGKzyA7NFLVfbzeekVeelDknYfO5yCDXQhCwfVk5_r5QuuNqSjiYckFzYx3gXqZUyk3PDiZOY0QfLwjIjHm63im1Gmh1b_4s3rnmxAcb6gPPEQkOWGvGqYiaurDmeQDhKyEUvGoAaYQpuRBgcxiPW7oC0SvGcbWViePj-jk-mecxjg3uERDhDBwcQo-45hfPrTM2fgPVMzHREBIVT5GIZS6VR6LjmQPHah4oYPE8PdUIa4N1f4YcgXw0QJWlM0aKjLuKIl09XjMHjkbvEzL0y1n3EKXmwVaF7zkIUoBg'
-        self.env = 'https://api.allegro.pl'
+        config = self.get_plugin_config(self.channel)
+        self.plugin_config = config
+        self.token = config.get('token_value')
+        self.env = config.get('env')
 
     def get_plugin_config(self, channel):
         manager = get_plugins_manager()
