@@ -579,11 +579,6 @@ CELERY_BEAT_SCHEDULE = {
 
 if APP_ENVIRONMENT in ['production']:
     CELERY_BEAT_SCHEDULE.update({
-        'synchronize_allegro_offers_task': {
-            'task': 'saleor.plugins.allegroSync.tasks.synchronize_allegro_offers_task',
-            'schedule': crontab(minute=0, hour=23),
-            "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
-        },
         'refresh_token_task': {
             'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
             'schedule': 1800.0,
@@ -693,7 +688,6 @@ BUILTIN_PLUGINS = [
     "saleor.plugins.sendgrid.plugin.SendgridEmailPlugin",
     "saleor.plugins.allegro.plugin.AllegroPlugin",
     "saleor.plugins.sumi.plugin.SumiPlugin",
-    "saleor.plugins.allegroSync.plugin.AllegroSyncPlugin",
     "saleor.plugins.wms.plugin.WMSPlugin",
     "saleor.plugins.dpd.plugin.DpdPlugin",
     "saleor.plugins.salingo_routing.plugin.SalingoRoutingPlugin",

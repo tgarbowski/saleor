@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime, timedelta
 
@@ -7,11 +8,11 @@ from .enums import AllegroErrors
 from .utils import (email_errors, get_plugin_configuration, email_bulk_unpublish_message,
                     get_products_by_recursive_categories, bulk_update_allegro_status_to_unpublished,
                     update_allegro_purchased_error, email_bulk_unpublish_result,
-                    get_datetime_now, product_ids_to_skus, get_products_by_channels,
+                    get_datetime_now, get_products_by_channels,
                     AllegroProductPublishValidator, AllegroErrorHandler,
                     get_product_media_urls, get_allegro_channels_slugs, get_specified_allegro_channels_slugs,
-                    returned_products)
-from saleor.product.models import Product
+                    get_unpublishable_skus, filter_out_missing_skus)
+from saleor.product.models import Product, ProductVariant
 from saleor.plugins.allegro import ProductPublishState
 from .orders import cancel_allegro_orders, insert_allegro_orders
 from saleor.order.models import Fulfillment
@@ -248,15 +249,12 @@ def unpublish_from_multiple_channels(product_ids):
         if channel['product_ids']:
             bulk_allegro_unpublish(
                 channel=channel['channel__slug'],
-                product_ids=channel['product_ids']
+                skus=get_unpublishable_skus(channel['product_ids'])
             )
 
 
-def bulk_allegro_unpublish(channel, product_ids):
+def bulk_allegro_unpublish(channel, skus):
     allegro_api = AllegroAPI(channel=channel)
-    returned_product_ids = returned_products(product_ids)
-    product_ids = [product_id for product_id in product_ids if product_id not in returned_product_ids]
-    skus = product_ids_to_skus(product_ids)
     logger.info(f'SKUS TO UNPUBLISH{skus}')
 
     total_count = len(skus)
@@ -276,7 +274,7 @@ def bulk_allegro_unpublish(channel, product_ids):
     unpublished_skus = [sku for sku in skus if sku not in skus_purchased]
     logger.info(f'UNPUBSLISHED SKUS{unpublished_skus}')
     # Set private_metadata allegro.publish.status to 'unpublished' and update date
-    bulk_update_allegro_status_to_unpublished(unpublished_skus)
+    bulk_update_allegro_status_to_unpublished(filter_out_missing_skus(unpublished_skus))
     # Log error in private metadata if purchased/bid/connection error
     logger.info(f'SKUS PURCHASED{skus_purchased}')
     if skus_purchased:
@@ -329,3 +327,63 @@ def update_allegro_tracking_number(order):
         carrier_id=allegro_shipping_method_id,
         waybill=tracking_number
     )
+
+
+@app.task()
+def synchronize_allegro_offers_task():
+    channels = get_allegro_channels_slugs()
+
+    for channel in channels:
+        synchronize_allegro_offers_one_channel(channel)
+
+
+@app.task()
+def synchronize_allegro_offers_one_channel(channel):
+    # TODO: refactor this task
+    allegro_api = AllegroAPI(channel=channel)
+    params = {'publication.status': ['ACTIVE'], 'limit': '1', 'offset': 0}
+    response = allegro_api.get_request('sale/offers', params)
+    total_count = json.loads(response.text).get('totalCount')
+
+    if not total_count:
+        return
+    limit = 1000
+    errors = []
+    updated_amount = 0
+
+    for i in range(int(int(total_count) / limit) + 1):
+        offset = i * limit
+        params = {'publication.status': ['ACTIVE'], 'limit': limit, 'offset': offset}
+        response = allegro_api.get_request('sale/offers', params)
+        logger.info(
+            f'Fetching 1000 offers status: {response.status_code}, offset: {offset}')
+        offers = json.loads(response.text).get('offers')
+        if offers:
+            skus = [offer.get('external').get('id') for offer in offers]
+            product_variants = list(
+                ProductVariant.objects.select_related('product').filter(sku__in=skus))
+            products_to_update = []
+            for offer in offers:
+                product_errors = []
+                sku = offer.get('external').get('id')
+                offer_id = offer.get('id')
+                variant = next((x for x in product_variants if x.sku == sku), None)
+                if variant:
+                    product = variant.product
+                    product_errors = '' #valid_product(product)
+                    if product.private_metadata.get('publish.allegro.id') != offer_id:
+                        product.private_metadata['publish.allegro.id'] = offer_id
+                        products_to_update.append(product)
+                else:
+                    product_errors.append('nie znaleziono produktu o podanym SKU')
+
+                if product_errors:
+                    errors.append({'sku': sku, 'errors': product_errors})
+
+            if products_to_update:
+                Product.objects.bulk_update(products_to_update, ['private_metadata'])
+                updated_amount += len(products_to_update)
+
+    #html_errors_list = plugin.create_table(errors)
+
+    #send_mail(html_errors_list, updated_amount)

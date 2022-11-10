@@ -13,11 +13,14 @@ from .products_mapper import ProductMapperFactory
 from .parameters_mapper import ParametersMapperFactory
 from saleor.plugins.manager import get_plugins_manager
 from saleor.plugins.models import PluginConfiguration
-from saleor.product.models import ProductVariant
-from .utils import AllegroErrorHandler, returned_products
+from .utils import AllegroErrorHandler
 from saleor.plugins.allegro import ProductPublishState
 
 logger = logging.getLogger(__name__)
+
+
+class AllegroClientError(Exception):
+    pass
 
 
 class AllegroAPI:
@@ -486,6 +489,28 @@ class AllegroAPI:
 
         logger.info(f'OFFERS BID OR PURCHASED BASED ON ALLEGRO RESPONSE{offers_bid_or_purchased}')
         return offers_bid_or_purchased
+
+    def get_offers(self, publication_statuses):
+        def get_max_1000_offers(publication_statuses, offset=0):
+            parameters = {
+                "publication.status": publication_statuses,
+                "offset": offset,
+            }
+            encoded_parameters = urllib.parse.urlencode(parameters, True)
+            endpoint = f'sale/offers?{encoded_parameters}&limit=1000'
+            response = self.get_request(endpoint=endpoint)
+            if response.status_code != 200:
+                raise AllegroClientError('Connection error')
+            return response
+
+        first_1000_offers = get_max_1000_offers(publication_statuses).json()
+        total_count = first_1000_offers['totalCount']
+
+        if first_1000_offers['count'] == total_count:
+            yield first_1000_offers['offers']
+
+        for offset in range(0, total_count, 1000):
+            yield get_max_1000_offers(publication_statuses, offset=offset).json()['offers']
 
     def get_offers_by_skus(self, skus, publication_statuses):
         def get_offers_by_max_100_skus(sku_params, publication_statuses_params):
