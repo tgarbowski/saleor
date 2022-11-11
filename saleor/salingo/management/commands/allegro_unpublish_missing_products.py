@@ -3,7 +3,7 @@ import logging
 from django.core.management.base import BaseCommand
 
 from saleor.plugins.allegro.api import AllegroAPI, AllegroClientError
-from saleor.product.models import ProductVariant
+from saleor.product.models import ProductVariant, ProductVariantChannelListing
 from saleor.plugins.allegro.tasks import bulk_allegro_unpublish
 
 
@@ -21,17 +21,23 @@ class Command(BaseCommand):
         # Get SKUS from allegro offers
         api = AllegroAPI(channel=channel_slug)
         offers = api.get_offers(publication_statuses=['ACTIVE', 'ACTIVATING'])
-        skus = []
+        allegro_skus = []
         try:
             for batch_offers in offers:
                 for offer in batch_offers:
-                    skus.append(offer['external']['id'])
+                    allegro_skus.append(offer['external']['id'])
         except AllegroClientError as e:
             logger.error(e)
             return
         # Get missing skus
-        variants = list(ProductVariant.objects.filter(sku__in=skus).values_list('sku', flat=True))
-        missing_skus = list(set(skus).difference(variants))
+        existing_skus = list(
+            ProductVariantChannelListing.objects.filter(
+                variant__sku__in=allegro_skus,
+                channel__slug=channel_slug
+            ).values_list("variant__sku", flat=True)
+        )
+
+        missing_skus = list(set(allegro_skus).difference(existing_skus))
         logger.info(f'Missing SKUS: {missing_skus}')
         if not missing_skus:
             return
