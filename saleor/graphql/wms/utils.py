@@ -47,8 +47,8 @@ def create_pdf_document(document_id):
             'recipient_city': document.order.shipping_address.city,
             'recipient_postal_code': document.order.shipping_address.postal_code,
             'shipping_method': document.order.shipping_method,
+            'note': document.order.customer_note,
             'barcode': barcode
-            # 'barcode': "#" + str(document.order.id)
         }
     )
     file = HTML(string=rendered_template).render()

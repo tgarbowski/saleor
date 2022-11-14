@@ -145,10 +145,11 @@ class AllegroAPI:
         }
         return self.put_request(endpoint=endpoint, data=payload)
 
-    def get_orders(self, statuses, updated_at_from):
+    def get_orders(self, statuses, fulfillment_statuses, updated_at_from):
         def get_100_orders(offset=0):
             parameters = {
                 "status": statuses,
+                "fulfillment.status": fulfillment_statuses,
                 "offset": offset,
                 "updatedAt.gte": f'{updated_at_from}Z'
             }
