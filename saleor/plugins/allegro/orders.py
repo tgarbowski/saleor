@@ -168,9 +168,18 @@ def filter_unprocessed_orders(checkout_forms, processed_allegro_orders_ids):
     return checkout_forms
 
 
-def get_allegro_orders(channel_slug: str, datetime_from: str, statuses: List[str]) -> List[Dict]:
+def get_allegro_orders(
+    channel_slug: str,
+    datetime_from: str,
+    statuses: List[str],
+    fulfillment_statuses: List[str]
+) -> List[Dict]:
     allegro_api = AllegroAPI(channel=channel_slug)
-    orders = allegro_api.get_orders(statuses=statuses, updated_at_from=datetime_from)
+    orders = allegro_api.get_orders(
+        statuses=statuses,
+        fulfillment_statuses=fulfillment_statuses,
+        updated_at_from=datetime_from
+    )
     return orders
 
 
@@ -233,7 +242,8 @@ def insert_allegro_orders(channel_slug: str, datetime_from: str):
     orders = get_allegro_orders(
         channel_slug=channel_slug,
         datetime_from=datetime_from,
-        statuses=['READY_FOR_PROCESSING']
+        statuses=['READY_FOR_PROCESSING'],
+        fulfillment_statuses=['NEW']
     )
 
     processed_allegro_orders_ids = get_processed_not_canceled_allegro_orders_ids(
@@ -307,7 +317,8 @@ def cancel_allegro_orders(channel_slug: str, datetime_from: str):
     orders = get_allegro_orders(
         channel_slug=channel_slug,
         datetime_from=datetime_from,
-        statuses=['CANCELED']
+        statuses=['CANCELED'],
+        fulfillment_statuses=[]
     )
 
     processed_allegro_orders_ids = get_processed_not_canceled_allegro_orders_ids(
