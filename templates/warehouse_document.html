@@ -84,7 +84,11 @@
       <div class="row">
         <div class="column">{{recipient_first_name}} {{ recipient_last_name }}<br>
         {{recipient_address}}<br>
-        {{recipient_postal_code}} {{recipient_city}}</div>
+        {{recipient_postal_code}} {{recipient_city}}
+          {% if note %}
+          <br>Notatka od klienta: {{ note }}
+          {% endif %}
+        </div>
         <div class="column text-right-i">{{shipping_method}}</div>
       </div>
       <div id="list_table">
