@@ -1,5 +1,6 @@
 import graphene
 
+from .sorters import WmsDocumentSortingInput
 from ...core.permissions import WMSPermissions
 from ..decorators import permission_required
 from .mutations import (WmsDocumentCreate, WmsDocumentUpdate, WmsDocPositionCreate,
@@ -37,6 +38,7 @@ class WmsDocumentMutations(graphene.ObjectType):
 class WmsDocumentQueries(graphene.ObjectType):
     wms_documents = FilterConnectionField(
         WMSDocumentCountableConnection,
+        sort_by=WmsDocumentSortingInput(description="Sort wms documents."),
         filter=WmsDocumentFilterInput(),
         description="List of wms documents"
     )
