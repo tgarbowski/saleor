@@ -4,6 +4,7 @@ from django.db.models import CharField, ExpressionWrapper, OuterRef, QuerySet, S
 from ...payment.models import Payment
 from ..core.descriptions import DEPRECATED_IN_3X_INPUT
 from ..core.types import SortInputObjectType
+from ...wms.models import WmsDocument
 
 
 class OrderSortField(graphene.Enum):
@@ -14,6 +15,7 @@ class OrderSortField(graphene.Enum):
     CUSTOMER = ["billing_address__last_name", "billing_address__first_name", "pk"]
     PAYMENT = ["last_charge_status", "status", "pk"]
     FULFILLMENT_STATUS = ["status", "user_email", "pk"]
+    WMSDOCUMENT = ["wms_number", "status", "pk"]
 
     @property
     def description(self):
@@ -42,6 +44,17 @@ class OrderSortField(graphene.Enum):
         )
         return queryset.annotate(
             last_charge_status=ExpressionWrapper(subquery, output_field=CharField())
+        )
+
+    @staticmethod
+    def qs_with_wmsdocument(queryset: QuerySet, **_kwargs) -> QuerySet:
+        subquery = Subquery(
+            WmsDocument.objects.filter(order=OuterRef("pk"))
+            .order_by("-pk")
+            .values_list("number")
+        )
+        return queryset.annotate(
+            wms_number=ExpressionWrapper(subquery, output_field=CharField())
         )
 
 

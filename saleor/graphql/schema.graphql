@@ -4795,6 +4795,7 @@ enum OrderSortField {
   CUSTOMER
   PAYMENT
   FULFILLMENT_STATUS
+  WMSDOCUMENT
 }
 
 input OrderSortingInput {
@@ -6222,7 +6223,7 @@ type Query {
   wmsDeliverer(id: ID): WmsDeliverer
   wmsDocPositions(filter: WmsDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WMSDocPositionCountableConnection
   wmsDocPosition(id: ID): WmsDocPosition
-  wmsDocuments(filter: WmsDocumentFilterInput, before: String, after: String, first: Int, last: Int): WMSDocumentCountableConnection
+  wmsDocuments(sortBy: WmsDocumentSortingInput, filter: WmsDocumentFilterInput, before: String, after: String, first: Int, last: Int): WMSDocumentCountableConnection
   wmsDocument(id: ID, number: String): WmsDocument
   wmsDocumentPdf(id: ID!): String
   wmsActionsReport(startDate: Date!, endDate: Date!): GenericScalar
@@ -8046,6 +8047,19 @@ input WmsDocumentInput {
   warehouse: ID
   warehouseSecond: ID
   location: String
+}
+
+enum WmsDocumentSortField {
+  NAME
+  STATUS
+  CREATED_AT
+  DOCUMENT_TYPE
+  WAREHOUSE
+}
+
+input WmsDocumentSortingInput {
+  direction: OrderDirection!
+  field: WmsDocumentSortField!
 }
 
 enum WmsDocumentStatusFilter {
