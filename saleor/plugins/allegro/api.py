@@ -480,13 +480,31 @@ class AllegroAPI:
             return {'status': 'OK', 'uuid': unique_id, 'errors': []}
 
     def offers_bid_or_purchased(self, offers):
-        offers_bid_or_purchased = [
-            {"sku": offer["external"]["id"], "offer": offer["id"]}
-            for offer in offers
-            if offer["saleInfo"]["biddersCount"]
-               or offer["stock"]["sold"]
-               or not offer["stock"]["available"]
-        ]
+        offers_bid_or_purchased = []
+
+        def is_sold(entity):
+            return entity['publication']['status'] == 'ENDED' and entity['stock']['sold']
+
+        def is_bid(entity):
+            return entity['publication']['status'] == 'ACTIVE' and entity["saleInfo"]["biddersCount"]
+
+        def reason(entity):
+            if is_sold(entity):
+                return 'SOLD'
+            elif is_bid(entity):
+                return 'BID'
+            else:
+                return 'UNKNOWN'
+
+        for offer in offers:
+            if is_sold(offer) or is_bid(offer):
+                offers_bid_or_purchased.append(
+                    {
+                        'sku': offer['external']['id'],
+                        'offer': offer['id'],
+                        'reason': reason(offer)
+                    }
+                )
 
         logger.info(f'OFFERS BID OR PURCHASED BASED ON ALLEGRO RESPONSE{offers_bid_or_purchased}')
         return offers_bid_or_purchased

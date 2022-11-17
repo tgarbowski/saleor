@@ -124,7 +124,7 @@ def prepare_failed_tasks_email(skus):
     html += '</tr>'
     for sku in skus:
         html += '<tr>'
-        html += '<td style="width: 9rem;">' + str(sku) + '</td>'
+        html += '<td style="width: 9rem;">' + f'SKU: {sku["sku"]}, REASON: {sku["reason"]}' + '</td>'
         html += '</tr>'
     html += '<tr>'
     html += '<td>' + '</td>'
@@ -173,21 +173,24 @@ def bulk_update_allegro_status_to_unpublished(unpublished_skus):
         ProductChannelListing.objects.bulk_update(product_channel_listings, ['is_published'], batch_size=500)
 
 
-def update_allegro_purchased_error(skus, allegro_data):
-    products = Product.objects.filter(pk__in=skus_to_product_ids(skus))
+def update_allegro_purchased_error(skus_purchased):
+    all_skus = [sku['sku'] for sku in skus_purchased]
+    sku_error_map = {}
+    for err in skus_purchased:
+        sku_error_map[err['sku']] = err['reason']
 
-    if allegro_data['message'] == AllegroErrors.ALLEGRO_ERROR:
-        error_message = allegro_data['errors']
-    else:
-        error_message = 'Produkt sprzedany lub licytowany'
+    variants = ProductVariant.objects.filter(sku__in=all_skus).select_related('product')
+    products = []
 
-    for product in products:
-        product.store_value_in_private_metadata(
+    for variant in variants:
+        error_message = f'Status wycofania: {sku_error_map[variant.sku]}'
+        variant.product.store_value_in_private_metadata(
             {
                 'publish.allegro.errors': [error_message],
                 'allegro_unpublish_action': True
             }
         )
+        products.append(variant.product)
 
     Product.objects.bulk_update(products, ['private_metadata'])
 
