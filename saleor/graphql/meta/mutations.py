@@ -37,6 +37,7 @@ from ...product.models import ProductVariant, ProductMedia
 from .types import ObjectWithMetadata
 from saleor.product.models import ProductChannelListing, ProductVariantChannelListing, Product
 from saleor.channel.models import Channel
+from saleor.salingo.sql.raw_sql import delete_medias_by_product_id
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +298,7 @@ class BaseMetadataMutation(BaseMutation):
         # Remove existing megapack images
         with connection.cursor() as cursor:
             cursor.execute(
-                'DELETE FROM "product_productmedia" WHERE "product_productmedia"."product_id" = %s',
+                delete_medias_by_product_id,
                 [instance.pk]
             )
         # Create images
