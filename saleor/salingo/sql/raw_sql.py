@@ -84,3 +84,33 @@ products_by_recursive_categories = """
     limit %s
     offset %s
 """
+
+
+archivable_products_count = """
+    select COUNT(id)
+    from product_product
+    where Cast(private_metadata->>'publish.status.date' as DATE)::timestamp between %s and %s
+    and (
+        private_metadata->>'publish.allegro.status' = 'sold'
+        or (private_metadata->>'publish.allegro.status' = 'moderated'
+            and private_metadata->>'publish.allegro.price' is not null
+            )
+        )
+    and length(coalesce(metadata->>'bundle.id','')) = 0
+"""
+
+
+archivable_product_ids = """
+    select id from product_product
+    where Cast(private_metadata->>'publish.status.date' as DATE)::timestamp between %s and %s
+    and (
+        private_metadata->>'publish.allegro.status' = 'sold'
+        or (private_metadata->>'publish.allegro.status' = 'moderated'
+            and private_metadata->>'publish.allegro.price' is not null
+            )
+        )
+    and length(coalesce(metadata->>'bundle.id','')) = 0
+"""
+
+
+delete_medias_by_product_id = 'DELETE FROM "product_productmedia" WHERE "product_productmedia"."product_id" = %s'

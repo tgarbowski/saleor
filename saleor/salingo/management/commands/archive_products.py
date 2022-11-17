@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand, CommandError
 from saleor.product.models import Category, Product
 from saleor.plugins.allegro.api import AllegroAPI
 from saleor.plugins.allegro.utils import product_ids_to_skus
+from saleor.salingo.sql.raw_sql import archivable_products_count, archivable_product_ids
 
 
 logger = logging.getLogger(__name__)
@@ -81,35 +82,13 @@ class Command(BaseCommand):
 
     def get_products_count(self):
         with connection.cursor() as cursor:
-            cursor.execute('''
-                select COUNT(id)
-                from product_product
-                where Cast(private_metadata->>'publish.status.date' as DATE)::timestamp between %s and %s
-                and (
-                    private_metadata->>'publish.allegro.status' = 'sold'
-                    or (private_metadata->>'publish.allegro.status' = 'moderated'
-                        and private_metadata->>'publish.allegro.price' is not null
-                        )
-                    )
-                and length(coalesce(metadata->>'bundle.id','')) = 0
-            ''', [self.start_date, self.end_date])
+            cursor.execute(archivable_products_count, [self.start_date, self.end_date])
             row = cursor.fetchone()
             amount = row[0]
         return amount
 
     def get_products_ids(self):
-        products = Category.objects.raw('''
-            select id from product_product
-            where Cast(private_metadata->>'publish.status.date' as DATE)::timestamp between %s and %s
-            and (
-                private_metadata->>'publish.allegro.status' = 'sold'
-                or (private_metadata->>'publish.allegro.status' = 'moderated'
-                    and private_metadata->>'publish.allegro.price' is not null
-                    )
-                )
-            and length(coalesce(metadata->>'bundle.id','')) = 0
-        ''', [self.start_date, self.end_date])
-
+        products = Category.objects.raw(archivable_product_ids, [self.start_date, self.end_date])
         product_ids = [product.id for product in products]
         return product_ids
 
