@@ -2,23 +2,20 @@ import graphene
 
 from django.core.exceptions import ValidationError
 
-from ..core.mutations import ModelMutation
-from ...csv.events import export_started_event
-from ...invoice import events, models
-from ...csv import models as csv_models
-from ...csv.tasks import export_tally_csv_task, export_miglo_csv_task
+from ...core.mutations import ModelMutation
 from saleor.graphql.invoice.types import Invoice
-from ...core.permissions import OrderPermissions
-from ...invoice.error_codes import InvoiceErrorCode
-from ..core.types.common import InvoiceError
-from ..order.types import Order
-from ...order import events as order_events
+from ....core.permissions import OrderPermissions
+from ....invoice.error_codes import InvoiceErrorCode
+from ...core.types.common import InvoiceError
+from ...order.types import Order
+from ....order import events as order_events
 from saleor.order import OrderStatus
 from saleor.graphql.invoice.utils import is_event_active_for_any_plugin
-from .utils import get_receipt_payload
-from ...core import JobStatus
+from saleor.graphql.salingo.invoice.utils import get_receipt_payload
+from ....core import JobStatus
 from graphene.types.generic import GenericScalar
 from saleor.plugins.invoicing.plugin import invoice_correction_request
+from saleor.invoice import events, models
 
 
 class ExtReceiptRequest(ModelMutation):
@@ -230,62 +227,3 @@ class ExtInvoiceCorrectionRequest(ModelMutation):
         )
 
         return ExtInvoiceCorrectionRequest(invoice=invoice, order=order)
-
-
-class ExtTallyCsv(ModelMutation):
-    class Arguments:
-        month = graphene.String(required=True, description="Tally month")
-        year = graphene.String(required=True, description="Tally year")
-
-    class Meta:
-        description = "Export products to csv file."
-        permissions = (OrderPermissions.MANAGE_ORDERS,)
-        model = models.Invoice
-        object_type = Invoice
-        error_type_class = InvoiceError
-        error_type_field = "export_errors"
-
-    @classmethod
-    def perform_mutation(cls, root, info, **data):
-        month = data["month"]
-        year = data["year"]
-
-        app = info.context.app
-        kwargs = {"app": app} if app else {"user": info.context.user}
-        export_file = csv_models.ExportFile.objects.create(
-            **kwargs, message="Tally-" + month + "-" + year)
-        export_started_event(export_file=export_file, **kwargs)
-        export_tally_csv_task(export_file.pk, month, year)
-
-        export_file.refresh_from_db()
-        return cls()
-
-
-class ExtMigloCsv(ModelMutation):
-    class Arguments:
-        month = graphene.String(required=True, description="Tally month")
-        year = graphene.String(required=True, description="Tally year")
-
-    class Meta:
-        description = "Export products to csv file."
-        permissions = (OrderPermissions.MANAGE_ORDERS,)
-        model = models.Invoice
-        object_type = Invoice
-        error_type_class = InvoiceError
-        error_type_field = "export_errors"
-
-    @classmethod
-    def perform_mutation(cls, root, info, **data):
-        month = data["month"]
-        year = data["year"]
-
-        app = info.context.app
-        kwargs = {"app": app} if app else {"user": info.context.user}
-
-        export_file = csv_models.ExportFile.objects.create(
-            **kwargs, message="Miglo-" + month + "-" + year)
-        export_started_event(export_file=export_file, **kwargs)
-        export_miglo_csv_task(export_file.pk, month, year)
-
-        export_file.refresh_from_db()
-        return cls()

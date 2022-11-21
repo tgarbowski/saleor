@@ -1,23 +1,32 @@
 import graphene
 
 from .sorters import WmsDocumentSortingInput
-from ...core.permissions import WMSPermissions
-from ..decorators import permission_required
-from .mutations import (WmsDocumentCreate, WmsDocumentUpdate, WmsDocPositionCreate,
-                        WmsDocPositionUpdate, WmsDocumentDelete, WmsDocPositionDelete,
-                        WmsDelivererCreate, WmsDelivererUpdate, WmsDelivererDelete)
+from saleor.core.permissions import WMSPermissions
+from saleor.graphql.decorators import permission_required
+from .mutations import (
+    WmsDocumentCreate, WmsDocumentUpdate, WmsDocPositionCreate, WmsDocPositionUpdate,
+    WmsDocumentDelete, WmsDocPositionDelete, WmsDelivererCreate, WmsDelivererUpdate, WmsDelivererDelete
+)
 
 from saleor.graphql.core.fields import FilterConnectionField
-from saleor.graphql.wms.resolvers import (resolve_wms_documents, resolve_wms_document,
-                                          resolve_wms_doc_positions, resolve_wms_document_pdf,
-                                          resolve_wms_actions_report,
-                                          resolve_wms_products_report, resolve_wms_doc_position,
-                                          resolve_wms_deliverers, resolve_wms_deliverer)
-from .types import (WmsDeliverer, WmsDocPosition, WmsDocument, WMSDocumentCountableConnection,
-                    WMSDocPositionCountableConnection, WMSDelivererCountableConnection)
+from saleor.graphql.salingo.wms.resolvers import (
+    resolve_wms_documents, resolve_wms_document, resolve_wms_doc_positions, resolve_wms_document_pdf,
+    resolve_wms_actions_report, resolve_wms_products_report, resolve_wms_doc_position,
+    resolve_wms_deliverers, resolve_wms_deliverer
+)
+from .types import (
+    WarehousePdfFiles, WmsDeliverer, WmsDocPosition, WmsDocument, WMSDocumentCountableConnection,
+    WMSDocPositionCountableConnection, WMSDelivererCountableConnection
+)
 from .filters import WmsDocPositionFilterInput, WmsDocumentFilterInput, WmsDelivererFilterInput
 from graphene.types.generic import GenericScalar
-from ..core.connection import create_connection_slice, filter_connection_queryset
+from saleor.graphql.core.connection import create_connection_slice, filter_connection_queryset
+from saleor.graphql.order.schema import OrderFilterInput
+from saleor.graphql.utils import resolve_global_ids_to_primary_keys
+from saleor.order.models import Order
+from saleor.graphql.order.filters import OrderFilter
+from saleor.graphql.salingo.wms.utils import generate_wms_documents
+from saleor.graphql.salingo.wms.utils import generate_encoded_pdf_documents, generate_warehouse_list
 
 
 class WmsDocumentMutations(graphene.ObjectType):
@@ -63,6 +72,13 @@ class WmsDocumentQueries(graphene.ObjectType):
         endDate=graphene.Argument(graphene.Date, required=True)
     )
 
+    warehouse_lists_generate = graphene.Field(
+        WarehousePdfFiles,
+        order_ids=graphene.List(graphene.NonNull(graphene.ID)),
+        filters=OrderFilterInput(),
+        description='B64 encoded Warehouse pdf files'
+    )
+
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_documents(self, info, **kwargs):
         qs = resolve_wms_documents(info, **kwargs)
@@ -84,6 +100,30 @@ class WmsDocumentQueries(graphene.ObjectType):
     @permission_required(WMSPermissions.MANAGE_WMS)
     def resolve_wms_products_report(self, info, **kwargs):
         return resolve_wms_products_report(info, **kwargs)
+
+    def resolve_warehouse_lists_generate(self, info, **kwargs):
+        def get_orders(kwargs):
+            global_order_ids = kwargs.get('order_ids')
+            filters = kwargs.get('filters')
+
+            if global_order_ids:
+                return resolve_global_ids_to_primary_keys(ids=global_order_ids)[1]
+            if filters:
+                all_orders = Order.objects.all()
+                filtered_orders = OrderFilter(
+                    data=filters, queryset=all_orders
+                ).qs
+                return list(
+                    filtered_orders.values_list('id', flat=True)), list(filtered_orders.reverse())
+            return []
+
+        order_ids, orders = get_orders(kwargs)
+
+        generate_wms_documents(orders)
+        wms_list = generate_encoded_pdf_documents(orders)
+        warehouse_list = generate_warehouse_list(order_ids=order_ids)
+
+        return WarehousePdfFiles(warehouse_list=warehouse_list, wms_list=wms_list)
 
 
 class WmsDocPositionQueries(graphene.ObjectType):

@@ -1,7 +1,6 @@
 import operator
 import functools
 
-from django.db import transaction
 from django.db.models import Max, Q
 
 from saleor.payment.utils import price_to_minor_unit
@@ -12,10 +11,8 @@ from saleor.salingo.discounts import (
     get_order_discount_position
 )
 from django.core.exceptions import ValidationError
-from ...invoice.error_codes import InvoiceErrorCode
-from ...plugins.wms.plugin import wms_document_create, wms_positions_bulk_create
-from ...warehouse.models import Warehouse
-from ...wms.models import WmsDocument
+from ....invoice.error_codes import InvoiceErrorCode
+
 
 
 def get_receipt_payload(order):
@@ -97,20 +94,3 @@ def get_invoice_correct_payload(order):
     ).values_list('order_line_id', flat=True)
 
     return list(fulfilled), list(not_fulfilled)
-
-
-def generate_wms_documents(orders):
-    warehouse = Warehouse.objects.filter().first()
-    for order in orders:
-        # Check if there is already a wms document and delete if true
-        wms_document = WmsDocument.objects.filter(order=order)
-        if wms_document:
-            return
-        # Create GRN document
-        with transaction.atomic():
-            wms_document = wms_document_create(
-                order=order,
-                document_type='GIN',
-                warehouse=warehouse
-            )
-            wms_positions_bulk_create(order=order, wms_document_id=wms_document.id)

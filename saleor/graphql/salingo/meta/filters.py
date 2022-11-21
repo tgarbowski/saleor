@@ -3,7 +3,7 @@ import django_filters
 from saleor.graphql.core.filters import ObjectTypeFilter
 from saleor.graphql.core.types import FilterInputObjectType
 from saleor.product.models import ProductType, Product
-from ..meta.mutations import MetadataInput
+from saleor.graphql.meta.mutations import MetadataInput
 
 def filter_product_type_metadata(qs, key, value):
     if not key or not value:

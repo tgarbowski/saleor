@@ -10,6 +10,9 @@ from weasyprint import HTML
 
 from saleor.order.models import Order, OrderLine
 from saleor.wms.models import WmsDocument, WmsDocPosition
+from saleor.warehouse.models import Warehouse
+from django.db import transaction
+from saleor.plugins.wms.plugin import wms_document_create, wms_positions_bulk_create
 
 
 def create_pdf_document(document_id):
@@ -181,3 +184,20 @@ def sort_warehouse_list_by_location(warehouse_list: List) -> List:
     warehouse_list.extend(positions_without_location)
 
     return warehouse_list
+
+
+def generate_wms_documents(orders):
+    warehouse = Warehouse.objects.filter().first()
+    for order in orders:
+        # Check if there is already a wms document and delete if true
+        wms_document = WmsDocument.objects.filter(order=order)
+        if wms_document:
+            return
+        # Create GRN document
+        with transaction.atomic():
+            wms_document = wms_document_create(
+                order=order,
+                document_type='GIN',
+                warehouse=warehouse
+            )
+            wms_positions_bulk_create(order=order, wms_document_id=wms_document.id)

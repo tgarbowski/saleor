@@ -74,7 +74,6 @@ from ..utils import (
     get_used_attribute_values_for_variant,
     get_used_variants_attribute_values,
 )
-from saleor.salingo.images import BackupImageRetrieval
 
 
 class CategoryInput(graphene.InputObjectType):
@@ -1728,30 +1727,6 @@ class ProductVariantReorder(BaseMutation):
         info.context.plugins.product_updated(product)
         product = ChannelContext(node=product, channel_slug=None)
         return ProductVariantReorder(product=product)
-
-
-class ProductMediaRetrieveFromBackup(BaseMutation):
-    media = graphene.Field(ProductMedia)
-    product = graphene.Field(Product)
-
-    class Arguments:
-        id = graphene.ID(required=True, description="ID of a product media to delete.")
-
-    class Meta:
-        description = "Retrieves a product media from backup."
-        permissions = (ProductPermissions.MANAGE_PRODUCTS,)
-        error_type_class = ProductError
-        error_type_field = "product_errors"
-
-    @classmethod
-    def perform_mutation(cls, _root, info, **data):
-        media_obj = cls.get_node_or_error(info, data.get("id"), only_type=ProductMedia)
-
-        if media_obj:
-            backup_image_retrieval = BackupImageRetrieval(image=str(media_obj.image))
-            backup_image_retrieval.handle()
-
-        return ProductMediaRetrieveFromBackup(media=media_obj)
 
 
 class ProductMediaDelete(BaseMutation):

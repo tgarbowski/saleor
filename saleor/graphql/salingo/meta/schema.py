@@ -4,9 +4,9 @@ from saleor.graphql.account.types import User
 
 from saleor.graphql.product.types import (Product, ProductCountableConnection, ProductType,
                                           ProductTypeCountableConnection)
-from ..core.connection import create_connection_slice, filter_connection_queryset
-from ..core.fields import FilterConnectionField
-from ..core.validators import validate_one_of_args_is_in_query
+from saleor.graphql.core.connection import create_connection_slice, filter_connection_queryset
+from saleor.graphql.core.fields import FilterConnectionField
+from saleor.graphql.core.validators import validate_one_of_args_is_in_query
 
 from .resolvers import (
     resolve_product_type_by_metadata,

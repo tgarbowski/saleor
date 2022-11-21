@@ -110,3 +110,11 @@ class WmsDocPositionInput(graphene.InputObjectType):
 class WMSDocPositionCountableConnection(CountableConnection):
     class Meta:
         node = WmsDocPosition
+
+
+class WarehousePdfFiles(graphene.ObjectType):
+    class Meta:
+        description = ("Generated pdf warehouse list and wms docments list files encoded in B64")
+
+    warehouse_list = graphene.String(description="")
+    wms_list = graphene.String(description="")

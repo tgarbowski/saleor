@@ -1,4 +1,3 @@
-import graphene
 from saleor.graphql.meta.types import ObjectWithMetadata
 from saleor.core.models import ModelWithMetadata
 from .resolvers import resolve_json_metadata, resolve_json_private_metadata
@@ -26,4 +25,3 @@ class ObjectWithJSONMetadata(ObjectWithMetadata):
     @classmethod
     def resolve_type(cls, instance: ModelWithMetadata, _info):
         return ObjectWithMetadata.resolve_type(ObjectWithMetadata, instance, _info)
-

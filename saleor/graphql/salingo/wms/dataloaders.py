@@ -1,7 +1,7 @@
 from collections import defaultdict
 
-from ...wms.models import WmsDocument
-from ..core.dataloaders import DataLoader
+from saleor.wms.models import WmsDocument
+from saleor.graphql.core.dataloaders import DataLoader
 
 
 class WmsDocumentsByOrderIdLoader(DataLoader):

@@ -5,7 +5,7 @@ from saleor.order.models import Order
 from .types import WmsDeliverer, WmsDocPosition, WmsDocument
 from .utils import create_pdf_document, wms_products_report, wms_actions_report, \
     generate_encoded_pdf_documents, generate_encoded_pdf_document
-from ..order.filters import OrderFilter
+from saleor.graphql.order.filters import OrderFilter
 
 
 def resolve_wms_documents(info, **_kwargs):

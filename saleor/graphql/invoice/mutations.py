@@ -13,7 +13,7 @@ from ..order.types import Order
 from .types import Invoice
 from .utils import is_event_active_for_any_plugin
 from saleor.order import OrderStatus
-from saleor.graphql.salingo.utils import get_receipt_payload
+from saleor.graphql.salingo.invoice.utils import get_receipt_payload
 
 
 class InvoiceRequest(ModelMutation):

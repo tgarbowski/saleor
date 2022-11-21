@@ -6,7 +6,7 @@ from typing import List, Optional
 import graphene
 from django_countries.fields import Country
 from graphene import relay
-from saleor.graphql.json_meta.types import ObjectWithJSONMetadata
+from saleor.graphql.salingo.meta.types import ObjectWithJSONMetadata
 
 from ....attribute import models as attribute_models
 from ....core.permissions import (
