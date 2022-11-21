@@ -24,8 +24,6 @@ from .bulk_mutations.products import (
     CollectionBulkDelete,
     ProductBulkDelete,
     ProductMediaBulkDelete,
-    ProductBulkPublish,
-    ProductBulkClearWarehouseLocation,
     ProductTypeBulkDelete,
     ProductVariantBulkCreate,
     ProductVariantBulkDelete,
@@ -70,7 +68,6 @@ from .mutations.products import (
     CollectionReorderProducts,
     CollectionUpdate,
     ProductCreate,
-    ProductMediaRetrieveFromBackup,
     ProductDelete,
     ProductMediaCreate,
     ProductMediaDelete,
@@ -230,13 +227,6 @@ class ProductQueries(graphene.ObjectType):
             description="Slug of a channel for which the data should be returned."
         ),
         description="Look up a product variant by ID or SKU.",
-    )
-    product_variants_skus = FilterConnectionField(
-        ProductVariantCountableConnection,
-        sku=graphene.Argument(
-            graphene.String, description="SKU matcher to get product_variants_count"
-        ),
-        description="Look for a mega pack SKU number"
     )
     product_variants = FilterConnectionField(
         ProductVariantCountableConnection,
@@ -433,13 +423,6 @@ class ProductQueries(graphene.ObjectType):
             qs, info, kwargs, ProductVariantCountableConnection
         )
 
-    def resolve_product_variants_skus(self, info, sku, **kwargs):
-        qs = resolve_product_variants_skus(info, sku)
-
-        return create_connection_slice(
-            qs, info, kwargs, ProductVariantCountableConnection
-        )
-
 
 class ProductMutations(graphene.ObjectType):
     product_attribute_assign = ProductAttributeAssign.Field()
@@ -465,15 +448,12 @@ class ProductMutations(graphene.ObjectType):
     product_create = ProductCreate.Field()
     product_delete = ProductDelete.Field()
     product_bulk_delete = ProductBulkDelete.Field()
-    product_bulk_publish = ProductBulkPublish.Field()
-    product_bulk_clear_warehouse_location = ProductBulkClearWarehouseLocation.Field()
     product_update = ProductUpdate.Field()
     product_translate = ProductTranslate.Field()
 
     product_channel_listing_update = ProductChannelListingUpdate.Field()
 
     product_media_create = ProductMediaCreate.Field()
-    product_media_retrieve_from_backup = ProductMediaRetrieveFromBackup.Field()
     product_variant_reorder = ProductVariantReorder.Field()
     product_media_delete = ProductMediaDelete.Field()
     product_media_bulk_delete = ProductMediaBulkDelete.Field()

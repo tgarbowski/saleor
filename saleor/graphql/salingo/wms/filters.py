@@ -1,7 +1,7 @@
 import django_filters
 import graphene
 
-from ..core.filters import GlobalIDMultipleChoiceFilter
+from saleor.graphql.core.filters import GlobalIDMultipleChoiceFilter
 from .enums import WmsDocumentStatusFilter, WmsDocumentTypeFilter
 from saleor.graphql.core.filters import ListObjectTypeFilter, ObjectTypeFilter
 from saleor.graphql.core.types import FilterInputObjectType
@@ -12,6 +12,8 @@ from saleor.wms import models
 from saleor.account.models import User
 from saleor.warehouse.models import Warehouse
 from saleor.graphql.utils.filters import filter_fields_containing_value
+from django.db.models import Exists, OuterRef
+from saleor.wms.models import WmsDocument
 
 
 def filter_document_type(qs, _, value):
@@ -143,3 +145,9 @@ class WmsDelivererFilter(django_filters.FilterSet):
 class WmsDelivererFilterInput(FilterInputObjectType):
     class Meta:
         filterset_class = WmsDelivererFilter
+
+
+def filter_wms_documents(qs, _, value):
+    order_ids = WmsDocument.objects.all().values("order_id")
+    lookup = Exists(order_ids.filter(order_id=OuterRef('id')))
+    return qs.filter(lookup) if value else qs.exclude(lookup)

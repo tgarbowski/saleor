@@ -1,7 +1,7 @@
 import graphene
 
-from ..core.descriptions import DEPRECATED_IN_3X_INPUT
-from ..core.types import SortInputObjectType
+from saleor.graphql.core.descriptions import DEPRECATED_IN_3X_INPUT
+from saleor.graphql.core.types import SortInputObjectType
 
 
 class WmsDocumentSortField(graphene.Enum):

@@ -9,8 +9,8 @@ from django.core.exceptions import ValidationError
 from graphene import relay
 from promise import Promise
 
-from ..salingo.dataloaders import WmsDocumentsByOrderIdLoader
-from ..wms.types import WmsDocument
+from saleor.graphql.salingo.wms.dataloaders import WmsDocumentsByOrderIdLoader
+from saleor.graphql.salingo.wms.types import WmsDocument
 from ...account.models import Address
 from ...checkout.utils import get_external_shipping_id
 from ...core.anonymize import obfuscate_address, obfuscate_email
