@@ -20,6 +20,19 @@ def wms_document(staff_user, customer_user, warehouse, wms_deliverer):
         location='location1'
     )
 
+@pytest.fixture
+def wms_document_2(staff_user, customer_user, warehouse, wms_deliverer):
+    return WmsDocument.objects.create(
+        document_type='GRN',
+        deliverer=wms_deliverer,
+        number='GRN2',
+        status='DRAFT',
+        created_by=staff_user,
+        recipient=customer_user,
+        warehouse=warehouse,
+        location='location2'
+    )
+
 
 @pytest.fixture
 def wms_docposition(wms_document, variant):
@@ -66,3 +79,8 @@ def setup_wms(settings):
     }
     PluginConfiguration.objects.create(identifier=WMSPlugin.PLUGIN_ID, **data)
     return settings
+
+
+@pytest.fixture
+def wms_document_list(wms_document, wms_document_2):
+    return [wms_document, wms_document_2]

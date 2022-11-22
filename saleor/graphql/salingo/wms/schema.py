@@ -5,7 +5,8 @@ from saleor.core.permissions import WMSPermissions
 from saleor.graphql.decorators import permission_required
 from .mutations import (
     WmsDocumentCreate, WmsDocumentUpdate, WmsDocPositionCreate, WmsDocPositionUpdate,
-    WmsDocumentDelete, WmsDocPositionDelete, WmsDelivererCreate, WmsDelivererUpdate, WmsDelivererDelete
+    WmsDocumentDelete, WmsDocPositionDelete, WmsDelivererCreate, WmsDelivererUpdate, WmsDelivererDelete,
+    WmsDocumentBulkDelete
 )
 
 from saleor.graphql.core.fields import FilterConnectionField
@@ -34,6 +35,7 @@ class WmsDocumentMutations(graphene.ObjectType):
     wms_document_create = WmsDocumentCreate.Field()
     wms_document_update = WmsDocumentUpdate.Field()
     wms_document_delete = WmsDocumentDelete.Field()
+    wms_document_bulk_delete = WmsDocumentBulkDelete.Field()
     # Document positions
     wms_doc_position_create = WmsDocPositionCreate.Field()
     wms_doc_position_update = WmsDocPositionUpdate.Field()
