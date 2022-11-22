@@ -65,7 +65,7 @@ class WMSPlugin(BasePlugin):
         order,
         previous_value,
     ):
-        wms_document = WmsDocument.objects.get(order=order)
+        wms_document = WmsDocument.objects.filter(order=order).first()
 
         if wms_document:
             with transaction.atomic():
