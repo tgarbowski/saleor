@@ -293,6 +293,18 @@ DELETE_WMSDELIVERER_MUTATION = """
 """
 
 
+WMS_DOCUMENT_BULK_DELETE_MUTATION = """
+    mutation WmsDocumentBulkDelete($ids: [ID]!) {
+        wmsDocumentBulkDelete(ids: $ids) {
+            count
+            errors{
+                message
+            }
+        }
+}
+"""
+
+
 def test_wmsdocument_query_by_id(
     staff_api_client, wms_document, permission_manage_wmsdocument
 ):
@@ -713,3 +725,24 @@ def test_delete_wmsdeliverer(staff_api_client, wms_deliverer, permission_manage_
     with pytest.raises(wms_deliverer._meta.model.DoesNotExist):
         wms_deliverer.refresh_from_db()
     assert node_id == data["wmsDeliverer"]["id"]
+
+
+def test_bulk_wms_document_delete(staff_api_client, wms_document_list, permission_manage_wmsdocument):
+    query = WMS_DOCUMENT_BULK_DELETE_MUTATION
+    wms_document_ids = [wms_document.id for wms_document in wms_document_list]
+    variables = {
+        "ids": [
+            graphene.Node.to_global_id("WmsDocument", wms_document.id)
+            for wms_document in wms_document_list
+        ]
+    }
+
+    staff_api_client.user.user_permissions.add(permission_manage_wmsdocument)
+    response = staff_api_client.post_graphql(
+        query, variables
+    )
+    content = get_graphql_content(response)
+
+    assert content["data"]["wmsDocumentBulkDelete"]["count"] == 2
+    assert not WmsDocument.objects.filter(id__in=wms_document_ids).exists()
+    assert not WmsDocPosition.objects.filter(document__in=wms_document_ids).exists()

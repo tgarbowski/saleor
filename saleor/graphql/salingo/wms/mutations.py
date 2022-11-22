@@ -2,9 +2,11 @@ import graphene
 
 from django.core.exceptions import ValidationError
 
-from saleor.graphql.core.mutations import ModelDeleteMutation, ModelMutation
-from .types import (WmsDeliverer, WmsDelivererInput, WmsDocPosition, WmsDocPositionInput,
-                    WmsDocument, WmsDocumentInput)
+from saleor.graphql.core.mutations import ModelBulkDeleteMutation, ModelDeleteMutation, ModelMutation
+from .types import (
+    WmsDeliverer, WmsDelivererInput, WmsDocPosition, WmsDocPositionInput, WmsDocument,
+    WmsDocumentInput
+)
 from saleor.wms import models
 from saleor.core.permissions import WMSPermissions
 from saleor.graphql.core.types.common import WmsDocumentError
@@ -263,6 +265,21 @@ class WmsDelivererDelete(ModelDeleteMutation):
         description = "Updates a new WMS deliverer."
         model = models.WmsDeliverer
         object_type = WmsDeliverer
+        permissions = (WMSPermissions.MANAGE_WMS,)
+        error_type_class = WmsDocumentError
+        error_type_field = "wms_errors"
+
+
+class WmsDocumentBulkDelete(ModelBulkDeleteMutation):
+    class Arguments:
+        ids = graphene.List(
+            graphene.ID, required=True, description="List of WMS documents IDs to delete."
+        )
+
+    class Meta:
+        description = "Deletes wms documents."
+        model = models.WmsDocument
+        object_type = WmsDocument
         permissions = (WMSPermissions.MANAGE_WMS,)
         error_type_class = WmsDocumentError
         error_type_field = "wms_errors"

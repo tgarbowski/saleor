@@ -3964,6 +3964,7 @@ type Mutation {
   wmsDocumentCreate(input: WmsDocumentInput!): WmsDocumentCreate
   wmsDocumentUpdate(id: ID!, input: WmsDocumentInput!): WmsDocumentUpdate
   wmsDocumentDelete(id: ID!): WmsDocumentDelete
+  wmsDocumentBulkDelete(ids: [ID]!): WmsDocumentBulkDelete
   wmsDocPositionCreate(input: WmsDocPositionInput!): WmsDocPositionCreate
   wmsDocPositionUpdate(id: ID!, input: WmsDocPositionInput!): WmsDocPositionUpdate
   wmsDocPositionDelete(id: ID!): WmsDocPositionDelete
@@ -8005,6 +8006,12 @@ type WmsDocument implements Node {
   number: String
   status: String
   location: String
+}
+
+type WmsDocumentBulkDelete {
+  count: Int!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [WmsDocumentError!]!
 }
 
 type WmsDocumentCreate {
