@@ -29,7 +29,7 @@ from prices import Money, TaxedMoney, fixed_discount
 
 from ..account.models import Address, StaffNotificationRecipient, User
 from ..app.models import App, AppExtension, AppInstallation
-from ..app.types import AppExtensionMount, AppExtensionTarget, AppType
+from ..app.types import AppExtensionMount, AppType
 from ..attribute import AttributeEntityType, AttributeInputType, AttributeType
 from ..attribute.models import (
     Attribute,
@@ -41,7 +41,7 @@ from ..attribute.utils import associate_attribute_values_to_instance
 from ..checkout.fetch import fetch_checkout_info, fetch_checkout_lines
 from ..checkout.models import Checkout, CheckoutLine
 from ..checkout.utils import add_variant_to_checkout
-from ..core import JobStatus, TimePeriodType
+from ..core import JobStatus
 from ..core.models import EventDelivery, EventDeliveryAttempt, EventPayload
 from ..core.payments import PaymentInterface
 from ..core.units import MeasurementUnits
@@ -129,12 +129,13 @@ from ..warehouse.models import (
 from ..webhook.event_types import WebhookEventAsyncType, WebhookEventSyncType
 from ..webhook.models import Webhook, WebhookEvent
 from .utils import dummy_editorjs
-
-from saleor.graphql.wms.tests.fixtures import (wms_document, wms_docposition, setup_wms,
-                                               permission_manage_wmsdocument, wms_deliverer)
-from saleor.plugins.allegro.tests.fixtures import (external_order_app, smart_voucher,
-                                                   allegro_shipping_method, allegro_order,
-                                                   order_app_api_client)
+from saleor.graphql.salingo.wms.tests.fixtures import (
+    wms_document, wms_docposition, setup_wms, permission_manage_wmsdocument, wms_deliverer,
+    wms_document_list, wms_document_2
+)
+from saleor.plugins.allegro.tests.fixtures import (
+    external_order_app, smart_voucher, allegro_shipping_method, allegro_order, order_app_api_client
+)
 
 
 class CaptureQueriesContext(BaseCaptureQueriesContext):

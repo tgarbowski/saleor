@@ -3964,12 +3964,18 @@ type Mutation {
   wmsDocumentCreate(input: WmsDocumentInput!): WmsDocumentCreate
   wmsDocumentUpdate(id: ID!, input: WmsDocumentInput!): WmsDocumentUpdate
   wmsDocumentDelete(id: ID!): WmsDocumentDelete
+  wmsDocumentBulkDelete(ids: [ID]!): WmsDocumentBulkDelete
   wmsDocPositionCreate(input: WmsDocPositionInput!): WmsDocPositionCreate
   wmsDocPositionUpdate(id: ID!, input: WmsDocPositionInput!): WmsDocPositionUpdate
   wmsDocPositionDelete(id: ID!): WmsDocPositionDelete
   wmsDelivererCreate(input: WmsDelivererInput!): WmsDelivererCreate
   wmsDelivererUpdate(id: ID!, input: WmsDelivererInput!): WmsDelivererUpdate
   wmsDelivererDelete(id: ID!): WmsDelivererDelete
+  packageCreate(input: PackageCreateInput!): PackageCreate
+  labelCreate(input: LabelCreateInput!): LabelCreate
+  productBulkClearWarehouseLocation(skus: [String]!): ProductBulkClearWarehouseLocation
+  productMediaRetrieveFromBackup(id: ID!): ProductMediaRetrieveFromBackup
+  productBulkPublish(channel: String, endingAtDate: String, filter: ProductFilterInput, ids: [ID]!, isPublished: Boolean!, mode: String!, offerType: String!, publishHour: String, startingAt: String, startingAtDate: String): ProductBulkPublish
   webhookCreate(input: WebhookCreateInput!): WebhookCreate
   webhookDelete(id: ID!): WebhookDelete
   webhookUpdate(id: ID!, input: WebhookUpdateInput!): WebhookUpdate
@@ -4001,8 +4007,6 @@ type Mutation {
   shippingZoneDelete(id: ID!): ShippingZoneDelete
   shippingZoneBulkDelete(ids: [ID]!): ShippingZoneBulkDelete
   shippingZoneUpdate(id: ID!, input: ShippingZoneUpdateInput!): ShippingZoneUpdate
-  packageCreate(input: PackageCreateInput!): PackageCreate
-  labelCreate(input: LabelCreateInput!): LabelCreate
   productAttributeAssign(operations: [ProductAttributeAssignInput]!, productTypeId: ID!): ProductAttributeAssign
   productAttributeAssignmentUpdate(operations: [ProductAttributeAssignmentUpdateInput]!, productTypeId: ID!): ProductAttributeAssignmentUpdate
   productAttributeUnassign(attributeIds: [ID]!, productTypeId: ID!): ProductAttributeUnassign
@@ -4023,13 +4027,10 @@ type Mutation {
   productCreate(input: ProductCreateInput!): ProductCreate
   productDelete(id: ID!): ProductDelete
   productBulkDelete(ids: [ID]!): ProductBulkDelete
-  productBulkPublish(channel: String, endingAtDate: String, filter: ProductFilterInput, ids: [ID]!, isPublished: Boolean!, mode: String!, offerType: String!, publishHour: String, startingAt: String, startingAtDate: String): ProductBulkPublish
-  productBulkClearWarehouseLocation(skus: [String]!): ProductBulkClearWarehouseLocation
   productUpdate(id: ID!, input: ProductInput!): ProductUpdate
   productTranslate(id: ID!, input: TranslationInput!, languageCode: LanguageCodeEnum!): ProductTranslate
   productChannelListingUpdate(id: ID!, input: ProductChannelListingUpdateInput!): ProductChannelListingUpdate
   productMediaCreate(input: ProductMediaCreateInput!): ProductMediaCreate
-  productMediaRetrieveFromBackup(id: ID!): ProductMediaRetrieveFromBackup
   productVariantReorder(moves: [ReorderInput]!, productId: ID!): ProductVariantReorder
   productMediaDelete(id: ID!): ProductMediaDelete
   productMediaBulkDelete(ids: [ID]!): ProductMediaBulkDelete
@@ -6217,8 +6218,6 @@ input PublishableChannelListingInput {
 }
 
 type Query {
-  warehouseListsGenerate(orderIds: [ID!], filters: OrderFilterInput): WarehousePdfFiles
-  generatePaymentUrl(paymentId: ID!, channel: String): PaymentUrl
   wmsDeliverers(filter: WmsDelivererFilterInput, before: String, after: String, first: Int, last: Int): WMSDelivererCountableConnection
   wmsDeliverer(id: ID): WmsDeliverer
   wmsDocPositions(filter: WmsDocPositionFilterInput, before: String, after: String, first: Int, last: Int): WMSDocPositionCountableConnection
@@ -6228,6 +6227,9 @@ type Query {
   wmsDocumentPdf(id: ID!): String
   wmsActionsReport(startDate: Date!, endDate: Date!): GenericScalar
   wmsProductsReport(startDate: Date!, endDate: Date!): GenericScalar
+  warehouseListsGenerate(orderIds: [ID!], filters: OrderFilterInput): WarehousePdfFiles
+  productVariantsSkus(sku: String, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
+  generatePaymentUrl(paymentId: ID!, channel: String): PaymentUrl
   productTypeWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): ProductType
   productTypesWithMetadata(filter: ProductTypeMetadataFilterInput, before: String, after: String, first: Int, last: Int): ProductTypeCountableConnection
   userWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): User
@@ -6258,7 +6260,6 @@ type Query {
   productType(id: ID!): ProductType
   productTypes(filter: ProductTypeFilterInput, sortBy: ProductTypeSortingInput, before: String, after: String, first: Int, last: Int): ProductTypeCountableConnection
   productVariant(id: ID, sku: String, channel: String): ProductVariant
-  productVariantsSkus(sku: String, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   productVariants(ids: [ID], channel: String, filter: ProductVariantFilterInput, sortBy: ProductVariantSortingInput, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   reportProductSales(period: ReportingPeriod!, channel: String!, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
   payment(id: ID!): Payment
@@ -8005,6 +8006,12 @@ type WmsDocument implements Node {
   number: String
   status: String
   location: String
+}
+
+type WmsDocumentBulkDelete {
+  count: Int!
+  wmsErrors: [WmsDocumentError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [WmsDocumentError!]!
 }
 
 type WmsDocumentCreate {

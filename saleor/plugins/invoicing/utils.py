@@ -15,7 +15,7 @@ from weasyprint import HTML
 from ...giftcard import GiftCardEvents
 from ...giftcard.models import GiftCardEvent
 from ...invoice.models import Invoice
-from saleor.graphql.salingo.utils import get_invoice_correct_payload
+from saleor.graphql.salingo.invoice.utils import get_invoice_correct_payload
 from saleor.order.models import OrderLine
 from saleor.payment.utils import price_from_minor_unit, price_to_minor_unit
 from saleor.order import OrderStatus

@@ -19,9 +19,7 @@ from .mutations.shippings import (
     ShippingPriceUpdate,
     ShippingZoneCreate,
     ShippingZoneDelete,
-    ShippingZoneUpdate,
-    PackageCreate,
-    LabelCreate
+    ShippingZoneUpdate
 )
 from .resolvers import resolve_shipping_zones
 from .types import ShippingZone, ShippingZoneCountableConnection
@@ -81,6 +79,4 @@ class ShippingMutations(graphene.ObjectType):
     shipping_zone_bulk_delete = ShippingZoneBulkDelete.Field()
     shipping_zone_update = ShippingZoneUpdate.Field()
 
-    package_create = PackageCreate.Field()
-    label_create = LabelCreate.Field()
 

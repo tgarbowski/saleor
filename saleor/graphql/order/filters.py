@@ -3,7 +3,7 @@ from django.db.models import Exists, IntegerField, OuterRef, Q
 from django.db.models.functions import Cast
 from django.utils import timezone
 
-from ..salingo.filters import filter_wms_documents
+from ..salingo.wms.filters import filter_wms_documents
 from ...giftcard import GiftCardEvents
 from ...giftcard.models import GiftCardEvent
 from ...order.models import Order, OrderLine

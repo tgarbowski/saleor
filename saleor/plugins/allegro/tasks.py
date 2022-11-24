@@ -266,19 +266,24 @@ def bulk_allegro_unpublish(channel, skus):
         allegro_data = allegro_api.bulk_offer_unpublish(skus=update_skus)
         logger.info(f'BULK OFFER UNPUBLISH RETURN DATA{allegro_data}')
         if allegro_data['status'] == 'ERROR':
-            skus_purchased.extend(update_skus)
+            for update_sku in update_skus:
+                skus_purchased.append({
+                    'sku': update_sku,
+                    'reason': 'UNKNOWN'
+                })
         if allegro_data['status'] == "OK" and allegro_data['errors']:
             for error in allegro_data["errors"]:
-                skus_purchased.append(error['sku'])
+                skus_purchased.append(error)
 
-    unpublished_skus = [sku for sku in skus if sku not in skus_purchased]
+    skus_purchased_list = [sku_purchased['sku'] for sku_purchased in skus_purchased]
+    unpublished_skus = [sku for sku in skus if sku not in skus_purchased_list]
     logger.info(f'UNPUBSLISHED SKUS{unpublished_skus}')
     # Set private_metadata allegro.publish.status to 'unpublished' and update date
     bulk_update_allegro_status_to_unpublished(filter_out_missing_skus(unpublished_skus))
     # Log error in private metadata if purchased/bid/connection error
     logger.info(f'SKUS PURCHASED{skus_purchased}')
     if skus_purchased:
-        update_allegro_purchased_error(skus_purchased, allegro_data)
+        update_allegro_purchased_error(skus_purchased)
     # Send unpublished to email
     email_bulk_unpublish_result(skus_purchased)
 
