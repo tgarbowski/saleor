@@ -334,6 +334,7 @@ def get_miglo_query_values_list(
             OriginalDate=Cast(TruncDay('parent__created', DateTimeField()),
                               CharField()),
         ))
+
     payment_data = list(payment_queryset.values(
         PaymentTypeId=F("gateway"),
         PaymentName=F("gateway")
@@ -359,7 +360,13 @@ def export_miglo_data_in_batches(
             "order",
         ).order_by("order_id")
         order_ids = invoice_correction_batch.values_list("order_id", flat=True)
-        payment_correction_batch = Payment.objects.filter(order_id__in=order_ids).order_by("order_id")
+        invoice_ids = invoice_correction_batch.values_list("id", flat=True)
+        payment_correction_batch = Payment.objects.filter(
+                order_id__in=order_ids,
+                order__invoices__in=invoice_ids,
+                order__invoices__isnull=False,
+                is_active=True
+            )
 
         export_invoice_data, export_payment_data = get_miglo_query_values_list(invoice_batch, payment_batch)
 
