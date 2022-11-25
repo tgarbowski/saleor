@@ -354,16 +354,22 @@ def export_miglo_data_in_batches(
             "order",
         ).order_by("order_id")
         order_ids = invoice_batch.values_list("order_id", flat=True)
-        payment_batch = Payment.objects.filter(order_id__in=order_ids).order_by("order_id")
+        invoice_ids = invoice_batch.values_list("id", flat=True)
+        payment_batch = Payment.objects.filter(
+            order_id__in=order_ids,
+            order__invoices__in=invoice_ids,
+            order__invoices__isnull=False,
+            is_active=True
+            ).order_by("order_id")
 
         invoice_correction_batch = Invoice.objects.filter(pk__in=batch_pks, parent__isnull=False).prefetch_related(
             "order",
         ).order_by("order_id")
         order_ids = invoice_correction_batch.values_list("order_id", flat=True)
-        invoice_ids = invoice_correction_batch.values_list("id", flat=True)
+        invoice_correction_ids = invoice_correction_batch.values_list("id", flat=True)
         payment_correction_batch = Payment.objects.filter(
                 order_id__in=order_ids,
-                order__invoices__in=invoice_ids,
+                order__invoices__in=invoice_correction_ids,
                 order__invoices__isnull=False,
                 is_active=True
             )
