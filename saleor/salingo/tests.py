@@ -3,23 +3,23 @@ from decimal import Decimal
 from measurement.measures import Weight
 from pytest import approx
 
-from saleor.salingo.business_rules import Executors
+from saleor.salingo.business_rules import PricingExecutors
 
 
 def test_calculate_price_weight_mode():
-    validated_pricing_variables = Executors.get_validated_pricing_variables(
+    validated_pricing_variables = PricingExecutors.get_validated_pricing_variables(
         current_price=Decimal(1.00),
         weight=Weight(kg=2),
         result='k12.40'
     )
 
-    price = Executors.calculate_price(validated_pricing_variables)
+    price = PricingExecutors.calculate_price(validated_pricing_variables)
 
     assert price == approx(Decimal(24.80))
 
 
 def test_calculate_price_weight_null():
-    validated_pricing_variables = Executors.get_validated_pricing_variables(
+    validated_pricing_variables = PricingExecutors.get_validated_pricing_variables(
         current_price=Decimal(1.00),
         weight=None,
         result='k12.40'
@@ -29,25 +29,51 @@ def test_calculate_price_weight_null():
 
 
 def test_calculate_price_discount_mode():
-    validated_pricing_variables = Executors.get_validated_pricing_variables(
+    validated_pricing_variables = PricingExecutors.get_validated_pricing_variables(
         current_price=Decimal(10.00),
         weight=Weight(kg=2),
         result='d10'
     )
 
-    price = Executors.calculate_price(validated_pricing_variables)
+    price = PricingExecutors.calculate_price(validated_pricing_variables)
 
     assert price == approx(Decimal(9.00))
 
 
 def test_calculate_price_item_mode():
-    validated_pricing_variables = Executors.get_validated_pricing_variables(
+    validated_pricing_variables = PricingExecutors.get_validated_pricing_variables(
         current_price=Decimal(25.99),
         weight=Weight(kg=2),
         result='i25.99'
     )
 
-    price = Executors.calculate_price(validated_pricing_variables)
+    price = PricingExecutors.calculate_price(validated_pricing_variables)
 
     assert price == approx(Decimal(25.99))
 
+
+def test_megapack(product, product_type, category):
+    from saleor.salingo.megapack import Megapack
+    from saleor.product.models import Product, ProductVariant
+    from saleor.channel.models import Channel
+
+    megapack_product = Product.objects.create(
+        name="Test product",
+        slug="test-megapack-11",
+        product_type=product_type,
+        category=category,
+    )
+    variant = ProductVariant.objects.create(product=megapack_product, sku="asdasd")
+    bundled_channel = Channel.objects.create(
+        name="bundled",
+        slug='bundled',
+        currency_code="USD",
+        default_country="US",
+        is_active=True,
+    )
+
+    megapack = Megapack(megapack=megapack_product)
+    megapack.create(['123'])
+
+    assigned_variant = ProductVariant.objects.get(sku='123')
+    assert product.get_value_from_metadata('bundle.id') == 'asdasd'

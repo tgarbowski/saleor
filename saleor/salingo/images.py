@@ -1,10 +1,17 @@
 from collections import namedtuple
 from io import BytesIO
+import math
+import os
+import random
+from typing import List, Tuple
 
 import boto3
 from PIL import Image
 
 from django.conf import settings
+
+from saleor.product.models import Product, ProductMedia
+from saleor.product.thumbnails import create_product_thumbnails
 
 
 class BackupImageRetrieval:
@@ -66,3 +73,123 @@ class BackupImageRetrieval:
             return image.split('.', 1)[0]
         else:
             return image
+
+
+class AwsBucketUtils:
+    def get_s3_bucket(self):
+        s3 = boto3.resource('s3')
+        bucket_name = os.environ.get("AWS_MEDIA_BUCKET_NAME")
+        return s3.Bucket(bucket_name)
+
+    def get_s3_images(self, images) -> List[bytes]:
+        images_data = []
+        bucket = self.get_s3_bucket()
+
+        for image in images:
+            img_component = bucket.Object(image.image.name)
+            img_data = img_component.get().get('Body').read()
+            images_data.append(img_data)
+        return images_data
+
+
+class CollageCreator:
+    def __init__(self, images):
+        self.images = images
+        self.aws_bucket = AwsBucketUtils()
+
+    def calculate_grid(self, initial_images_amount: int) -> Tuple[int, int]:
+        cols = int(math.sqrt(initial_images_amount))
+        rows = math.floor(initial_images_amount / cols)
+        return cols, rows
+
+    def width(self, cols: int) -> int:
+        col_px = 318
+        return col_px * cols
+
+    def height(self, rows: int) -> int:
+        row_px = 336
+        return row_px * rows
+
+    def create_empty_image(self, width: int, height: int) -> Image:
+        return Image.new("RGBA", (width, height), color=(255, 255, 255, 255))
+
+    def _create_collage(self, cols: int, rows: int, images_data):
+        i = 0
+        width = self.width(cols)
+        height = self.height(rows)
+        collage = self.create_empty_image(width=width, height=height)
+
+        for x in range(0, width, int(width / cols)):
+            for y in range(0, height, int(height / rows)):
+                image = Image.open(BytesIO(images_data[i]))
+
+                resized_image = image.resize(
+                    (width, int(image.size[1] * (width / image.size[0])))
+                )
+                required_loss = (resized_image.size[1] - width)
+                resized_image = resized_image.crop(
+                    box=(0, required_loss / 2, width,
+                         resized_image.size[1] - required_loss / 2))
+
+                resized_image = resized_image.resize(
+                    (int(width / cols), int(height / rows)))
+                collage.paste(resized_image, (x, y))
+                i += 1
+
+        return collage
+
+    def create(self, image_format='PNG') -> Image:
+        cols, rows = self.calculate_grid(len(self.images))
+        images_amount = cols * rows
+        images = self.images[:images_amount]
+        images_data = self.aws_bucket.get_s3_images(images)
+
+        collage = self._create_collage(
+            cols=cols,
+            rows=rows,
+            images_data=images_data
+        )
+        collage_io = BytesIO()
+        collage.save(collage_io, format=image_format)
+        return collage
+
+
+def get_first_product_media(product):
+    return ProductMedia.objects.filter(
+        product=product
+    ).order_by('sort_order').first()
+
+
+def create_product_media(product, ppoi):
+    return ProductMedia.objects.create(
+        product=product,
+        ppoi=ppoi,
+        alt=product.name.upper(),
+        image=''
+    )
+
+
+def collage_photo_name(product_name) -> str:
+    rand_int = random.randint(1000000, 9999999)
+    return f'{product_name}x{rand_int}.png'
+
+
+def swap_sort_order(new_image, product):
+    last_photo_sort_order = new_image.sort_order
+    first_photo = get_first_product_media(product)
+    first_photo.sort_order = last_photo_sort_order
+    first_photo.save()
+    new_image.sort_order = 0
+    new_image.save()
+
+
+def create_collage(images: List[ProductMedia], product: Product):
+    collage_creator = CollageCreator(images=images)
+    collage = collage_creator.create()
+    # Save new collage image to db
+    photo_name = collage_photo_name(product.name)
+    media = create_product_media(product=product, ppoi=images[0].ppoi)
+    media.image.save(photo_name, collage)
+    swap_sort_order(media, product)
+    # Create thumbnails
+    create_product_thumbnails.delay(media.pk)

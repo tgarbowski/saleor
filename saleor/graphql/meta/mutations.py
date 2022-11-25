@@ -1,15 +1,11 @@
-import json
 import logging
-import warnings
 from typing import List
 
 import graphene
 from django.core.exceptions import FieldDoesNotExist, ValidationError
-from django.db import connection, transaction
 from graphql.error.base import GraphQLError
 
 from ...checkout import models as checkout_models
-from ..product.utils import generate_description_json_for_megapack
 from ...core import models
 from ...core.error_codes import MetadataErrorCode
 from ...core.exceptions import PermissionDenied
@@ -25,19 +21,7 @@ from ..core.utils import from_global_id_or_error
 from ..payment.utils import metadata_contains_empty_key
 from .extra_methods import MODEL_EXTRA_METHODS, MODEL_EXTRA_PREFETCH
 from .permissions import PRIVATE_META_PERMISSION_MAP, PUBLIC_META_PERMISSION_MAP
-from ..product.utils import create_collage
-from ...plugins.allegro.api import AllegroAPI
-from saleor.plugins.allegro.utils import (
-    skus_to_product_ids,
-    get_products_by_channels,
-    product_ids_to_skus,
-    get_allegro_channels_slugs
-)
-from ...product.models import ProductVariant, ProductMedia
 from .types import ObjectWithMetadata
-from saleor.product.models import ProductChannelListing, ProductVariantChannelListing, Product
-from saleor.channel.models import Channel
-from saleor.salingo.sql.raw_sql import delete_medias_by_product_id
 
 logger = logging.getLogger(__name__)
 
@@ -246,211 +230,6 @@ class BaseMetadataMutation(BaseMutation):
             instance = ChannelContext(node=instance, channel_slug=None)
         return cls(**{"item": instance, "errors": []})
 
-    @classmethod
-    def delete_duplicated_skus(cls, data):
-        data_skus = json.loads(data['skus'].replace("'", '"'))
-        data['skus'] = list(dict.fromkeys(data_skus))
-
-    @classmethod
-    def clear_bundle_id_for_removed_products(cls, instance, data_skus):
-        # TODO: validate removed_skus type is list of strings
-        current_skus = instance.private_metadata.get('skus')
-
-        if current_skus:
-            removed_skus = [sku for sku in current_skus if sku not in data_skus]
-            product_ids = skus_to_product_ids(removed_skus)
-            products = Product.objects.filter(id__in=product_ids)
-
-            for product in products:
-                product.delete_value_from_metadata('bundle.id')
-
-            Product.objects.bulk_update(products, ['metadata'])
-            # TODO: move change channel listing somewhere else
-            if removed_skus:
-                cls.change_channel_listings(removed_skus, channel_slug='unpublished')
-
-
-    @classmethod
-    def assign_sku_to_metadata_bundle_id(cls, instance, data):
-        bundle_id = ProductVariant.objects.get(product=instance.pk).sku
-        product_variants = ProductVariant.objects.select_related('product').filter(sku__in=data)
-        for product_variant in product_variants:
-            product = product_variant.product
-            if not product.metadata.get('bundle.id'):
-                product.metadata["bundle.id"] = bundle_id
-                product.save()
-
-    @classmethod
-    def change_channel_listings(cls, data, channel_slug):
-        channel_id = Channel.objects.get(slug=channel_slug).pk
-        product_ids = list(ProductVariant.objects.filter(sku__in=data).values_list('product_id', flat=True))
-        variant_ids = list(ProductVariant.objects.filter(sku__in=data).values_list('pk', flat=True))
-
-        with transaction.atomic():
-            ProductChannelListing.objects.filter(product_id__in=product_ids).update(channel_id=channel_id)
-            ProductVariantChannelListing.objects.filter(variant_id__in=variant_ids).update(channel_id=channel_id)
-
-    @classmethod
-    def assign_photos_from_products_to_megapack(cls, instance):
-        valid_skus = instance.private_metadata.get('skus')
-        product_variants = ProductVariant.objects.select_related('product').filter(sku__in=valid_skus)
-        collage_images = []
-        # Remove existing megapack images
-        with connection.cursor() as cursor:
-            cursor.execute(
-                delete_medias_by_product_id,
-                [instance.pk]
-            )
-        # Create images
-        step = int(len(product_variants) / 12)
-        if step == 0: step = 1
-
-        for product_variant in product_variants[::step]:
-            photo = ProductMedia.objects.filter(product=product_variant.product.pk).first()
-            new_image = ProductMedia.objects.create(product=instance, ppoi=photo.ppoi,
-                                                    alt=product_variant.product.name, image=photo.image)
-            collage_images.append(new_image)
-        # Create collage image from images
-        if len(collage_images) >= 4:
-            create_collage(collage_images[:12], instance)
-
-    @classmethod
-    def validate_mega_pack(cls, instance,  data_skus, products_published):
-        bundle_id = ProductVariant.objects.get(product=instance.pk).sku
-        product_variants = ProductVariant.objects.select_related('product').filter(sku__in=data_skus)
-        validation_message = ""
-        products_already_assigned = []
-        products_not_exist = []
-        product_variants_skus = [product_variant.sku for product_variant in product_variants]
-
-        if len(data_skus) > len(product_variants):
-            products_not_exist = [product for product in data_skus if product not in product_variants_skus]
-
-        for product_variant in product_variants:
-            if product_variant.product.metadata.get('bundle.id') != bundle_id:
-                products_already_assigned.append(product_variant.sku)
-
-        if products_published:
-            allegro_products = []
-            allegro_sold_or_bid_product_variants = ProductVariant.objects.select_related('product').filter(
-                sku__in=products_published)
-            for removed_product_variant in allegro_sold_or_bid_product_variants:
-                removed_pv_location = removed_product_variant.private_metadata.get("location")
-                location = removed_pv_location if removed_pv_location else "brak lokacji"
-                allegro_products.append(f'{removed_product_variant.sku}: {location}')
-        # TODO: investigate products_not_exist != [""]
-        if (products_not_exist and products_not_exist != [""]) or products_already_assigned or products_published:
-            if products_not_exist:
-                products_not_exist_str = ", ".join(products_not_exist)
-                validation_message += f'Produkty nie istnieją:  {products_not_exist_str}.'
-            if products_published:
-                products_published_str = ", ".join(allegro_products)
-                validation_message += f'Produkty sprzedane lub licytowane:  {products_published_str}.'
-            if products_already_assigned:
-                products_already_assigned_str = ", ".join(products_already_assigned)
-                validation_message += f'Produkty już przypisane do megapaki:  {products_already_assigned_str}.'
-            instance.private_metadata["publish.allegro.errors"] = [validation_message]
-            instance.save()
-            raise ValidationError({
-                "megapack": ValidationError(
-                    message=validation_message,
-                    code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
-                )
-            })
-
-        instance.private_metadata["publish.allegro.errors"] = ""
-        instance.save()
-
-    @classmethod
-    def bulk_allegro_offers_unpublish(cls, instance, data):
-        data_skus = data['skus']
-        allegro_channel_slugs = get_allegro_channels_slugs()
-        product_ids = skus_to_product_ids(data_skus)
-        products_per_channels = get_products_by_channels(product_ids, allegro_channel_slugs)
-        products_allegro_sold_or_auctioned = []
-
-        for channel in products_per_channels:
-            if not channel['product_ids']:
-                continue
-            skus = product_ids_to_skus(channel['product_ids'])
-            allegro_api = AllegroAPI(channel=channel['channel__slug'])
-            allegro_data = allegro_api.bulk_offer_unpublish(skus=skus)
-            if allegro_data['errors'] and allegro_data['status'] == "OK":
-                for product in enumerate(allegro_data['errors']):
-                    if 'sku' in product[1]:
-                        products_allegro_sold_or_auctioned.append(product[1]['sku'])
-
-            if allegro_data['status'] == "ERROR":
-                instance.private_metadata["publish.allegro.errors"] = allegro_data['errors']
-                instance.save()
-                raise ValidationError({
-                    "megapack": ValidationError(
-                        message=allegro_data['errors'],
-                        code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
-                    )
-                })
-
-        return products_allegro_sold_or_auctioned
-
-    @classmethod
-    def delete_products_sold_from_data(cls, data, allegro_sold_products):
-        data_skus = data['skus']
-
-        if isinstance(allegro_sold_products, list):
-            return [product for product in data_skus if product not in allegro_sold_products]
-
-        return [product for product in data_skus]
-
-    @classmethod
-    def generate_bundle_content(cls, slug):
-        with connection.cursor() as dbCursor:
-            dbCursor.execute(f"select generate_bundle_content('{slug}')")
-            data = dbCursor.fetchall()
-        return data
-
-    @classmethod
-    def calculate_weight(cls, bundle_content):
-        weight = 0
-        try:
-            for content in bundle_content:
-                weight += content[2] * 1000
-        except IndexError:
-            weight = None
-
-        return weight
-
-    @classmethod
-    def assign_bundle_content_to_product(cls, instance):
-        slug = ProductVariant.objects.get(product=instance.pk).sku
-        bundle_content = cls.generate_bundle_content(slug)
-        if bundle_content[0][0] is not None:
-            instance.private_metadata['bundle.content'] = json.loads(bundle_content[0][0])
-            instance.weight = cls.calculate_weight(json.loads(bundle_content[0][0]))
-        else:
-            if 'bundle.content' in instance.private_metadata:
-                del instance.private_metadata['bundle.content']
-                instance.weight = None
-            instance.save()
-
-    @classmethod
-    def save_megapack_with_valid_products(cls, instance, data):
-        verified_skus = []
-        product_variants = ProductVariant.objects.select_related('product').filter(sku__in=data)
-        bundle_id = ProductVariant.objects.get(product=instance.pk).sku
-        for product_variant in product_variants:
-            product = product_variant.product
-            if product.metadata.get('bundle.id') != bundle_id:
-                continue
-            verified_skus.append(product_variant.sku)
-        instance.private_metadata['skus'] = verified_skus
-        instance.save(update_fields=["private_metadata"])
-
-
-    @classmethod
-    def create_description_json_for_megapack(cls, instance):
-        description_json = generate_description_json_for_megapack(instance.private_metadata.get("bundle.content"))
-        instance.description = description_json
-
 
 class MetadataInput(graphene.InputObjectType):
     key = graphene.String(required=True, description="Key of a metadata item.")
@@ -541,21 +320,8 @@ class UpdatePrivateMetadata(BaseMetadataMutation):
             metadata_list = data.pop("input")
             cls.validate_metadata_keys(metadata_list)
             items = {data.key: data.value for data in metadata_list}
-            if 'skus' in items:
-                cls.delete_duplicated_skus(items)
-                products_sold_in_allegro = cls.bulk_allegro_offers_unpublish(instance, items)
-                data = cls.delete_products_sold_from_data(items, products_sold_in_allegro)
-                cls.clear_bundle_id_for_removed_products(instance, data)
-                cls.assign_sku_to_metadata_bundle_id(instance, data)
-                cls.change_channel_listings(data, channel_slug='bundled')
-                cls.assign_bundle_content_to_product(instance)
-                cls.create_description_json_for_megapack(instance)
-                cls.save_megapack_with_valid_products(instance, data)
-                cls.assign_photos_from_products_to_megapack(instance)
-                cls.validate_mega_pack(instance, data, products_sold_in_allegro)
-            if 'skus' not in items:
-                instance.store_value_in_private_metadata(items=items)
-                _save_instance(instance, "private_metadata")
+            instance.store_value_in_private_metadata(items=items)
+            _save_instance(instance, "private_metadata")
         return cls.success_response(instance)
 
 

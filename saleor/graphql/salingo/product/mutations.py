@@ -16,6 +16,8 @@ from saleor.product import models
 from saleor.core.permissions import ProductPermissions
 from saleor.graphql.core.types.common import ProductError
 from saleor.salingo.images import BackupImageRetrieval
+from saleor.graphql.meta.mutations import UpdatePrivateMetadata
+from saleor.salingo.megapack import Megapack
 
 
 class ProductBulkClearWarehouseLocation(BaseBulkMutation):
@@ -239,3 +241,23 @@ class ProductMediaRetrieveFromBackup(BaseMutation):
             backup_image_retrieval.handle()
 
         return ProductMediaRetrieveFromBackup(media=media_obj)
+
+'''
+class UpdateMegapackPrivateMetadata(UpdatePrivateMetadata):
+    @classmethod
+    def perform_mutation(cls, root, info, **data):
+        instance = cls.get_instance(info, **data)
+        if instance:
+            metadata_list = data.pop("input")
+            cls.validate_metadata_keys(metadata_list)
+            items = {data.key: data.value for data in metadata_list}
+            delete_duplicated_skus(items)
+            megapack = Megapack()
+            megapack.create(instance, items)
+        return cls.success_response(instance)
+
+    @classmethod
+    def delete_duplicated_skus(self, skus):
+        data_skus = json.loads(skus.replace("'", '"'))
+        skus = list(dict.fromkeys(data_skus))
+'''
