@@ -171,6 +171,7 @@ class RoutingExecutors:
             channel=channel,
             skus=get_unpublishable_skus(product_ids)
         )
+        skus_purchased = [sku_purchased['sku'] for sku_purchased in skus_purchased]
 
         return skus_to_product_ids(skus_purchased)
 
