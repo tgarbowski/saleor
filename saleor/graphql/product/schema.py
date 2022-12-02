@@ -103,7 +103,6 @@ from .resolvers import (
     resolve_product_variants,
     resolve_products,
     resolve_report_product_sales,
-    resolve_report_product_sales,
     resolve_variant_by_id,
 )
 from .sorters import (
