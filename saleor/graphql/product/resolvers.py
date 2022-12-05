@@ -181,7 +181,3 @@ def resolve_report_product_sales(period, channel_slug) -> ChannelQsContext:
     qs = qs.order_by("-quantity_ordered")
 
     return ChannelQsContext(qs=qs, channel_slug=channel_slug)
-
-
-def resolve_product_variants_skus(info, sku):
-    return models.ProductVariant.objects.filter(sku__startswith=sku)

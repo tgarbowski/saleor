@@ -6229,6 +6229,7 @@ type Query {
   wmsProductsReport(startDate: Date!, endDate: Date!): GenericScalar
   warehouseListsGenerate(orderIds: [ID!], filters: OrderFilterInput): WarehousePdfFiles
   productVariantsSkus(sku: String, before: String, after: String, first: Int, last: Int): ProductVariantCountableConnection
+  sitemapSlugs(channel: String, productsAmount: Int, categoriesAmount: Int, pagesAmount: Int): [SitemapSlugs]
   generatePaymentUrl(paymentId: ID!, channel: String): PaymentUrl
   productTypeWithMetadata(privateMetadataKey: String, privateMetadataValue: String, metadataKey: String, metadataValue: String): ProductType
   productTypesWithMetadata(filter: ProductTypeMetadataFilterInput, before: String, after: String, first: Int, last: Int): ProductTypeCountableConnection
@@ -6894,6 +6895,12 @@ type ShopTranslation implements Node {
 input SiteDomainInput {
   domain: String
   name: String
+}
+
+type SitemapSlugs {
+  productSlugs: [String]
+  categoriesSlugs: [String]
+  pagesSlugs: [String]
 }
 
 type StaffBulkDelete {
