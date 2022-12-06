@@ -14,6 +14,7 @@ from .types import Invoice
 from .utils import is_event_active_for_any_plugin
 from saleor.order import OrderStatus
 from saleor.graphql.salingo.invoice.utils import get_receipt_payload
+from ...payment.gateways.np_atobarai import PaymentStatus
 
 
 class InvoiceRequest(ModelMutation):
@@ -41,7 +42,11 @@ class InvoiceRequest(ModelMutation):
         if (
             order.is_draft()
             or order.is_unconfirmed()
-            or order.status not in [OrderStatus.FULFILLED, OrderStatus.PARTIALLY_RETURNED]
+            or order.status not in [OrderStatus.FULFILLED,
+                                    OrderStatus.PARTIALLY_RETURNED,
+                                    OrderStatus.PARTIALLY_FULFILLED]
+            or (order.status is OrderStatus.PARTIALLY_FULFILLED and
+                order.payment_status is not PaymentStatus.PARTIALLY_REFUNDED)
         ):
             raise ValidationError(
                 {
