@@ -16,6 +16,7 @@ from ....core import JobStatus
 from graphene.types.generic import GenericScalar
 from saleor.plugins.invoicing.plugin import invoice_correction_request
 from saleor.invoice import events, models
+from ....payment.gateways.np_atobarai import PaymentStatus
 
 
 class ExtReceiptRequest(ModelMutation):
@@ -36,9 +37,10 @@ class ExtReceiptRequest(ModelMutation):
 
     @staticmethod
     def clean_order(order):
-        if not (order.status == OrderStatus.FULFILLED
-                or order.status == OrderStatus.PARTIALLY_FULFILLED
-                or order.status == OrderStatus.PARTIALLY_RETURNED):
+        if (order.status not in [OrderStatus.FULFILLED, OrderStatus.PARTIALLY_RETURNED,
+                                 OrderStatus.PARTIALLY_FULFILLED]
+            or (order.status is OrderStatus.PARTIALLY_FULFILLED and
+                order.payment_status is not PaymentStatus.PARTIALLY_REFUNDED)):
             raise ValidationError(
                 {
                     "orderId": ValidationError(

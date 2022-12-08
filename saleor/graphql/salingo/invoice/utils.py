@@ -23,7 +23,7 @@ def get_receipt_payload(order):
             {
                 "orderId": ValidationError(
                     "Receipt can only by created when order products are fulfilled or returned.",
-                    code=InvoiceErrorCode.NO_INVOICE_PLUGIN,
+                    code=InvoiceErrorCode.INVALID_STATUS,
                 )
             }
         )
