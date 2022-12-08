@@ -4,6 +4,9 @@ from measurement.measures import Weight
 from pytest import approx
 
 from saleor.salingo.business_rules import PricingExecutors
+from saleor.salingo.megapack import Megapack
+from saleor.product.models import Product, ProductChannelListing, ProductVariantChannelListing, ProductVariant
+from saleor.channel.models import Channel
 
 
 def test_calculate_price_weight_mode():
@@ -53,10 +56,6 @@ def test_calculate_price_item_mode():
 
 
 def test_megapack(product, product_type, category):
-    from saleor.salingo.megapack import Megapack
-    from saleor.product.models import Product, ProductVariant
-    from saleor.channel.models import Channel
-
     megapack_product = Product.objects.create(
         name="Test product",
         slug="test-megapack-11",
@@ -72,8 +71,28 @@ def test_megapack(product, product_type, category):
         is_active=True,
     )
 
-    megapack = Megapack(megapack=megapack_product)
+    megapack = Megapack(megapack=megapack_product, megapack_sku='asdasd')
     megapack.create(['123'])
 
     assigned_variant = ProductVariant.objects.get(sku='123')
+    product.refresh_from_db()
+    megapack_product.refresh_from_db()
+
+
     assert product.get_value_from_metadata('bundle.id') == 'asdasd'
+    assert ProductChannelListing.objects.filter(product=product, channel__slug='bundled').exists()
+    assert ProductVariantChannelListing.objects.filter(variant=assigned_variant, channel__slug='bundled').exists()
+
+    assert not ProductChannelListing.objects.filter(
+        product=product,
+        channel__name='Main Channel'
+    ).exists()
+
+    assert not ProductVariantChannelListing.objects.filter(
+        variant=assigned_variant,
+        channel__name='Main Channel'
+    ).exists()
+
+    skus = megapack_product.get_value_from_private_metadata('skus')
+    assert assigned_variant.sku in skus
+
