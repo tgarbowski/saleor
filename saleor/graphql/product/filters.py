@@ -343,11 +343,10 @@ def filter_by_warehouse_locations(qs, warehouse_from=None, warehouse_to=None):
     if warehouse_from == "0" and warehouse_to == "0":
         variants = ProductVariant.objects.extra(
             where=[
-                "private_metadata->>'location' like '' "
+                "private_metadata->>'location' = '' "
                 "or private_metadata->>'location' is NULL"
             ],
         ).values("product_id")
-
         qs = qs.filter(Exists(variants.filter(product_id=OuterRef("pk"))))
 
         return qs
