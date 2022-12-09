@@ -340,6 +340,16 @@ def filter_products_by_stock_availability(qs, stock_availability, channel_slug):
 
 def filter_by_warehouse_locations(qs, warehouse_from=None, warehouse_to=None):
     # TODO: move validation somewhere else
+    if warehouse_from == "0" and warehouse_to == "0":
+        variants = ProductVariant.objects.extra(
+            where=[
+                "private_metadata->>'location' = '' "
+                "or private_metadata->>'location' is NULL"
+            ],
+        ).values("product_id")
+        qs = qs.filter(Exists(variants.filter(product_id=OuterRef("pk"))))
+
+        return qs
     try:
         type_with_number_from = warehouse_from.split("K")[0]
         type_with_number_to = warehouse_to.split("K")[0]
