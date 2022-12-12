@@ -119,3 +119,20 @@ class CodGatewayPlugin(BasePlugin):
     @require_active_plugin
     def token_is_required_as_payment_input(self, previous_value):
         return False
+
+    @require_active_plugin
+    def refund_payment(
+            self, payment_information: "PaymentData", previous_value
+    ) -> "GatewayResponse":
+        # TODO: verify payment_id/token
+        error = None
+
+        return GatewayResponse(
+            is_success=True,
+            action_required=False,
+            kind=TransactionKind.REFUND,
+            amount=payment_information.amount,
+            currency=payment_information.currency,
+            transaction_id=payment_information.token or "",
+            error=error
+        )
