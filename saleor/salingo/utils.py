@@ -3,6 +3,8 @@ import functools
 import os
 from datetime import date, datetime, timedelta
 from typing import List
+import random
+import string
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -130,3 +132,7 @@ def find_keys(node, kv):
         for j in node.values():
             for x in find_keys(j, kv):
                 yield x
+
+
+def generate_key_id():
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))

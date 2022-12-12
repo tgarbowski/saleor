@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 import math
 
 import graphene
@@ -14,8 +15,11 @@ from saleor.product.models import ProductChannelListing
 from saleor.graphql.product.types import Product, ProductVariant, ProductMedia
 from saleor.product import models
 from saleor.core.permissions import ProductPermissions
-from saleor.graphql.core.types.common import ProductError
+from saleor.graphql.core.types.common import MetadataError, ProductError
 from saleor.salingo.images import BackupImageRetrieval
+from saleor.graphql.meta.mutations import UpdatePrivateMetadata
+from saleor.salingo.megapack import process_megapack
+from saleor.graphql.meta.permissions import PRIVATE_META_PERMISSION_MAP
 
 
 class ProductBulkClearWarehouseLocation(BaseBulkMutation):
@@ -239,3 +243,29 @@ class ProductMediaRetrieveFromBackup(BaseMutation):
             backup_image_retrieval.handle()
 
         return ProductMediaRetrieveFromBackup(media=media_obj)
+
+
+class UpdateMegapackPrivateMetadata(UpdatePrivateMetadata):
+    class Meta:
+        description = "Updates private metadata of a megapack product."
+        permission_map = PRIVATE_META_PERMISSION_MAP
+        error_type_class = MetadataError
+        error_type_field = "metadata_errors"
+
+    @classmethod
+    def perform_mutation(cls, root, info, **data):
+        instance = cls.get_instance(info, **data)
+        if instance:
+            metadata_list = data.pop("input")
+            cls.validate_metadata_keys(metadata_list)
+            items = {data.key: data.value for data in metadata_list}
+            skus = items['skus']
+            skus = cls.delete_duplicated_skus(skus)
+            process_megapack(skus=skus, megapack=instance)
+        return cls.success_response(instance)
+
+    @classmethod
+    def delete_duplicated_skus(cls, skus):
+        data_skus = json.loads(skus.replace("'", '"'))
+        skus = list(dict.fromkeys(data_skus))
+        return skus

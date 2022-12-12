@@ -1,12 +1,8 @@
 import json
-import string
-import random
 
 from django.db import migrations, connection
 
-
-def generate_key_id():
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
+from saleor.salingo.utils import generate_key_id
 
 
 def get_products_from_db():

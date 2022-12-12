@@ -244,14 +244,15 @@ def unpublish_from_multiple_channels(product_ids):
         product_ids=product_ids,
         channel_slugs=get_allegro_channels_slugs()
     )
-
+    skus_purchased = []
     for channel in products_per_channels:
         if channel['product_ids']:
-            bulk_allegro_unpublish(
+            unpublish_output = bulk_allegro_unpublish(
                 channel=channel['channel__slug'],
                 skus=get_unpublishable_skus(channel['product_ids'])
             )
-
+            skus_purchased.append(unpublish_output)
+    return skus_purchased
 
 def bulk_allegro_unpublish(channel, skus):
     allegro_api = AllegroAPI(channel=channel)
