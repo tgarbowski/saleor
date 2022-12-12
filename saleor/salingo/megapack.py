@@ -1,11 +1,13 @@
 from copy import deepcopy
+from datetime import date
 import json
 from typing import List
 
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.contrib.postgres.aggregates import ArrayAgg
 from django.db.models import Sum, Q
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.utils.text import slugify
 
 from saleor.plugins.allegro.utils import skus_to_product_ids, product_ids_to_skus
 from saleor.plugins.allegro.tasks import unpublish_from_multiple_channels
@@ -301,7 +303,9 @@ class MegapackBulkCreate:
 
     def products_by_size(self, channel_slug, category_tree_id):
         product_ids = ProductChannelListing.objects.filter(
-            channel__slug=channel_slug, product__category__tree_id=category_tree_id
+            Q(**{'product__metadata__bundle.id__isnull': True}),
+            channel__slug=channel_slug,
+            product__category__tree_id=category_tree_id
         ).values_list('product_id')
 
         products_by_size = list(AssignedProductAttribute.objects.filter(
@@ -326,12 +330,13 @@ class MegapackBulkCreate:
         return products['weight__sum']
 
 
-def create_megapacks(channel_slug: str):
-    megapacks_per_categories = MegapackBulkCreate().create(channel=channel_slug)
+def create_megapacks(source_channel_slug: str, megapack_channel_slug: str):
+    megapacks_per_categories = MegapackBulkCreate().create(channel=source_channel_slug)
 
     for megapack_per_category in megapacks_per_categories:
         for megapack in megapacks_per_categories[megapack_per_category]:
             megapack_product = create_bundle_product(
+                channel_slug=megapack_channel_slug,
                 product_name=megapack,
                 category_name=megapack_per_category
             )
@@ -343,22 +348,23 @@ def create_megapacks(channel_slug: str):
             )
 
 
-def create_bundle_product(product_name, category_name):
+def create_bundle_product(channel_slug, product_name, category_name):
     product_type = ProductType.objects.get(name='Mega Paka')
-    channel = Channel.objects.get(name='Fashion4You')
+    channel = Channel.objects.get(slug=channel_slug)
     warehouse = Warehouse.objects.first()
     category = Category.objects.get(name=category_name)
 
-    product = create_product(product_name, product_type, category, channel, warehouse)
+    product_count = Product.objects.all().count()
+    megapack_sku = create_megapack_sku(product_count)
+    product = create_product(megapack_sku, product_name, product_type, category, channel, warehouse)
     return product
 
 
 @transaction.atomic
-def create_product(product_name, product_type, category, channel, warehouse):
-    # TODO: product_slug
+def create_product(sku, product_name, product_type, category, channel, warehouse):
     product = Product.objects.create(
         name=product_name,
-        slug='TODO',
+        slug=create_product_slug(product_name),
         product_type=product_type,
         category=category,
     )
@@ -369,7 +375,7 @@ def create_product(product_name, product_type, category, channel, warehouse):
         currency=channel.currency_code
     )
 
-    variant = ProductVariant.objects.create(product=product, sku="")
+    variant = ProductVariant.objects.create(product=product, sku=sku)
     ProductVariantChannelListing.objects.create(
         variant=variant,
         channel=channel,
@@ -379,11 +385,41 @@ def create_product(product_name, product_type, category, channel, warehouse):
     return product
 
 
+def create_megapack_sku(product_count: int):
+    today = date.today()
+    day = str(today.day).zfill(2)
+    month = str(today.month).zfill(2)
+    year = str(today.year)[2:]
+
+    current_date_str = f'{year}{month}{day}'
+    user_id = '55'
+    product_number = ("000" + str(product_count + 1))[-4:]
+    return f'00{user_id}{current_date_str}1{product_number}'
+
+
+def create_product_slug(slug: str):
+    slug = slugify(slug, allow_unicode=True)
+    unique_slug = slug
+    extension = 1
+
+    search_field = "slug__iregex"
+    pattern = rf"{slug}-\d+$|{slug}$"
+    slug_values = (
+        Product._default_manager.filter(**{search_field: pattern}).values_list("slug", flat=True)
+    )
+
+    while unique_slug in slug_values:
+        extension += 1
+        unique_slug = f"{slug}-{extension}"
+
+    return unique_slug
+
+
 def process_megapack(skus, megapack):
     products_sold_in_allegro = bulk_allegro_offers_unpublish(skus, megapack)
     skus = [product for product in skus if product not in products_sold_in_allegro]
-    # TODO: megapack SKU
-    megapack = Megapack(megapack=megapack, megapack_sku='TODO')
+    megapack_sku = ProductVariant.objects.get(product_id=megapack.pk).sku
+    megapack = Megapack(megapack=megapack, megapack_sku=megapack_sku)
     megapack.create(skus=skus)
     # TODO: sold_bid message
     if products_sold_in_allegro:

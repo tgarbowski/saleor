@@ -151,7 +151,7 @@ class CollageCreator:
         )
         collage_io = BytesIO()
         collage.save(collage_io, format=image_format)
-        return collage
+        return collage_io
 
 
 def get_first_product_media(product):
