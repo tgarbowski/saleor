@@ -2,7 +2,7 @@ import graphene
 
 from .mutations import (
     ProductBulkClearWarehouseLocation, ProductMediaRetrieveFromBackup,
-    ProductBulkPublish
+    ProductBulkPublish, UpdateMegapackPrivateMetadata
 )
 from saleor.graphql.core.fields import FilterConnectionField
 from saleor.graphql.product.types.products import ProductVariantCountableConnection
@@ -29,3 +29,4 @@ class ProductMutations(graphene.ObjectType):
     product_bulk_clear_warehouse_location = ProductBulkClearWarehouseLocation.Field()
     product_media_retrieve_from_backup = ProductMediaRetrieveFromBackup.Field()
     product_bulk_publish = ProductBulkPublish.Field()
+    update_megapack_private_metadata = UpdateMegapackPrivateMetadata.Field()

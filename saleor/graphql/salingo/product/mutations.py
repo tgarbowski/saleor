@@ -261,7 +261,7 @@ class UpdateMegapackPrivateMetadata(UpdatePrivateMetadata):
             items = {data.key: data.value for data in metadata_list}
             skus = items['skus']
             skus = cls.delete_duplicated_skus(skus)
-            process_megapack(instance, skus)
+            process_megapack(skus=skus, megapack=instance)
         return cls.success_response(instance)
 
     @classmethod
