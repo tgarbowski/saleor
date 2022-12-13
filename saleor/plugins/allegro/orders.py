@@ -195,10 +195,15 @@ def prepare_draft_order_create_input(checkout_form, channel_id):
 
     shipping_method = get_shipping_method_by_name(delivery_method_name)
 
+    customer_note = AllegroOrderExtractor.customer_note(checkout_form)
+
     if shipping_method:
         shipping_method_id = to_global_id("ShippingMethod", shipping_method.id)
     else:
         shipping_method_id = None
+
+    if not customer_note:
+        customer_note = ""
 
     draft_order_create_input = {
         "lines": lines,
@@ -206,7 +211,7 @@ def prepare_draft_order_create_input(checkout_form, channel_id):
         "shippingAddress": AllegroOrderExtractor.shipping_address(checkout_form),
         "shippingMethod": shipping_method_id,
         "channel": to_global_id("Channel", channel_id),
-        "customerNote": AllegroOrderExtractor.customer_note(checkout_form)
+        "customerNote": customer_note
     }
     # Allegro billing address might be invalid, set it to shipping address in that case
     if not validate_camel_case_address(draft_order_create_input['billingAddress']):
