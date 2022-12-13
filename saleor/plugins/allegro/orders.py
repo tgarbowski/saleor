@@ -116,6 +116,10 @@ class AllegroOrderExtractor:
         return checkout_form['buyer']['email']
 
     @staticmethod
+    def customer_note(checkout_form) -> str:
+        return checkout_form['messageToSeller']
+
+    @staticmethod
     def pickup_point_id(checkout_form) -> Optional[str]:
         pickup_point = checkout_form['delivery'].get('pickupPoint')
         return pickup_point['id'] if pickup_point else None
@@ -201,7 +205,8 @@ def prepare_draft_order_create_input(checkout_form, channel_id):
         "billingAddress": AllegroOrderExtractor.billing_address(checkout_form),
         "shippingAddress": AllegroOrderExtractor.shipping_address(checkout_form),
         "shippingMethod": shipping_method_id,
-        "channel": to_global_id("Channel", channel_id)
+        "channel": to_global_id("Channel", channel_id),
+        "customerNote": AllegroOrderExtractor.customer_note(checkout_form) or ""
     }
     # Allegro billing address might be invalid, set it to shipping address in that case
     if not validate_camel_case_address(draft_order_create_input['billingAddress']):

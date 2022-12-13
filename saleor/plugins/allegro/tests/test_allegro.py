@@ -269,6 +269,7 @@ def test_save_allegro_order_discounted_product(
     assert order.undiscounted_total_gross_amount == Decimal(133.45).quantize(TWO_PLACES)
     assert order.shipping_price_gross_amount == Decimal(10.00)
     assert order.total_gross_amount == Decimal(133.45).quantize(TWO_PLACES)
+    assert order.customer_note == "Please send me an item in red color"
 
 
 def test_save_allegro_order_smart(
@@ -294,6 +295,7 @@ def test_save_allegro_order_smart(
     assert order.shipping_price_gross_amount == Decimal(0.00)
     assert order.shipping_price_net_amount == Decimal(0.00)
     assert order.total_gross_amount == Decimal(123.45).quantize(TWO_PLACES)
+    assert order.customer_note == "Please send me an item in red color"
 
     for order_line in order_lines:
         product = order_line.variant.product
@@ -326,6 +328,7 @@ def test_save_allegro_order(
     assert order_id is not None
     assert order.shipping_method.name == allegro_shipping_method.name
     assert order.status == 'unfulfilled'
+    assert order.customer_note == "Please send me an item in red color"
 
     assert order.shipping_price_gross_amount == Decimal(10.00)
     assert order.total_gross_amount == Decimal(133.45).quantize(TWO_PLACES)
