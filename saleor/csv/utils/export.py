@@ -256,11 +256,18 @@ def export_tally_data_in_batches(
             "order",
             "order__billing_address"
         )
+        receiver_name_list = []
+        for invoice in invoice_batch:
+            if invoice.order.billing_address.company_name:
+                receiver_name_list.append(
+                    {"receiver_name": invoice.order.billing_address.company_name})
+            else:
+                receiver_name_list.append(
+                    {"receiver_name": invoice.order.billing_address.first_name +
+                    " " + invoice.order.billing_address.last_name})
+
         export_data = list(invoice_batch.values(
             reciever_nip=F("order__billing_address__vat_id"),
-            receiver_name=Concat(F("order__billing_address__first_name"),
-                                 Value(" "),
-                                 F("order__billing_address__last_name")),
             receiver_address=Concat(F("order__billing_address__postal_code"),
                                     Value(" "),
                                     F("order__billing_address__city"),
@@ -281,6 +288,9 @@ def export_tally_data_in_batches(
             net_price_22_23_percent=F("private_metadata__summary__to"),
             tax_price_22_23_percent=F("private_metadata__summary__to")
         ))
+        for data, receiver_name in zip(export_data, receiver_name_list):
+            data.update(receiver_name)
+
         append_to_file(export_data, headers, temporary_file, file_type, delimiter)
 
 
