@@ -8,7 +8,7 @@ from typing import IO, TYPE_CHECKING, Any, Dict, List, Set, Union
 import petl as etl
 from django.db.models.functions import Concat, Cast, TruncDay
 from django.utils import timezone
-from django.db.models import F, Value, DateTimeField, CharField, When, Case, Q
+from django.db.models import F, Value, DateTimeField, CharField
 
 from ...giftcard.models import GiftCard
 from ...invoice.models import Invoice
