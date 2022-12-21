@@ -1,11 +1,15 @@
-from copy import deepcopy
+from dataclasses import dataclass
 from datetime import date
 import json
+import math
+import uuid
 from typing import List
+
+from measurement.measures import Mass
 
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.db.models import Sum, Q
+from django.db.models import Q
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.utils.text import slugify
 
@@ -220,8 +224,18 @@ class Megapack:
         return products_already_assigned
 
 
+@dataclass
+class BundlableProducts:
+    weight: Mass
+    product_ids: [int]
+    size: str
+    sort_order: int
+    name: str = None
+
+
 class MegapackBulkCreate:
     min_weight = 5
+    max_weight_by_size = 10
 
     def create(self, channel: str):
         '''
@@ -234,100 +248,150 @@ class MegapackBulkCreate:
         packs_by_categories = {}
 
         for category in self.get_root_categories():
-            products_by_size = self.products_by_size(
+            sizable_attributes = self.get_attributes_by_root_category(
                 channel_slug=channel,
                 category_tree_id=category.tree_id
             )
-            weight_by_size = []
+            for sizable_attribute in sizable_attributes:
+                products_by_size = self.products_by_size(
+                    channel_slug=channel,
+                    category_tree_id=category.tree_id,
+                    attribute_name=sizable_attribute
+                )
+                products = self.split_same_sizes(products_by_size)
+                products = self.accumulate_min_weight_sizes(products)
+                self.name_packs(products, category.name, sizable_attribute)
+                final_output = self.final_output(products)
 
-            for size in products_by_size:
-                weight_sum = self.calculate_products_weight(products_by_size[size])
-                weight_by_size.append([size, weight_sum])
-            initial_products_by_size = deepcopy(products_by_size)
-
-            self.accumulate_min_weight_sizes(weight_by_size, products_by_size)
-            packs_by_sizes = self.calculate_packs(weight_by_size)
-            packs_names = self.prepare_packs_dict_with_names(packs_by_sizes, category.slug)
-            final_output = self.final_output(packs_names, initial_products_by_size)
-            packs_by_categories[category.name] = final_output
-
+                if category.name not in packs_by_categories:
+                    packs_by_categories[category.name] = {}
+                packs_by_categories[category.name].update(final_output)
         return packs_by_categories
 
-    def final_output(self, packs_names, products_by_size):
+    def final_output(self, packs):
         output = {}
-        for pack_name in packs_names:
-            product_ids = []
-            for size in packs_names[pack_name]:
-                product_ids.extend(products_by_size[size])
-            output[pack_name] = product_ids
-        return output
-
-    def accumulate_min_weight_sizes(self, weight_by_size, products_by_size):
-        for i, size in reversed(list(enumerate(weight_by_size))):
-            if i == 0:
-                continue
-            weight = size[1].kg
-            key = size[0]
-
-            if weight < self.min_weight:
-                previous_weight_key = weight_by_size[i - 1][0]
-                products_by_size[previous_weight_key].extend(products_by_size[key])
-                del products_by_size[key]
-                weight_by_size[i - 1][1] += weight_by_size[i][1]
-                weight_by_size[i][1] = None
-
-    def calculate_packs(self, weight_by_size):
-        packs = []
-        one_mpack_sizes = []
-
-        for size in reversed(weight_by_size):
-            key = size[0]
-            weight = size[1]
-            one_mpack_sizes.append(key)
-            if weight:
-                packs.append(one_mpack_sizes)
-                one_mpack_sizes = []
-        return packs
-
-    def prepare_packs_dict_with_names(self, packs, category_slug):
-        packs_dict = {}
 
         for pack in packs:
-            name = f'{category_slug}-{"-".join(pack)}'
-            packs_dict[name] = pack
-        return packs_dict
+            pack_name = pack.name
+            if pack_name in output:
+                random_str = uuid.uuid4().hex.upper()[0:4]
+                pack_name = f'{pack_name} {random_str}'
+            output[pack_name] = pack.product_ids
+        return output
+
+    def divide_chunks(self, a, n):
+        k, m = divmod(len(a), n)
+        return (a[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n))
+
+    def split_same_sizes(self, products_by_size):
+        ids_to_delete = []
+        products_to_append = []
+
+        for i, size in enumerate(products_by_size):
+            if size.weight.kg > self.max_weight_by_size:
+                splitable_products = self.split_same_size(size)
+                ids_to_delete.append(i)
+                for a in splitable_products:
+                    products_to_append.append(a)
+
+        products_without = [i for j, i in enumerate(products_by_size) if j not in ids_to_delete]
+        products_with = products_without + products_to_append
+        products_with = sorted(products_with, key=lambda x: x.sort_order)
+        return products_with
+
+    def split_same_size(self, products_by_size):
+        amount = math.ceil(products_by_size.weight.kg / self.max_weight_by_size)
+        weight = products_by_size.weight / amount
+        splitable_product_ids = list(self.divide_chunks(products_by_size.product_ids, amount))
+        splitable_products = []
+
+        for products in splitable_product_ids:
+            splitable_products.append(
+                BundlableProducts(
+                    weight=weight,
+                    product_ids=products,
+                    size=products_by_size.size,
+                    sort_order=products_by_size.sort_order
+                )
+            )
+        return splitable_products
+
+    def accumulate_min_weight_sizes(self, products_by_size):
+        for i, size in reversed(list(enumerate(products_by_size))):
+            if size.weight.kg < self.min_weight and i > 0:
+                products_by_size[i - 1].weight += size.weight
+                products_by_size[i - 1].size += f' {size.size}'
+                products_by_size[i - 1].product_ids.extend(size.product_ids)
+                products_by_size[i] = None
+
+        return [product_by_size for product_by_size in products_by_size if product_by_size]
+
+    def name_packs(self, packs, category_name, sizable_attribute):
+        attribute_suffix = self.get_attribute_suffix(sizable_attribute)
+
+        for pack in packs:
+            pack.name = f'{category_name} {attribute_suffix} {pack.size}'
+
+        return packs
+
+    def get_attribute_suffix(self, attribute_name: str):
+        try:
+            attribute_category = attribute_name.split("Rozmiar")[1].split()[0]
+        except IndexError:
+            attribute_category = ''
+        if attribute_category == 'dzieci':
+            attribute_category = ''
+        return attribute_category
 
     def get_root_categories(self):
         root_category_slugs = ['kobieta', 'mezczyzna', 'dziecko']
         return Category.objects.filter(slug__in=root_category_slugs)
 
-    def products_by_size(self, channel_slug, category_tree_id):
-        product_ids = ProductChannelListing.objects.filter(
+    def get_bundable_products(self, channel_slug, category_tree_id):
+        return ProductChannelListing.objects.filter(
             Q(**{'product__metadata__bundle.id__isnull': True}),
             channel__slug=channel_slug,
             product__category__tree_id=category_tree_id
         ).values_list('product_id')
 
+    def get_attributes_by_root_category(self, channel_slug, category_tree_id):
+        product_ids = self.get_bundable_products(channel_slug, category_tree_id)
+
+        return list(AssignedProductAttribute.objects.filter(
+            assignment__attribute__name__icontains='rozmiar',
+            product__pk__in=product_ids
+        ).values_list('assignment__attribute__name', flat=True).distinct())
+
+    def products_by_size(self, channel_slug, category_tree_id, attribute_name):
+        product_ids = self.get_bundable_products(channel_slug, category_tree_id)
+
         products_by_size = list(AssignedProductAttribute.objects.filter(
-            product__in=product_ids, assignment__attribute__name__icontains='rozmiar').values(
-            'values__name').annotate(
+            product__in=product_ids, assignment__attribute__name=attribute_name).values(
+            'values__name', 'values__sort_order').annotate(
             product_ids=ArrayAgg(
                 'product_id',
                 filter=Q(product_id__in=product_ids)
+            ),
+            weight=ArrayAgg(
+                'product__weight',
+                filter=Q(product_id__in=product_ids)
             )
-        ).order_by('values__name'))
+        ).order_by('values__sort_order'))
 
-        output = {}
+        output = []
+
         for products in products_by_size:
-            size = products['values__name']
-            items = products['product_ids']
-            output[size] = items
+            weight = Mass(g=sum(c.g for c in products['weight']))
+
+            prod = BundlableProducts(
+                product_ids=products['product_ids'],
+                size=products['values__name'],
+                weight=weight,
+                sort_order=products['values__sort_order']
+            )
+            output.append(prod)
 
         return output
-
-    def calculate_products_weight(self, product_ids) -> "Mass":
-        products = Product.objects.filter(pk__in=product_ids).aggregate(Sum('weight'))
-        return products['weight__sum']
 
 
 def create_megapacks(source_channel_slug: str, megapack_channel_slug: str):
@@ -354,10 +418,22 @@ def create_bundle_product(channel_slug, product_name, category_name):
     warehouse = Warehouse.objects.first()
     category = Category.objects.get(name=category_name)
 
-    product_count = Product.objects.all().count()
+    product_count = daily_products_count_by_user(workstation='00', user_id='50')
     megapack_sku = create_megapack_sku(product_count)
     product = create_product(megapack_sku, product_name, product_type, category, channel, warehouse)
     return product
+
+
+def daily_products_count_by_user(workstation: str, user_id: str) -> int:
+    start_string = f'{workstation}{user_id}'
+
+    variants = ProductVariant.objects.filter(
+        sku__startswith=start_string,
+        created__startswith=date.today()
+    ).order_by('-sku').first()
+
+    daily_number = int(variants.sku[-4:])
+    return daily_number
 
 
 @transaction.atomic
@@ -392,9 +468,10 @@ def create_megapack_sku(product_count: int):
     year = str(today.year)[2:]
 
     current_date_str = f'{year}{month}{day}'
-    user_id = '55'
-    product_number = ("000" + str(product_count + 1))[-4:]
-    return f'00{user_id}{current_date_str}1{product_number}'
+    user_id = '50'
+    product_code = '1'
+    product_number = str(product_count + 1).zfill(4)
+    return f'00{user_id}{current_date_str}{product_code}{product_number}'
 
 
 def create_product_slug(slug: str):
