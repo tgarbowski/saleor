@@ -15,6 +15,7 @@ from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
 
 from saleor.channel.models import Channel
+from saleor.product import models as product_models
 from saleor.product.models import (Category, Product, ProductVariant,
                                    ProductVariantChannelListing, ProductChannelListing)
 from saleor.plugins.models import PluginConfiguration
@@ -142,6 +143,8 @@ class RoutingExecutors:
             product_ids.append(value.id)
 
         delete_discounts(products_ids=product_ids)
+        # Delete from new products collection
+        delete_from_new_collection(products_ids=product_ids)
         # Apply discounts
         discount_name = get_first_product(products=products).discount_name
 
@@ -784,6 +787,13 @@ def delete_discounts(products_ids: List[int]) -> None:
 
     for sale in sales:
         sale.products.remove(*sale.products.filter(pk__in=products_ids))
+
+
+def delete_from_new_collection(products_ids: List[int]) -> None:
+    collection = product_models.Collection.objects.filter(slug="najnowsze-produkty")
+
+    if collection:
+        collection.products.remove(*collection.products.filter(pk__in=products_ids))
 
 
 def get_variants_out_of_stock(variant_ids: List[int]) -> List[int]:
