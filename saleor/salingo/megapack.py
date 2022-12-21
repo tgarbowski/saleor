@@ -427,12 +427,15 @@ def create_bundle_product(channel_slug, product_name, category_name):
 def daily_products_count_by_user(workstation: str, user_id: str) -> int:
     start_string = f'{workstation}{user_id}'
 
-    variants = ProductVariant.objects.filter(
+    variant = ProductVariant.objects.filter(
         sku__startswith=start_string,
         created__startswith=date.today()
     ).order_by('-sku').first()
 
-    daily_number = int(variants.sku[-4:])
+    if variant:
+        daily_number = int(variant.sku[-4:])
+    else:
+        daily_number = 0
     return daily_number
 
 
