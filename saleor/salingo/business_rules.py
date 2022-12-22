@@ -15,9 +15,9 @@ from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
 
 from saleor.channel.models import Channel
-from saleor.product import models as product_models
-from saleor.product.models import (Category, Product, ProductVariant,
-                                   ProductVariantChannelListing, ProductChannelListing)
+from saleor.product.models import (
+    Category, Collection, Product, ProductVariant, ProductVariantChannelListing, ProductChannelListing
+)
 from saleor.plugins.models import PluginConfiguration
 from saleor.salingo.utils import patch_async
 from saleor.plugins.allegro.api import AllegroAPI
@@ -773,13 +773,13 @@ def delete_discounts(products_ids: List[int]) -> None:
 
 
 def unassign_products_from_collection(products_ids: List[int], collection_slug: str) -> None:
-    collection = product_models.Collection.objects.filter(slug=collection_slug).first()
+    collection = Collection.objects.filter(slug=collection_slug).first()
 
     if collection:
         collection.products.remove(*products_ids)
 
 def assign_products_to_collection(products_ids: List[int], collection_slug: str) -> None:
-    collection = product_models.Collection.objects.filter(slug=collection_slug).first()
+    collection = Collection.objects.filter(slug=collection_slug).first()
 
     if collection:
         collection.products.add(*products_ids)
