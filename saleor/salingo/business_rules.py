@@ -15,8 +15,9 @@ from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
 
 from saleor.channel.models import Channel
-from saleor.product.models import (Category, Product, ProductVariant,
-                                   ProductVariantChannelListing, ProductChannelListing)
+from saleor.product.models import (
+    Category, Collection, Product, ProductVariant, ProductVariantChannelListing, ProductChannelListing
+)
 from saleor.plugins.models import PluginConfiguration
 from saleor.salingo.utils import patch_async
 from saleor.plugins.allegro.api import AllegroAPI
@@ -125,7 +126,17 @@ class RoutingExecutors:
         else:
             cls.bulk_change_channel_listings(products)
 
-        cls.apply_discounts(products)
+        discount_name = get_first_product(products=products).discount_name
+        product_ids = [v.id for k, v in products.items()]
+
+        # Delete existing discounts
+        delete_discounts(products_ids=product_ids)
+
+        if discount_name:
+            assign_discounts(product_ids, discount_name)
+            unassign_products_from_collection(product_ids, 'najnowsze-produkty')
+        else:
+            assign_products_to_collection(product_ids, 'najnowsze-produkty')
 
     @classmethod
     def handle_allegro_flow(cls, products: Dict[int, 'RoutingOutput']):
@@ -133,31 +144,6 @@ class RoutingExecutors:
         product_to_change = {k: v for (k, v) in products.items() if v.id not in purchased_product_ids}
         if product_to_change:
             cls.bulk_change_channel_listings(product_to_change)
-
-    @classmethod
-    def apply_discounts(cls, products: Dict[int, 'RoutingOutput']):
-        # Delete existing discounts
-        product_ids = []
-        for key, value in products.items():
-            product_ids.append(value.id)
-
-        delete_discounts(products_ids=product_ids)
-        # Apply discounts
-        discount_name = get_first_product(products=products).discount_name
-
-        if not discount_name:
-            return
-
-        product_ids_discount = []
-        for key, value in products.items():
-            if value.discount_name:
-                product_ids_discount.append(value.id)
-
-        if product_ids_discount:
-            assign_discounts(
-                products_ids=product_ids_discount,
-                sale_name=discount_name
-            )
 
     @classmethod
     def remove_from_allegro(cls, products: Dict[int, 'RoutingOutput']):
@@ -784,6 +770,19 @@ def delete_discounts(products_ids: List[int]) -> None:
 
     for sale in sales:
         sale.products.remove(*sale.products.filter(pk__in=products_ids))
+
+
+def unassign_products_from_collection(products_ids: List[int], collection_slug: str) -> None:
+    collection = Collection.objects.filter(slug=collection_slug).first()
+
+    if collection:
+        collection.products.remove(*products_ids)
+
+def assign_products_to_collection(products_ids: List[int], collection_slug: str) -> None:
+    collection = Collection.objects.filter(slug=collection_slug).first()
+
+    if collection:
+        collection.products.add(*products_ids)
 
 
 def get_variants_out_of_stock(variant_ids: List[int]) -> List[int]:
