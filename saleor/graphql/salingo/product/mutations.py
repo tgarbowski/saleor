@@ -18,8 +18,11 @@ from saleor.core.permissions import ProductPermissions
 from saleor.graphql.core.types.common import MetadataError, ProductError
 from saleor.salingo.images import BackupImageRetrieval
 from saleor.graphql.meta.mutations import UpdatePrivateMetadata
-from saleor.salingo.megapack import process_megapack
+from saleor.salingo.megapack import (
+    bulk_allegro_offers_unpublish, get_allegro_sold_validation_message, process_megapack
+)
 from saleor.graphql.meta.permissions import PRIVATE_META_PERMISSION_MAP
+from saleor.core.error_codes import MetadataErrorCode
 
 
 class ProductBulkClearWarehouseLocation(BaseBulkMutation):
@@ -261,7 +264,13 @@ class UpdateMegapackPrivateMetadata(UpdatePrivateMetadata):
             items = {data.key: data.value for data in metadata_list}
             skus = items['skus']
             skus = cls.delete_duplicated_skus(skus)
+            products_sold_in_allegro = bulk_allegro_offers_unpublish(skus, instance)
+            skus = [product for product in skus if product not in products_sold_in_allegro]
             process_megapack(skus=skus, megapack=instance)
+
+            if products_sold_in_allegro:
+                cls.raise_sold_in_allegro_error_and_save_error(products_sold_in_allegro, instance)
+
         return cls.success_response(instance)
 
     @classmethod
@@ -269,3 +278,15 @@ class UpdateMegapackPrivateMetadata(UpdatePrivateMetadata):
         data_skus = json.loads(skus.replace("'", '"'))
         skus = list(dict.fromkeys(data_skus))
         return skus
+
+    @classmethod
+    def raise_sold_in_allegro_error_and_save_error(cls, products_sold_in_allegro, megapack):
+        err_message = get_allegro_sold_validation_message(products_sold_in_allegro)
+        megapack.private_metadata["publish.allegro.errors"] = [err_message]
+        megapack.save()
+        raise ValidationError({
+            "megapack": ValidationError(
+                message=[err_message],
+                code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
+            )
+        })

@@ -496,15 +496,9 @@ def create_product_slug(slug: str):
 
 
 def process_megapack(skus, megapack):
-    products_sold_in_allegro = bulk_allegro_offers_unpublish(skus, megapack)
-    skus = [product for product in skus if product not in products_sold_in_allegro]
     megapack_sku = ProductVariant.objects.get(product_id=megapack.pk).sku
     megapack = Megapack(megapack=megapack, megapack_sku=megapack_sku)
     megapack.create(skus=skus)
-    # TODO: sold_bid message
-    if products_sold_in_allegro:
-        err_message = get_allegro_sold_validation_message(products_sold_in_allegro)
-    return skus
 
 
 def bulk_allegro_offers_unpublish(skus, megapack):
