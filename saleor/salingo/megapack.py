@@ -19,6 +19,7 @@ from saleor.product.models import (
     Category, ProductVariant, ProductMedia, ProductChannelListing, ProductVariantChannelListing,
     Product, ProductType
 )
+from saleor.product.search import update_product_search_document
 from saleor.channel.models import Channel
 from saleor.salingo.sql.raw_sql import delete_medias_by_product_id
 from saleor.core.error_codes import MetadataErrorCode
@@ -421,6 +422,7 @@ def create_bundle_product(channel_slug, product_name, category_name):
     product_count = daily_products_count_by_user(workstation='00', user_id='50')
     megapack_sku = create_megapack_sku(product_count)
     product = create_product(megapack_sku, product_name, product_type, category, channel, warehouse)
+    update_product_search_document(product)
     return product
 
 
@@ -455,6 +457,9 @@ def create_product(sku, product_name, product_type, category, channel, warehouse
     )
 
     variant = ProductVariant.objects.create(product=product, sku=sku)
+    product.default_variant = variant
+    product.save(update_fields=['default_variant'])
+
     ProductVariantChannelListing.objects.create(
         variant=variant,
         channel=channel,
