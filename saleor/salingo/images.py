@@ -2,6 +2,7 @@ from collections import namedtuple
 from io import BytesIO
 import math
 import os
+import secrets
 import random
 from typing import List, Tuple
 
@@ -9,7 +10,9 @@ import boto3
 from PIL import Image
 
 from django.conf import settings
+from django.core.files.images import ImageFile
 
+from saleor.product import ProductMediaTypes
 from saleor.product.models import Product, ProductMedia
 from saleor.product.thumbnails import create_product_thumbnails
 
@@ -160,20 +163,6 @@ def get_first_product_media(product):
     ).order_by('sort_order').first()
 
 
-def create_product_media(product, ppoi):
-    return ProductMedia.objects.create(
-        product=product,
-        ppoi=ppoi,
-        alt=product.name.upper(),
-        image=''
-    )
-
-
-def collage_photo_name(product_name) -> str:
-    rand_int = random.randint(1000000, 9999999)
-    return f'{product_name}x{rand_int}.png'
-
-
 def swap_sort_order(new_image, product):
     last_photo_sort_order = new_image.sort_order
     first_photo = get_first_product_media(product)
@@ -188,8 +177,42 @@ def create_collage(images: List[ProductMedia], product: Product):
     collage = collage_creator.create()
     # Save new collage image to db
     photo_name = collage_photo_name(product.name)
-    media = create_product_media(product=product, ppoi=images[0].ppoi)
-    media.image.save(photo_name, collage)
+    media = create_new_media_from_bytes(product=product, image=collage, name=photo_name)
     swap_sort_order(media, product)
     # Create thumbnails
     create_product_thumbnails.delay(media.pk)
+
+
+def create_new_media_from_existing_media(product: Product, product_media: ProductMedia) -> ProductMedia:
+    name = create_new_product_media_name(product_media.image.name)
+    image_bytes = product_media_to_bytes_io(product_media)
+    media = create_new_media_from_bytes(product, image_bytes, name)
+    return media
+
+
+def product_media_to_bytes_io(media: ProductMedia) -> BytesIO:
+    media_bytes = media.image.file.read()
+    return BytesIO(media_bytes)
+
+
+def create_new_media_from_bytes(product: Product, image: BytesIO, name: str) -> ProductMedia:
+    image = ImageFile(image, name=name)
+
+    new_media = product.media.create(
+        image=image, alt=product.name.upper(), type=ProductMediaTypes.IMAGE
+    )
+    return new_media
+
+
+def create_new_product_media_name(media_name: str) -> str:
+    media_name = media_name.replace('products/', '')
+
+    file_name, format = os.path.splitext(media_name)
+    hash = secrets.token_hex(nbytes=4)
+    new_name = f"{file_name}_{hash}{format}"
+    return new_name
+
+
+def collage_photo_name(product_name) -> str:
+    rand_int = random.randint(1000000, 9999999)
+    return f'{product_name}x{rand_int}.png'
