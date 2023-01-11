@@ -25,7 +25,9 @@ from saleor.salingo.sql.raw_sql import delete_medias_by_product_id
 from saleor.core.error_codes import MetadataErrorCode
 from saleor.salingo.images import create_collage
 from saleor.warehouse.models import Stock, Warehouse
-from saleor.attribute.models import AssignedProductAttribute
+from saleor.attribute.models import AssignedProductAttribute, AttributeValue
+from .images import create_new_media_from_existing_media
+from saleor.product.thumbnails import create_product_thumbnails
 
 
 class Megapack:
@@ -103,12 +105,8 @@ class Megapack:
             photo = ProductMedia.objects.filter(product=product_variant.product.pk).first()
             if not photo:
                 continue
-            new_image = ProductMedia.objects.create(
-                product=self.megapack,
-                ppoi=photo.ppoi or "0.5x0.5",
-                alt=product_variant.product.name,
-                image=photo.image
-            )
+            new_image = create_new_media_from_existing_media(self.megapack, photo)
+            create_product_thumbnails(new_image.pk)
             collage_images.append(new_image)
 
         if collage_images:
@@ -366,18 +364,22 @@ class MegapackBulkCreate:
     def products_by_size(self, channel_slug, category_tree_id, attribute_name):
         product_ids = self.get_bundable_products(channel_slug, category_tree_id)
 
-        products_by_size = list(AssignedProductAttribute.objects.filter(
-            product__in=product_ids, assignment__attribute__name=attribute_name).values(
-            'values__name', 'values__sort_order').annotate(
+        products_by_size = AttributeValue.objects.filter(
+            productassignments__product_id__in=product_ids,
+            attribute__name=attribute_name,
+        ).values('name', 'sort_order')
+
+        products_by_size = list(products_by_size.annotate(
             product_ids=ArrayAgg(
-                'product_id',
-                filter=Q(product_id__in=product_ids)
+                'productassignments__product_id',
+                filter=Q(productassignments__product_id__in=product_ids)
             ),
             weight=ArrayAgg(
-                'product__weight',
-                filter=Q(product_id__in=product_ids)
+                'productassignments__product__weight',
+                filter=Q(productassignments__product_id__in=product_ids)
             )
-        ).order_by('values__sort_order'))
+        ))
+
 
         output = []
 
@@ -386,9 +388,9 @@ class MegapackBulkCreate:
 
             prod = BundlableProducts(
                 product_ids=products['product_ids'],
-                size=products['values__name'],
+                size=products['name'],
                 weight=weight,
-                sort_order=products['values__sort_order']
+                sort_order=products['sort_order']
             )
             output.append(prod)
 
