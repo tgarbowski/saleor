@@ -5,6 +5,7 @@ import math
 import uuid
 from typing import List
 
+from botocore.exceptions import ClientError
 from measurement.measures import Mass
 
 from django.core.exceptions import ValidationError
@@ -105,7 +106,10 @@ class Megapack:
             photo = ProductMedia.objects.filter(product=product_variant.product.pk).first()
             if not photo:
                 continue
-            new_image = create_new_media_from_existing_media(self.megapack, photo)
+            try:
+                new_image = create_new_media_from_existing_media(self.megapack, photo)
+            except (ClientError, FileNotFoundError):
+                continue
             create_product_thumbnails(new_image.pk)
             collage_images.append(new_image)
 
