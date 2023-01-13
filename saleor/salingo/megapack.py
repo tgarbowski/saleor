@@ -10,7 +10,7 @@ from measurement.measures import Mass
 
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.utils.text import slugify
 
@@ -582,3 +582,40 @@ def generate_description_json_for_megapack(bundle_content):
     description_json["blocks"] = blocks
     description_json["entityMap"] = {}
     return description_json
+
+
+def calculate_and_save_megapack_prices():
+    megapacks_without_prices = ProductVariantChannelListing.objects.filter(
+        variant__product__product_type__name='Mega Paka',
+        price_amount=None,
+        cost_price_amount=None
+    ).select_related("variant", "variant__product")
+
+    for megapack in megapacks_without_prices:
+        megapack_skus = megapack.variant.product.private_metadata.get('skus')
+        if not megapack_skus:
+            continue
+        price_amount, cost_price_amount = calculate_megapack_price(megapack_skus)
+        megapack.price_amount = price_amount
+        megapack.cost_price_amount = cost_price_amount
+
+    ProductVariantChannelListing.objects.bulk_update(megapacks_without_prices, ['price_amount', 'cost_price_amount'])
+
+
+def calculate_megapack_price(skus: List[str]):
+    """Returns calculated megapack price amount and cost_price_amount"""
+    prices = ProductVariantChannelListing.objects.filter(
+        variant__sku__in=skus
+    ).aggregate(
+        Sum('price_amount'),
+        Sum('cost_price_amount')
+    )
+
+    return prices['price_amount__sum'], prices['cost_price_amount__sum']
+
+
+def bundable_products(channel_slug):
+    return ProductChannelListing.objects.filter(
+        Q(**{'product__metadata__bundle.id__isnull': True}),
+        channel__slug=channel_slug
+    ).values_list('product_id')
