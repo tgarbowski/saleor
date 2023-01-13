@@ -8,6 +8,7 @@ from django.conf import settings
 
 from ..celeryconf import app
 from saleor.salingo.business_rules import BusinessRulesEvaluator, get_publishable_channel_variants
+from saleor.salingo.megapack import bundable_products, create_megapacks, calculate_and_save_megapack_prices
 from saleor.product.models import Product, ProductChannelListing, ProductVariant
 from saleor.salingo.sql.raw_sql import duplicated_products
 from saleor.salingo.remover import delete_products, remove_background_with_backup
@@ -69,8 +70,12 @@ def remove_products_with_no_media():
 
 
 @app.task()
-def rotate_channels():
-    routing = BusinessRulesEvaluator(plugin_slug="salingo_routing", mode="commit")
+def rotate_channels(channel_slug=None):
+    routing = BusinessRulesEvaluator(
+        plugin_slug="salingo_routing",
+        mode="commit",
+        channel_slug=channel_slug
+    )
     routing.evaluate_rules()
 
 
@@ -114,3 +119,13 @@ def publication_flow():
     calculate_prices()
     rotate_channels()
 
+    # megapacks flow
+    if bundable_products(channel_slug='bundled').count() < 500:
+        return
+
+    create_megapacks(
+        source_channel_slug='bundled',
+        megapack_channel_slug='clothes4you'
+    )
+    calculate_and_save_megapack_prices()
+    rotate_channels(channel_slug='clothes4you')

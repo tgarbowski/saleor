@@ -36,9 +36,10 @@ logger = logging.getLogger(__name__)
 
 
 class BusinessRulesEvaluator:
-    def __init__(self, plugin_slug, mode):
+    def __init__(self, plugin_slug, mode, channel_slug=None):
         self.plugin_slug = plugin_slug
         self.mode = mode
+        self.channel_slug = channel_slug
 
     def evaluate_rules(self):
         sorted_configs = self.get_sorted_configs()
@@ -76,6 +77,9 @@ class BusinessRulesEvaluator:
 
     def get_sorted_configs(self):
         configs = PluginConfiguration.objects.filter(identifier=self.plugin_slug, active=True)
+        if self.channel_slug:
+            configs = configs.filter(channel__slug=self.channel_slug)
+
         configs_dict = []
         for config in configs:
             config = {item["name"]: item["value"] for item in config.configuration}
