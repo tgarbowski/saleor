@@ -12,7 +12,7 @@ from saleor.salingo.megapack import bundable_products, create_megapacks, calcula
 from saleor.product.models import Product, ProductChannelListing, ProductVariant
 from saleor.salingo.sql.raw_sql import duplicated_products
 from saleor.salingo.remover import delete_products, remove_background_with_backup
-from saleor.salingo.utils import date_x_days_before, datetime_x_days_before
+from saleor.salingo.utils import date_x_days_before
 
 
 logger = logging.getLogger(__name__)
@@ -60,8 +60,7 @@ def remove_test_products():
 def remove_products_with_no_media():
     variants = ProductVariant.objects.annotate(workstation=Substr('sku', 1, 2)).filter(
         workstation__in=workstations,
-        product__media__isnull=True,
-        product__created__lte=datetime_x_days_before(days=1)
+        product__media__isnull=True
     )
 
     product_ids = list(variants.values_list("product_id", flat=True))
