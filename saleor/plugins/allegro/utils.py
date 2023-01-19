@@ -333,12 +333,16 @@ class AllegroErrorHandler:
         if errors:
             product_channel_listing.is_published = False
             product_channel_listing.publication_date = None
+            product_channel_listing.available_for_purchase = None
+            product_channel_listing.visible_in_listings = False
             product.store_value_in_private_metadata({'publish.allegro.errors': errors})
         else:
             product_channel_listing.is_published = True
             product_channel_listing.publication_date = get_date_now()
+            product_channel_listing.available_for_purchase = get_date_now()
+            product_channel_listing.visible_in_listings = True
             product.store_value_in_private_metadata({'publish.allegro.errors': []})
-        product_channel_listing.save(update_fields=["is_published", "publication_date"])
+        product_channel_listing.save()
         product.save(update_fields=["private_metadata"])
 
     @staticmethod
