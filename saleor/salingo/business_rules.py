@@ -478,6 +478,9 @@ class PricingExecutors:
 
 
 class Resolvers:
+    @classmethod
+    def resolve_clothes4you(cls, cursor):
+        return cls.get_products_custom_dict(channel='clothes4you', cursor=cursor)
 
     @classmethod
     def resolve_unpublished(cls, cursor):
