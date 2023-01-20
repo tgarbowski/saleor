@@ -275,6 +275,9 @@ class AllegroProductPublishValidator:
             self.errors.append('002: stan magazynowy produktu wynosi 0')
 
     def is_location(self):
+        if self.product.product_type.name == 'Mega Paka':
+            return
+
         if self.product_variant.private_metadata.get('location') is None:
             self.errors.append('003: brak lokacji magazynowej dla produktu')
 
