@@ -133,8 +133,20 @@ class AllegroProductMapper:
 
     @staticmethod
     def parse_list_to_map(list_in):
-        return {item['data']['text'].split(":")[0]: item['data']['text'].split(":")[1].strip() for item
-                in list_in[1:] if len(item['data']['text'].split(':')) > 1}
+        attributes_map = {}
+        for item in list_in:
+            try:
+                val = item['data'].get('text') or str(item['data'].get('items')[0])
+                splitted_key_value = val.split(":")
+                if len(splitted_key_value) <= 1:
+                    continue
+                key = splitted_key_value[0]
+                value = splitted_key_value[1].strip()
+                attributes_map[key] = value
+            except:
+                continue
+
+        return attributes_map
 
     def set_description(self, product):
         product_sections = []
