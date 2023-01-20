@@ -77,9 +77,16 @@ class AllegroAPI:
         duration = token_expire - datetime.now()
         return divmod(duration.total_seconds(), 3600)[0]
 
+    def get_allegro_category_id(self, product):
+        if product.product_type.name == 'Mega Paka':
+            categories_list = product.product_type.metadata.get('allegro_mapping.categories')
+            category_id = categories_list[product.category.name]
+        else:
+            category_id = product.product_type.metadata.get('allegro.mapping.categoryId')
+        return category_id
+
     def prepare_offer(self, saleor_product, starting_at, offer_type, product_images, parameters_type):
-        category_id = saleor_product.product_type.metadata.get(
-            'allegro.mapping.categoryId')
+        category_id = self.get_allegro_category_id(saleor_product)
         require_parameters = self.get_require_parameters(category_id, parameters_type)
         parameters_mapper = ParametersMapperFactory().get_mapper(self.channel)
         parameters = parameters_mapper.set_product(
@@ -103,8 +110,7 @@ class AllegroAPI:
         return product
 
     def prepare_product_parameters(self, saleor_product, parameters_type):
-        category_id = saleor_product.product_type.metadata.get(
-            'allegro.mapping.categoryId')
+        category_id = self.get_allegro_category_id(saleor_product)
         require_parameters = self.get_require_parameters(category_id, parameters_type)
         self.require_parameters = require_parameters
         parameters_mapper = ParametersMapperFactory().get_mapper(self.channel)
@@ -116,8 +122,7 @@ class AllegroAPI:
     def prepare_product(self, saleor_product, parameters, product_images):
         product_mapper = ProductMapperFactory().get_mapper(self.channel)
 
-        category_id = saleor_product.product_type.metadata.get(
-            'allegro.mapping.categoryId')
+        category_id = self.get_allegro_category_id(saleor_product)
 
         product = product_mapper.set_saleor_product(saleor_product) \
             .set_saleor_images(product_images) \
