@@ -1,6 +1,7 @@
 from asyncio import run
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+import json
 import logging
 import re
 from typing import List, Dict
@@ -689,7 +690,12 @@ def bulk_log_to_private_metadata(product_messages: Dict, key: str, obj_type: str
         if obj_type == 'list':
             field = x.private_metadata.get(key)
             if field:
-                field.append(message)
+                if not isinstance(field, list):
+                    try:
+                        x.private_metadata[key] = json.loads(field.replace('\'', '\"'))
+                        x.private_metadata[key].append(message)
+                    except:
+                        continue
             else:
                 x.private_metadata[key] = [message]
         else:
