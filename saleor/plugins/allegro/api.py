@@ -394,7 +394,7 @@ class AllegroAPI:
         return require_params
 
     def upload_images(self, product_images):
-        images_url = [pi.replace('/media', '') for pi in product_images]
+        images_url = [pi.replace('/media', '') for pi in product_images][:16]
         return [self.upload_image(image_url) for image_url in images_url]
 
     def upload_image(self, url):
@@ -690,17 +690,10 @@ class AllegroAPI:
         must_assign_offer_to_product = False
         if 'error' in offer:
             self.errors.append(offer.get('error_description'))
-            AllegroErrorHandler.update_errors_in_private_metadata(
-                saleor_product,
-                [error for error in self.errors],
-                self.channel
-            )
+            AllegroErrorHandler.update_errors_in_private_metadata(saleor_product, self.errors, self.channel)
         elif 'errors' in offer:
-            self.errors += offer['errors']
-            AllegroErrorHandler.update_errors_in_private_metadata(
-                saleor_product,
-                [error.get('message') for error in self.errors],
-                self.channel)
+            self.errors += [error.get('message') for error in offer['errors']]
+            AllegroErrorHandler.update_errors_in_private_metadata(saleor_product, self.errors, self.channel)
         elif offer['validation'].get('errors') is not None:
             if len(offer['validation'].get('errors')) > 0:
                 for error in offer['validation'].get('errors'):
