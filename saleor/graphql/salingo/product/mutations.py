@@ -17,7 +17,7 @@ from saleor.product import models
 from saleor.core.permissions import ProductPermissions
 from saleor.graphql.core.types.common import MetadataError, ProductError
 from saleor.salingo.images import BackupImageRetrieval
-from saleor.graphql.meta.mutations import UpdatePrivateMetadata
+from saleor.graphql.meta.mutations import DeletePrivateMetadata, UpdatePrivateMetadata, _save_instance
 from saleor.salingo.megapack import (
     bulk_allegro_offers_unpublish, get_allegro_sold_validation_message, process_megapack
 )
@@ -258,20 +258,30 @@ class UpdateMegapackPrivateMetadata(UpdatePrivateMetadata):
     @classmethod
     def perform_mutation(cls, root, info, **data):
         instance = cls.get_instance(info, **data)
+
         if instance:
             metadata_list = data.pop("input")
             cls.validate_metadata_keys(metadata_list)
             items = {data.key: data.value for data in metadata_list}
             skus = items['skus']
             skus = cls.delete_duplicated_skus(skus)
-            products_sold_in_allegro = bulk_allegro_offers_unpublish(skus, instance)
-            skus = [product for product in skus if product not in products_sold_in_allegro]
-            process_megapack(skus=skus, megapack=instance)
+            items = {k: v for k, v in items.items() if k not in ['bundle.content', 'skus']}
+            products_sold_in_allegro = []
+            if not cls.is_list_same(skus, instance.private_metadata.get('skus')):
+                products_sold_in_allegro = bulk_allegro_offers_unpublish(skus, instance)
+                skus = [product for product in skus if product not in products_sold_in_allegro]
+                process_megapack(skus=skus, megapack=instance)
+            instance.store_value_in_private_metadata(items=items)
+            instance.save(update_fields=["private_metadata"])
 
             if products_sold_in_allegro:
                 cls.raise_sold_in_allegro_error_and_save_error(products_sold_in_allegro, instance)
 
         return cls.success_response(instance)
+
+    @classmethod
+    def is_list_same(cls, list_a, list_b):
+        return set(list_a) == set(list_b)
 
     @classmethod
     def delete_duplicated_skus(cls, skus):
@@ -290,3 +300,22 @@ class UpdateMegapackPrivateMetadata(UpdatePrivateMetadata):
                 code=MetadataErrorCode.MEGAPACK_ASSIGNED.value,
             )
         })
+
+
+class DeleteMegapackPrivateMetadata(DeletePrivateMetadata):
+    class Meta:
+        description = "Delete object's private metadata."
+        permission_map = PRIVATE_META_PERMISSION_MAP
+        error_type_class = MetadataError
+        error_type_field = "metadata_errors"
+
+    @classmethod
+    def perform_mutation(cls, root, info, **data):
+        instance = cls.get_instance(info, **data)
+        if instance:
+            metadata_keys = data.pop("keys")
+            for key in metadata_keys:
+                if key not in ['bundle.content', 'skus']:
+                    instance.delete_value_from_private_metadata(key)
+            _save_instance(instance, "private_metadata")
+        return cls.success_response(instance)
