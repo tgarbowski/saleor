@@ -5,7 +5,7 @@ from saleor.page import models as pageModels
 from saleor.product import models as productModels
 from saleor.product.models import ALL_PRODUCTS_PERMISSIONS
 from .mutations import (
-    ProductBulkClearWarehouseLocation, ProductMediaRetrieveFromBackup,
+    DeleteMegapackPrivateMetadata, ProductBulkClearWarehouseLocation, ProductMediaRetrieveFromBackup,
     ProductBulkPublish, UpdateMegapackPrivateMetadata
 )
 from saleor.graphql.core.fields import FilterConnectionField
@@ -78,3 +78,4 @@ class ProductMutations(graphene.ObjectType):
     product_media_retrieve_from_backup = ProductMediaRetrieveFromBackup.Field()
     product_bulk_publish = ProductBulkPublish.Field()
     update_megapack_private_metadata = UpdateMegapackPrivateMetadata.Field()
+    delete_megapack_private_metadata = DeleteMegapackPrivateMetadata.Field()
