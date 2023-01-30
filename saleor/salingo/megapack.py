@@ -3,7 +3,7 @@ from datetime import date
 import json
 import math
 import uuid
-from typing import List
+from typing import List, Set
 
 from botocore.exceptions import ClientError
 from measurement.measures import Mass
@@ -179,7 +179,8 @@ class Megapack:
 
     def create_description_json_for_megapack(self):
         description_json = generate_description_json_for_megapack(
-            self.megapack.private_metadata.get("bundle.content")
+            self.megapack.private_metadata.get("bundle.content"),
+            self.megapack.private_metadata.get('bundle.sizes')
         )
         self.megapack.description = description_json
 
@@ -230,8 +231,8 @@ class Megapack:
 @dataclass
 class BundlableProducts:
     weight: Mass
-    product_ids: [int]
-    size: str
+    product_ids: List[int]
+    size: Set[str]
     sort_order: int
     name: str = None
 
@@ -264,23 +265,11 @@ class MegapackBulkCreate:
                 products = self.split_same_sizes(products_by_size)
                 products = self.accumulate_min_weight_sizes(products)
                 self.name_packs(products, category.name, sizable_attribute)
-                final_output = self.final_output(products)
 
                 if category.name not in packs_by_categories:
-                    packs_by_categories[category.name] = {}
-                packs_by_categories[category.name].update(final_output)
+                    packs_by_categories[category.name] = []
+                packs_by_categories[category.name].extend(products)
         return packs_by_categories
-
-    def final_output(self, packs):
-        output = {}
-
-        for pack in packs:
-            pack_name = pack.name
-            if pack_name in output:
-                random_str = uuid.uuid4().hex.upper()[0:4]
-                pack_name = f'{pack_name} {random_str}'
-            output[pack_name] = pack.product_ids
-        return output
 
     def divide_chunks(self, a, n):
         k, m = divmod(len(a), n)
@@ -313,7 +302,7 @@ class MegapackBulkCreate:
                 BundlableProducts(
                     weight=weight,
                     product_ids=products,
-                    size=products_by_size.size,
+                    size=products_by_size.size.copy(),
                     sort_order=products_by_size.sort_order
                 )
             )
@@ -323,7 +312,7 @@ class MegapackBulkCreate:
         for i, size in reversed(list(enumerate(products_by_size))):
             if size.weight.kg < self.min_weight and i > 0:
                 products_by_size[i - 1].weight += size.weight
-                products_by_size[i - 1].size += f' {size.size}'
+                products_by_size[i - 1].size.update(size.size)
                 products_by_size[i - 1].product_ids.extend(size.product_ids)
                 products_by_size[i] = None
 
@@ -333,7 +322,8 @@ class MegapackBulkCreate:
         attribute_suffix = self.get_attribute_suffix(sizable_attribute)
 
         for pack in packs:
-            pack.name = f'{category_name} {attribute_suffix} {pack.size}'
+            sizes = ' '.join(pack.size)
+            pack.name = f'{category_name} {attribute_suffix} rozmiar {sizes}'
 
         return packs
 
@@ -384,7 +374,6 @@ class MegapackBulkCreate:
             )
         ))
 
-
         output = []
 
         for products in products_by_size:
@@ -392,7 +381,7 @@ class MegapackBulkCreate:
 
             prod = BundlableProducts(
                 product_ids=products['product_ids'],
-                size=products['name'],
+                size={products['name']},
                 weight=weight,
                 sort_order=products['sort_order']
             )
@@ -408,13 +397,14 @@ def create_megapacks(source_channel_slug: str, megapack_channel_slug: str):
         for megapack in megapacks_per_categories[megapack_per_category]:
             megapack_product = create_bundle_product(
                 channel_slug=megapack_channel_slug,
-                product_name=megapack,
+                product_name=megapack.name,
                 category_name=megapack_per_category
             )
-            product_ids = megapacks_per_categories[megapack_per_category][megapack]
+
+            save_bundle_sizes_metadata(megapack_product, megapack.size)
 
             process_megapack(
-                skus=product_ids_to_skus(product_ids),
+                skus=product_ids_to_skus(megapack.product_ids),
                 megapack=megapack_product
             )
 
@@ -430,6 +420,12 @@ def create_bundle_product(channel_slug, product_name, category_name):
     product = create_product(megapack_sku, product_name, product_type, category, channel, warehouse)
     update_product_search_document(product)
     return product
+
+
+def save_bundle_sizes_metadata(product: Product, sizes: Set):
+    sizes_str = ' '.join(sizes)
+    product.store_value_in_private_metadata({'bundle.sizes': sizes_str})
+    product.save()
 
 
 def daily_products_count_by_user(workstation: str, user_id: str) -> int:
@@ -546,7 +542,7 @@ def get_allegro_sold_validation_message(skus_sold_or_bid):
     return validation_message
 
 
-def generate_description_json_for_megapack(bundle_content):
+def generate_description_json_for_megapack(bundle_content, sizes=None):
     description_json = {}
     blocks = []
     description_values = {"data": {"text": "Zawartość megapaki: ", "level": 2},
@@ -578,6 +574,11 @@ def generate_description_json_for_megapack(bundle_content):
     summary_txt = f'  razem: {products_amount} szt., {round(products_weight, 2)} kg'
     list_fragment["data"]["items"].append(summary_txt)
     blocks.append(list_fragment)
+
+    if sizes:
+        size_text = f'Rozmiary: {sizes}'
+        size_list_fragment = {"data": {"style": "unorder", "items": [size_text]}, "type": "list"}
+        blocks.append(size_list_fragment)
 
     description_json["blocks"] = blocks
     description_json["entityMap"] = {}
