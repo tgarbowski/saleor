@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import datetime, timedelta
+import traceback
 
 from ...celeryconf import app
 from .api import AllegroAPI
@@ -59,26 +60,36 @@ def check_bulk_unpublish_status_task(unique_id):
 
 @app.task()
 def publish_products(product_id, offer_type, starting_at, products_bulk_ids, channel):
+    try:
+        _publish_products(product_id, offer_type, starting_at, channel)
+    except Exception:
+        exception_lines = traceback.format_exc().splitlines()[-3:]
+        msg = ''.join(exception_lines)
+        product = Product.objects.get(pk=product_id)
+        AllegroErrorHandler.update_errors_in_private_metadata(
+            product=product, channel=channel, errors=[msg]
+        )
+
+    if products_bulk_ids:
+        email_errors(products_bulk_ids)
+
+
+def _publish_products(product_id, offer_type, starting_at, channel):
     allegro_api = AllegroAPI(channel)
 
     saleor_product = Product.objects.get(pk=product_id)
     saleor_product.delete_value_from_private_metadata('publish.allegro.errors')
-    saleor_product.save()
-
-    validator = AllegroProductPublishValidator(product=saleor_product, channel=channel)
-
-    if validator.validate():
-        saleor_product.store_value_in_private_metadata(
-            {'publish.allegro.status': ProductPublishState.MODERATED.value,
-             'publish.status.date': get_datetime_now()})
-        saleor_product.save(update_fields=["private_metadata"])
-        return
-
     saleor_product.store_value_in_private_metadata(
         {'publish.allegro.status': ProductPublishState.MODERATED.value,
          'publish.type': offer_type,
-         'publish.status.date': get_datetime_now()})
-    saleor_product.save()
+         'publish.status.date': get_datetime_now()
+         }
+    )
+    saleor_product.save(update_fields=["private_metadata"])
+
+    validator = AllegroProductPublishValidator(product=saleor_product, channel=channel)
+    if validator.validate():
+        return
 
     product_images = get_product_media_urls(product=saleor_product)
     publication_date = saleor_product.get_value_from_private_metadata("publish.allegro.date")
@@ -95,8 +106,6 @@ def publish_products(product_id, offer_type, starting_at, products_bulk_ids, cha
                 saleor_product,
                 [error for error in allegro_api.errors],
                 channel)
-
-            if products_bulk_ids: email_errors(products_bulk_ids)
             return
         # Save errors if they exist
         err_handling_response = allegro_api.error_handling(offer, saleor_product)
@@ -137,9 +146,6 @@ def publish_products(product_id, offer_type, starting_at, products_bulk_ids, cha
                 allegro_api.error_handling(offer, saleor_product)
             else:
                 allegro_api.error_handling_product(propose_product, saleor_product)
-
-        if products_bulk_ids:
-            email_errors(products_bulk_ids)
         return
     # Update offer
     offer_id = saleor_product.private_metadata.get('publish.allegro.id')
@@ -186,8 +192,6 @@ def publish_products(product_id, offer_type, starting_at, products_bulk_ids, cha
                 allegro_api.error_handling(offer, saleor_product)
             else:
                 allegro_api.error_handling_product(propose_product, saleor_product)
-
-    if products_bulk_ids: email_errors(products_bulk_ids)
 
 
 @app.task()
