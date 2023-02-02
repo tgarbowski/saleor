@@ -260,21 +260,21 @@ class AllegroParametersMapper(BaseParametersMapper):
 
     def get_allegro_parameter(self, parameter):
         mapped_parameter_key = self.get_mapped_parameter_key(parameter)
-        mapped_parameter_value = self.get_value_from_product_type_metadata(str(mapped_parameter_key))
+        mapped_parameter_product_value = self.get_value_from_product_attributes(mapped_parameter_key)
 
         slugified_parameter = slugify(parameter)
         slugified_mapped_parameter_key = slugify(mapped_parameter_key)
 
-        allegro_parameter = self.create_allegro_parameter(slugified_parameter, mapped_parameter_value)
+        allegro_parameter = self.create_allegro_parameter(slugified_parameter, mapped_parameter_product_value)
 
         if allegro_parameter is None:
-            mapped_parameter_value = self.get_value_from_product_attributes(mapped_parameter_key)
+            mapped_parameter_value = self.get_value_from_product_type_metadata(str(mapped_parameter_key))
             allegro_parameter = self.create_allegro_parameter(slugified_parameter, mapped_parameter_value)
 
         if allegro_parameter is None:
             mapped_parameter_value = self.get_value_one_to_one_global(
                 slugified_mapped_parameter_key,
-                mapped_parameter_value
+                mapped_parameter_product_value
             )
             allegro_parameter = self.create_allegro_parameter(slugified_parameter, mapped_parameter_value)
 
