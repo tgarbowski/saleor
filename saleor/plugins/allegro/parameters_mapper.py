@@ -78,7 +78,14 @@ class BaseParametersMapper:
     def create_allegro_parameter(self, mapped_parameter_key, mapped_parameter_value):
         key = self.get_allegro_key(mapped_parameter_key)
 
-        if not mapped_parameter_value or not key or self.is_parameter_ambigous_and_custom(key):
+        if (
+            not mapped_parameter_value
+            or not key
+            or (
+                self.is_parameter_ambigous_and_custom(key)
+                and self.is_parameter_value_ambigous(key, mapped_parameter_value)
+            )
+        ):
             return
 
         if key.get('dictionary') is None:
@@ -94,6 +101,12 @@ class BaseParametersMapper:
         required_for_product = key.get('requiredForProduct')
         custom_options_enabled = key.get('options', {}).get('customValuesEnabled')
         return all([ambigous_value_id, required_for_product, custom_options_enabled])
+
+    def is_parameter_value_ambigous(self, key, value):
+        ambigous_value_id = key.get('options', {}).get('ambiguousValueId')
+        ambigous_dict = next((value for value in key['dictionary'] if value["id"] == ambigous_value_id))
+        ambigous_value = ambigous_dict.get('value')
+        return ambigous_value.lower() == value.lower()
 
     def get_allegro_key(self, key):
         return next((param for param in self.require_parameters if slugify(param["name"]) == key), None)
@@ -256,7 +269,7 @@ class AllegroParametersMapper(BaseParametersMapper):
 
         if allegro_parameter is None:
             mapped_parameter_value = self.get_value_from_product_attributes(mapped_parameter_key)
-            self.create_allegro_parameter(slugified_parameter, mapped_parameter_value)
+            allegro_parameter = self.create_allegro_parameter(slugified_parameter, mapped_parameter_value)
 
         if allegro_parameter is None:
             mapped_parameter_value = self.get_value_one_to_one_global(
