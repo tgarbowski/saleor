@@ -4288,6 +4288,7 @@ type Order implements Node & ObjectWithMetadata {
   id: ID!
   privateMetadata: [MetadataItem]!
   metadata: [MetadataItem]!
+  wmsDocuments: [WmsDocument]!
   created: DateTime!
   updatedAt: DateTime!
   status: OrderStatus!
@@ -4301,7 +4302,6 @@ type Order implements Node & ObjectWithMetadata {
   fulfillments: [Fulfillment]!
   lines: [OrderLine]!
   actions: [OrderAction]!
-  wmsDocuments: [WmsDocument]!
   availableShippingMethods: [ShippingMethod] @deprecated(reason: "Use `shippingMethods`, this field will be removed in 4.0")
   shippingMethods: [ShippingMethod]
   availableCollectionPoints: [Warehouse!]!

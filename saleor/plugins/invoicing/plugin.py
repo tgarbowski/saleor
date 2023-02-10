@@ -14,7 +14,7 @@ from ..base_plugin import BasePlugin, ConfigurationTypeField
 from .utils import (generate_invoice_number, generate_invoice_pdf,
                     generate_correction_invoice_pdf,
                     generate_correction_invoice_number)
-from saleor.plugins.allegro.utils import get_plugin_configuration
+from saleor_gs.saleor.plugins.allegro.utils import get_plugin_configuration
 
 
 @dataclass

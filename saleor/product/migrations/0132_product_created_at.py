@@ -2,7 +2,7 @@
 
 from django.db import migrations, models
 
-from saleor.salingo.utils import read_sql_from_file
+from saleor_gs.saleor.salingo.utils import read_sql_from_file
 
 
 class Migration(migrations.Migration):

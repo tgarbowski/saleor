@@ -129,11 +129,11 @@ from ..warehouse.models import (
 from ..webhook.event_types import WebhookEventAsyncType, WebhookEventSyncType
 from ..webhook.models import Webhook, WebhookEvent
 from .utils import dummy_editorjs
-from saleor.graphql.salingo.wms.tests.fixtures import (
+from saleor_gs.saleor.graphql.salingo.wms.tests.fixtures import (
     wms_document, wms_docposition, setup_wms, permission_manage_wmsdocument, wms_deliverer,
     wms_document_list, wms_document_2
 )
-from saleor.plugins.allegro.tests.fixtures import (
+from saleor_gs.saleor.plugins.allegro.tests.fixtures import (
     external_order_app, smart_voucher, allegro_shipping_method, allegro_order, order_app_api_client
 )
 
