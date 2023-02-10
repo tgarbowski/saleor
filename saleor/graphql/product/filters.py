@@ -9,7 +9,8 @@ from django.db.models.expressions import ExpressionWrapper
 from django.db.models.fields import IntegerField
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
-from django.core.exceptions import ValidationError
+from saleor_gs.saleor.graphql.salingo.product.filters import filter_sales, filter_warehouse_location
+from saleor_gs.saleor.graphql.salingo.product.types import WarehouseLocationRangeInput
 
 from ...attribute import AttributeInputType
 from ...attribute.models import (
@@ -32,8 +33,6 @@ from ...product.models import (
     ProductVariant,
     ProductVariantChannelListing,
 )
-import saleor.graphql.discount.types as discount_types
-from ...discount.models import Sale
 from ...product.search import search_products
 from ...warehouse.models import Allocation, Stock, Warehouse
 from ..channel.filters import get_channel_slug_from_filter_data
@@ -45,7 +44,7 @@ from ..core.filters import (
     ObjectTypeFilter,
 )
 from ..core.types import ChannelFilterInputObjectType, FilterInputObjectType
-from ..core.types.common import DateRangeInput, DateTimeRangeInput, IntRangeInput, PriceRangeInput, WarehouseLocationRangeInput
+from ..core.types.common import DateRangeInput, DateTimeRangeInput, IntRangeInput, PriceRangeInput
 from ..utils import resolve_global_ids_to_primary_keys
 from ..utils.filters import filter_by_id, filter_range_field
 from ..warehouse import types as warehouse_types
@@ -309,11 +308,6 @@ def filter_products_by_collections(qs, collection_pks):
     return qs.filter(Exists(collection_products.filter(product_id=OuterRef("pk"))))
 
 
-def filter_products_by_sales(qs, sale_ids):
-    sales = Sale.objects.filter(pk__in=sale_ids).values('products')
-    return qs.filter(Exists(sales.filter(products=OuterRef("pk"))))
-
-
 def filter_products_by_stock_availability(qs, stock_availability, channel_slug):
     allocations = (
         Allocation.objects.values("stock_id")
@@ -335,54 +329,6 @@ def filter_products_by_stock_availability(qs, stock_availability, channel_slug):
         qs = qs.filter(Exists(variants.filter(product_id=OuterRef("pk"))))
     if stock_availability == StockAvailability.OUT_OF_STOCK:
         qs = qs.filter(~Exists(variants.filter(product_id=OuterRef("pk"))))
-    return qs
-
-
-def filter_by_warehouse_locations(qs, warehouse_from=None, warehouse_to=None):
-    # TODO: move validation somewhere else
-    if warehouse_from == "0" and warehouse_to == "0":
-        variants = ProductVariant.objects.extra(
-            where=[
-                "private_metadata->>'location' = '' "
-                "or private_metadata->>'location' is NULL"
-            ],
-        ).values("product_id")
-        qs = qs.filter(Exists(variants.filter(product_id=OuterRef("pk"))))
-
-        return qs
-    try:
-        type_with_number_from = warehouse_from.split("K")[0]
-        type_with_number_to = warehouse_to.split("K")[0]
-        box_from = int(warehouse_from.split("K")[1])
-        box_to = int(warehouse_to.split("K")[1])
-    except (IndexError, ValueError):
-        raise ValidationError(
-            "Wrong warehouse location format in filter",
-            code="ValidationError",
-        )
-
-    if (    type_with_number_from != type_with_number_to
-        or 'K' not in warehouse_from
-        or 'K' not in warehouse_to
-        or '#' not in warehouse_from
-        or '#' not in warehouse_to
-        or box_from > box_to
-        ):
-        raise ValidationError(
-            "Wrong warehouse location format in filter",
-            code="ValidationError",
-        )
-
-    variants = ProductVariant.objects.extra(
-        where=[
-            "private_metadata->>'location' like %s",
-            "(split_part(private_metadata->>'location','K',2))::int between %s and %s"
-        ],
-        params=[f'{type_with_number_from}%', box_from, box_to]
-    ).values("product_id")
-
-    qs = qs.filter(Exists(variants.filter(product_id=OuterRef("pk"))))
-
     return qs
 
 
@@ -424,15 +370,6 @@ def filter_categories(qs, _, value):
             value, product_types.Category
         )
         qs = filter_products_by_categories(qs, category_pks)
-    return qs
-
-
-def filter_sales(qs, _, value):
-    if value:
-        _, sale_pks = resolve_global_ids_to_primary_keys(
-            value, discount_types.Sale
-        )
-        qs = filter_products_by_sales(qs, sale_pks)
     return qs
 
 
@@ -640,10 +577,6 @@ def filter_allegro_status(qs, _, value):
 
 def filter_created_range(qs, _, value):
     return filter_range_field(qs, "created__date", value)
-
-
-def filter_warehouse_location(qs, _, value):
-    return filter_by_warehouse_locations(qs, warehouse_from=value.get("gte"), warehouse_to=value.get("lte"))
 
 
 class ProductStockFilterInput(graphene.InputObjectType):

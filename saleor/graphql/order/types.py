@@ -9,8 +9,7 @@ from django.core.exceptions import ValidationError
 from graphene import relay
 from promise import Promise
 
-from saleor.graphql.salingo.wms.dataloaders import WmsDocumentsByOrderIdLoader
-from saleor.graphql.salingo.wms.types import WmsDocument
+from saleor_gs.saleor.graphql.salingo.order.types import ExternalOrder
 from ...account.models import Address
 from ...checkout.utils import get_external_shipping_id
 from ...core.anonymize import obfuscate_address, obfuscate_email
@@ -618,7 +617,7 @@ class OrderLine(ModelObjectType):
         return AllocationsByOrderLineIdLoader(info.context).load(root.id)
 
 
-class Order(ModelObjectType):
+class Order(ModelObjectType, ExternalOrder):
     id = graphene.GlobalID(required=True)
     created = graphene.DateTime(required=True)
     updated_at = graphene.DateTime(required=True)
@@ -642,9 +641,6 @@ class Order(ModelObjectType):
             "List of actions that can be performed in the current state of an order."
         ),
         required=True,
-    )
-    wms_documents = graphene.List(
-        WmsDocument, required=True, description="List of wms documents for the order."
     )
     available_shipping_methods = graphene.List(
         ShippingMethod,
@@ -984,18 +980,6 @@ class Order(ModelObjectType):
             FulfillmentsByOrderIdLoader(info.context)
             .load(root.id)
             .then(_resolve_fulfillments)
-        )
-
-    @staticmethod
-    def resolve_wms_documents(root: models.Order, info):
-        def _resolve_wms_documents(wms_documents):
-            return wms_documents
-
-
-        return (
-            WmsDocumentsByOrderIdLoader(info.context)
-            .load(root.id)
-            .then(_resolve_wms_documents)
         )
 
     @staticmethod

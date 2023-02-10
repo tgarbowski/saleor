@@ -31,7 +31,7 @@ from ...site import error_codes as site_error_codes
 from ...warehouse import error_codes as warehouse_error_codes
 from ...webhook import error_codes as webhook_error_codes
 from ..notifications import error_codes as external_notifications_error_codes
-from ...wms import error_codes as wms_error_codes
+from saleor_gs.saleor.wms import error_codes as wms_error_codes
 from .utils import str_to_enum
 
 
