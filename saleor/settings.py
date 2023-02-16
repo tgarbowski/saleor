@@ -598,7 +598,8 @@ if APP_ENVIRONMENT in ['production']:
                     'salingo-man': "2022-09-28T19:00:00",
                     'salingo-woman': "2022-10-04T13:58:00",
                     'salingo-kids': "2022-10-04T09:57:00",
-                    'allegro': '2022-10-25T14:00:00'
+                    'allegro': '2022-10-25T14:00:00',
+                    'salingo-hurt': '2023-01-01T14:00:00'
                 },
             )
         }
