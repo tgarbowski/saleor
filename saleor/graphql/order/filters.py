@@ -3,7 +3,6 @@ from django.db.models import Exists, IntegerField, OuterRef, Q
 from django.db.models.functions import Cast
 from django.utils import timezone
 
-from ..salingo.wms.filters import filter_wms_documents
 from ...giftcard import GiftCardEvents
 from ...giftcard.models import GiftCardEvent
 from ...order.models import Order, OrderLine
@@ -21,6 +20,7 @@ from ..payment.enums import PaymentChargeStatusEnum
 from ..utils import resolve_global_ids_to_primary_keys
 from ..utils.filters import filter_by_id, filter_range_field
 from .enums import OrderStatusFilter
+from saleor_gs.saleor.graphql.salingo.wms.filters import filter_wms_documents
 
 
 def filter_payment_status(qs, _, value):

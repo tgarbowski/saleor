@@ -13,8 +13,8 @@ from ..core import JobStatus
 from . import events
 from .models import ExportEvent, ExportFile
 from .notifications import send_export_failed_info
-from .utils.export import export_gift_cards, export_products, export_tally_csv, \
-    export_miglo_csv
+from .utils.export import export_gift_cards, export_products
+
 
 task_logger = get_task_logger(__name__)
 
@@ -79,26 +79,6 @@ def export_gift_cards_task(
 ):
     export_file = ExportFile.objects.get(pk=export_file_id)
     export_gift_cards(export_file, scope, file_type, delimiter)
-
-
-@app.task(name="export-tally-csv", base=ExportTask)
-def export_tally_csv_task(
-    export_file_id: int,
-    month: str,
-    year: str,
-):
-    export_file = ExportFile.objects.get(pk=export_file_id)
-    export_tally_csv(export_file, month, year)
-
-
-@app.task(name="export-miglo-csv", base=ExportTask)
-def export_miglo_csv_task(
-    export_file_id: int,
-    month: str,
-    year: str,
-):
-    export_file = ExportFile.objects.get(pk=export_file_id)
-    export_miglo_csv(export_file, month, year)
 
 
 @app.task

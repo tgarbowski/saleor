@@ -15,12 +15,12 @@ from weasyprint import HTML
 from ...giftcard import GiftCardEvents
 from ...giftcard.models import GiftCardEvent
 from ...invoice.models import Invoice
-from saleor.graphql.salingo.invoice.utils import get_invoice_correct_payload
+from saleor_gs.saleor.graphql.salingo.invoice.utils import get_invoice_correct_payload
 from saleor.order.models import OrderLine
 from saleor.payment.utils import price_from_minor_unit, price_to_minor_unit
 from saleor.order import OrderStatus
 from ...order.utils import get_voucher_discount_for_order
-from ...salingo.discounts import get_manual_discounts_for_order
+from saleor_gs.saleor.salingo.discounts import get_manual_discounts_for_order
 
 MAX_PRODUCTS_WITH_TABLE = 3
 MAX_PRODUCTS_WITHOUT_TABLE = 4

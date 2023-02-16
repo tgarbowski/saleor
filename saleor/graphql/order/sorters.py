@@ -4,10 +4,10 @@ from django.db.models import CharField, ExpressionWrapper, OuterRef, QuerySet, S
 from ...payment.models import Payment
 from ..core.descriptions import DEPRECATED_IN_3X_INPUT
 from ..core.types import SortInputObjectType
-from ...wms.models import WmsDocument
+from saleor_gs.saleor.graphql.salingo.order.sorters import ExternalOrderSortField
 
 
-class OrderSortField(graphene.Enum):
+class OrderSortField(graphene.Enum, ExternalOrderSortField):
     NUMBER = ["pk"]
     CREATION_DATE = ["created", "status", "pk"]
     CREATED_AT = ["created", "status", "pk"]
@@ -44,17 +44,6 @@ class OrderSortField(graphene.Enum):
         )
         return queryset.annotate(
             last_charge_status=ExpressionWrapper(subquery, output_field=CharField())
-        )
-
-    @staticmethod
-    def qs_with_wmsdocument(queryset: QuerySet, **_kwargs) -> QuerySet:
-        subquery = Subquery(
-            WmsDocument.objects.filter(order=OuterRef("pk"))
-            .order_by("-pk")
-            .values_list("number")
-        )
-        return queryset.annotate(
-            wms_number=ExpressionWrapper(subquery, output_field=CharField())
         )
 
 

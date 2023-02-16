@@ -22,7 +22,7 @@ from sentry_sdk.integrations.logging import ignore_logger
 
 from . import patched_print_object
 from .core.languages import LANGUAGES as CORE_LANGUAGES
-from .salingo.utils import get_aws_secret
+from saleor_gs.saleor.salingo.utils import get_aws_secret
 
 
 def get_list(text):
@@ -240,8 +240,8 @@ INSTALLED_APPS = [
     "saleor.warehouse",
     "saleor.webhook",
     "saleor.app",
-    "saleor.salingo",
-    "saleor.wms",
+    "saleor_gs.saleor.salingo",
+    "saleor_gs.saleor.wms",
     # External apps
     "versatileimagefield",
     "django_measurement",
@@ -580,17 +580,17 @@ CELERY_BEAT_SCHEDULE = {
 if APP_ENVIRONMENT in ['production']:
     CELERY_BEAT_SCHEDULE.update({
         'refresh_token_task': {
-            'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
+            'task': 'saleor_gs.saleor.plugins.allegro.tasks.refresh_token_task',
             'schedule': 1800.0,
             'options': {'queue': CELERY_TASK_DEFAULT_QUEUE}
         },
         'publication_flow': {
-            'task': 'saleor.salingo.tasks.publication_flow',
+            'task': 'saleor_gs.saleor.salingo.tasks.publication_flow',
             'schedule': crontab(minute=30, hour=0),
             "options": {"queue": CELERY_LONG_TASKS_QUEUE}
         },
         'save_allegro_orders_task': {
-            'task': 'saleor.plugins.allegro.tasks.save_allegro_orders_task',
+            'task': 'saleor_gs.saleor.plugins.allegro.tasks.save_allegro_orders_task',
             'schedule': 600.0,
             "options": {"queue": CELERY_TASK_DEFAULT_QUEUE},
             'args': (
@@ -608,7 +608,7 @@ if APP_ENVIRONMENT in ['production']:
 if APP_ENVIRONMENT in ['development']:
     CELERY_BEAT_SCHEDULE.update({
         'save_allegro_orders_task': {
-            'task': 'saleor.plugins.allegro.tasks.save_allegro_orders_task',
+            'task': 'saleor_gs.saleor.plugins.allegro.tasks.save_allegro_orders_task',
             'schedule': 600.0,
             "options": {"queue": CELERY_TASK_DEFAULT_QUEUE},
             'args': (
@@ -616,7 +616,7 @@ if APP_ENVIRONMENT in ['development']:
             )
         },
         'refresh_token_task': {
-            'task': 'saleor.plugins.allegro.tasks.refresh_token_task',
+            'task': 'saleor_gs.saleor.plugins.allegro.tasks.refresh_token_task',
             'schedule': 1800.0,
             'options': {'queue': CELERY_TASK_DEFAULT_QUEUE}
         }
@@ -682,28 +682,30 @@ BUILTIN_PLUGINS = [
     "saleor.payment.gateways.adyen.plugin.AdyenGatewayPlugin",
     "saleor.payment.gateways.authorize_net.plugin.AuthorizeNetGatewayPlugin",
     "saleor.payment.gateways.np_atobarai.plugin.NPAtobaraiGatewayPlugin",
-    "saleor.payment.gateways.payu.plugin.PayuGatewayPlugin",
     "saleor.plugins.invoicing.plugin.InvoicingPlugin",
     "saleor.plugins.user_email.plugin.UserEmailPlugin",
     "saleor.plugins.admin_email.plugin.AdminEmailPlugin",
-    "saleor.plugins.sendgrid.plugin.SendgridEmailPlugin",
-    "saleor.plugins.allegro.plugin.AllegroPlugin",
-    "saleor.plugins.sumi.plugin.SumiPlugin",
-    "saleor.plugins.wms.plugin.WMSPlugin",
-    "saleor.plugins.dpd.plugin.DpdPlugin",
-    "saleor.plugins.salingo_routing.plugin.SalingoRoutingPlugin",
-    "saleor.plugins.salingo_pricing.plugin.SalingoPricingPlugin",
-    "saleor.plugins.salingo_pricing_global.plugin.SalingoPricingGlobalPlugin",
-    "saleor.plugins.allegro_global.plugin.AllegroGlobalPlugin",
-    "saleor.plugins.inpost.plugin.InpostPlugin",
-    "saleor.plugins.gls.plugin.GlsPlugin",
-    "saleor.plugins.product_listing.plugin.ProductListingPlugin",
-    "saleor.plugins.printservers.plugin.PrintserversPlugin",
-    "saleor.payment.gateways.cod.plugin.CodGatewayPlugin"
+    "saleor.plugins.sendgrid.plugin.SendgridEmailPlugin"
 ]
 
 # Plugin discovery
-EXTERNAL_PLUGINS = []
+EXTERNAL_PLUGINS = [
+    "saleor_gs.saleor.plugins.allegro.plugin.AllegroPlugin",
+    "saleor_gs.saleor.plugins.sumi.plugin.SumiPlugin",
+    "saleor_gs.saleor.plugins.wms.plugin.WMSPlugin",
+    "saleor_gs.saleor.plugins.dpd.plugin.DpdPlugin",
+    "saleor_gs.saleor.plugins.salingo_routing.plugin.SalingoRoutingPlugin",
+    "saleor_gs.saleor.plugins.salingo_pricing.plugin.SalingoPricingPlugin",
+    "saleor_gs.saleor.plugins.salingo_pricing_global.plugin.SalingoPricingGlobalPlugin",
+    "saleor_gs.saleor.plugins.allegro_global.plugin.AllegroGlobalPlugin",
+    "saleor_gs.saleor.plugins.inpost.plugin.InpostPlugin",
+    "saleor_gs.saleor.plugins.gls.plugin.GlsPlugin",
+    "saleor_gs.saleor.plugins.product_listing.plugin.ProductListingPlugin",
+    "saleor_gs.saleor.plugins.printservers.plugin.PrintserversPlugin",
+    "saleor_gs.saleor.plugins.cod.plugin.CodGatewayPlugin",
+    "saleor_gs.saleor.plugins.payu.plugin.PayuGatewayPlugin"
+]
+
 installed_plugins = pkg_resources.iter_entry_points("saleor.plugins")
 for entry_point in installed_plugins:
     plugin_path = "{}.{}".format(entry_point.module_name, entry_point.attrs[0])
