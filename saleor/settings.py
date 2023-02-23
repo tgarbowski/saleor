@@ -160,10 +160,12 @@ loaders = [
 ]
 
 TEMPLATES_DIR = os.path.join(PROJECT_ROOT, "templates")
+EXTERNAL_TEMPLATES_DIR = os.path.join(PROJECT_ROOT, "saleor_gs/templates/salingo")
+
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [TEMPLATES_DIR],
+        "DIRS": [EXTERNAL_TEMPLATES_DIR, TEMPLATES_DIR],
         "OPTIONS": {
             "debug": DEBUG,
             "context_processors": context_processors,
