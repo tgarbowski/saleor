@@ -29,7 +29,7 @@ click-didyoumean==0.3.0; python_full_version >= "3.6.2" and python_full_version 
 click-plugins==1.1.1; python_version >= "3.7"
 click-repl==0.2.0; python_version >= "3.7"
 click==8.0.4; python_version >= "3.7" and python_full_version >= "3.6.2" and python_full_version < "4.0.0"
-codecov==2.1.12; (python_version >= "2.7" and python_full_version < "3.0.0") or (python_full_version >= "3.4.0")
+codecov==2.1.13; (python_version >= "2.7" and python_full_version < "3.0.0") or (python_full_version >= "3.4.0")
 colorama==0.4.4; sys_platform == "win32" and python_version >= "3.7" and python_full_version >= "3.6.2" and (python_version >= "3.6" and python_full_version < "3.0.0" and sys_platform == "win32" or sys_platform == "win32" and python_version >= "3.6" and python_full_version >= "3.5.0") and (python_version >= "2.7" and python_full_version < "3.0.0" or python_full_version >= "3.5.0") and (python_version >= "2.7" and python_full_version < "3.0.0" and platform_system == "Windows" or python_full_version >= "3.5.0" and platform_system == "Windows") and (python_version >= "3.7" and python_full_version < "3.0.0" and platform_system == "Windows" or platform_system == "Windows" and python_version >= "3.7" and python_full_version >= "3.5.0")
 coverage==6.3.2; python_version >= "3.7"
 cryptography==36.0.1; python_version >= "3.6"
