@@ -112,7 +112,7 @@ An open-source storefront in React.js with Next.js. Built for Headless Commerce,
 
 ## Dashboard
 
-For dashboard go to the [saleor-dashboard](https://github.com/saleor/saleor-dashboard) repository.
+For dashboard go to the [saleor-dashboard](https://github.com/saleor/saleor-dashboard) repository. PR Test 123...
 
 [View dashboard demo](https://demo.saleor.io/dashboard/)
 
