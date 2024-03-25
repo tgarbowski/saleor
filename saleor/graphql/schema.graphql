@@ -112,6 +112,18 @@ type Query {
   """B64 encoded Warehouse pdf files"""
   warehouseListsGenerate(orderIds: [ID!], filters: OrderFilterInput): WarehousePdfFiles
 
+  """Get invoices created between startDate and endDate"""
+  invoices(
+    """Start date"""
+    startDate: DateTime!
+
+    """End date"""
+    endDate: DateTime!
+
+    """Number of invoices (max 1000)"""
+    limit: Int
+  ): [Invoice]
+
   """Look for a mega pack SKU number"""
   productVariantsSkus(
     """SKU matcher to get product_variants_count"""
