@@ -14613,6 +14613,19 @@ type Mutation {
   ): ExtInvoiceCorrectionRequest @doc(category: "Orders")
 
   """
+  Generate a zip file with invoices from given period 
+  
+  Requires one of the following permissions: MANAGE_ORDERS.
+  """
+  extInvoicesZipRequest(
+    """End date"""
+    endDate: DateTime!
+
+    """Start date"""
+    startDate: DateTime!
+  ): ExtInvoicesZipRequest
+
+  """
   Export products to csv file. 
   
   Requires one of the following permissions: MANAGE_ORDERS.
@@ -19547,6 +19560,16 @@ type ExtInvoiceCorrectionRequest @doc(category: "Orders") {
   invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
   errors: [InvoiceError!]!
   invoice: Invoice
+}
+
+"""
+Generate a zip file with invoices from given period 
+
+Requires one of the following permissions: MANAGE_ORDERS.
+"""
+type ExtInvoicesZipRequest {
+  invoiceErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [InvoiceError!]!
 }
 
 """
