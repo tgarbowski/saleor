@@ -161,6 +161,58 @@ type Query {
     pagesAmount: Int
   ): SitemapSlugs
 
+  """
+  List of the shop's products with filtering by warehouse location. Requires one of the following permissions to include the unpublished items: MANAGE_ORDERS, MANAGE_DISCOUNTS, MANAGE_PRODUCTS.
+  """
+  productsByWarehouseLocations(
+    """First warehouse location of products."""
+    locationFrom: String
+
+    """Last warehouse location of products."""
+    locationTo: String
+
+    """Filtering options for products."""
+    filter: ProductFilterInput
+
+    """
+    Where filtering options.
+    
+    Added in Saleor 3.14.
+    
+    Note: this API is currently in Feature Preview and can be subject to changes at later point.
+    """
+    where: ProductWhereInput
+
+    """Sort products."""
+    sortBy: ProductOrder
+
+    """
+    Search products.
+    
+    Added in Saleor 3.14.
+    """
+    search: String
+
+    """Slug of a channel for which the data should be returned."""
+    channel: String
+
+    """Return the elements in the list that come before the specified cursor."""
+    before: String
+
+    """Return the elements in the list that come after the specified cursor."""
+    after: String
+
+    """
+    Retrieve the first n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
+    """
+    first: Int
+
+    """
+    Retrieve the last n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
+    """
+    last: Int
+  ): ProductCountableConnection @doc(category: "Products")
+
   """Generates an url to redirect to payment gateway and complete payment"""
   generatePaymentUrl(
     """Payment ID."""
