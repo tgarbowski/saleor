@@ -164,7 +164,7 @@ type Query {
   """
   List of the shop's products with filtering by warehouse location. Requires one of the following permissions to include the unpublished items: MANAGE_ORDERS, MANAGE_DISCOUNTS, MANAGE_PRODUCTS.
   """
-  productsByWarehouseLocations(
+  productsExtended(
     """First warehouse location of products."""
     locationFrom: String
 
