@@ -14900,13 +14900,13 @@ type Mutation {
   
   Requires one of the following permissions: MANAGE_PRODUCTS.
   """
-  productChannelListingBulkUpdate(
+  productChannelListingBulkCreate(
     """ID of channel to publish product to."""
     channelId: ID!
 
     """List of products, product variants and prices to add to new channel."""
-    input: [ProductChannelListingBulkUpdateInput]!
-  ): ProductChannelListingBulkUpdate
+    input: [ProductChannelListingBulkCreateInput]!
+  ): ProductChannelListingBulkCreate
 
   """
   Creates a new webhook subscription. 
@@ -20078,7 +20078,7 @@ Add products to new channel with prices.
 
 Requires one of the following permissions: MANAGE_PRODUCTS.
 """
-type ProductChannelListingBulkUpdate {
+type ProductChannelListingBulkCreate {
   productChannelListingErrors: [ProductChannelListingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
   errors: [ProductChannelListingError!]!
 }
@@ -20108,7 +20108,7 @@ type ProductChannelListingError @doc(category: "Products") {
   variants: [ID!]
 }
 
-input ProductChannelListingBulkUpdateInput {
+input ProductChannelListingBulkCreateInput {
   """The ID of the product."""
   productId: ID!
 
