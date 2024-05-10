@@ -14896,6 +14896,19 @@ type Mutation {
   ): DeleteMegapackPrivateMetadata
 
   """
+  Add products to new channel with prices. 
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  productChannelListingBulkCreate(
+    """ID of channel to publish product to."""
+    channelId: ID!
+
+    """List of products, product variants and prices to add to new channel."""
+    input: [ProductChannelListingBulkCreateInput]!
+  ): ProductChannelListingBulkCreate
+
+  """
   Creates a new webhook subscription. 
   
   Requires one of the following permissions: MANAGE_APPS, AUTHENTICATED_APP.
@@ -20061,6 +20074,55 @@ type DeleteMegapackPrivateMetadata {
 }
 
 """
+Add products to new channel with prices. 
+
+Requires one of the following permissions: MANAGE_PRODUCTS.
+"""
+type ProductChannelListingBulkCreate {
+  productChannelListingErrors: [ProductChannelListingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ProductChannelListingError!]!
+}
+
+type ProductChannelListingError @doc(category: "Products") {
+  """
+  Name of a field that caused the error. A value of `null` indicates that the error isn't associated with a particular field.
+  """
+  field: String
+
+  """The error message."""
+  message: String
+
+  """The error code."""
+  code: ProductErrorCode!
+
+  """List of attributes IDs which causes the error."""
+  attributes: [ID!]
+
+  """List of attribute values IDs which causes the error."""
+  values: [ID!]
+
+  """List of channels IDs which causes the error."""
+  channels: [ID!]
+
+  """List of variants IDs which causes the error."""
+  variants: [ID!]
+}
+
+input ProductChannelListingBulkCreateInput {
+  """The ID of the product."""
+  productId: ID!
+
+  """The ID of the product variant."""
+  variantId: ID!
+
+  """The cost price of the product variant."""
+  costPrice: Float!
+
+  """The price of the product variant."""
+  price: Float!
+}
+
+"""
 Creates a new webhook subscription. 
 
 Requires one of the following permissions: MANAGE_APPS, AUTHENTICATED_APP.
@@ -22761,31 +22823,6 @@ type ProductChannelListingUpdate @doc(category: "Products") {
   product: Product
   productChannelListingErrors: [ProductChannelListingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
   errors: [ProductChannelListingError!]!
-}
-
-type ProductChannelListingError @doc(category: "Products") {
-  """
-  Name of a field that caused the error. A value of `null` indicates that the error isn't associated with a particular field.
-  """
-  field: String
-
-  """The error message."""
-  message: String
-
-  """The error code."""
-  code: ProductErrorCode!
-
-  """List of attributes IDs which causes the error."""
-  attributes: [ID!]
-
-  """List of attribute values IDs which causes the error."""
-  values: [ID!]
-
-  """List of channels IDs which causes the error."""
-  channels: [ID!]
-
-  """List of variants IDs which causes the error."""
-  variants: [ID!]
 }
 
 input ProductChannelListingUpdateInput @doc(category: "Products") {
