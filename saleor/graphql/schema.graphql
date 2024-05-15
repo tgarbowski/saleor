@@ -14864,6 +14864,8 @@ type Mutation {
 
     """List of products IDs to publish."""
     ids: [ID]!
+    locationFrom: String
+    locationTo: String
     mode: String!
 
     """Determine product offer type."""
