@@ -14641,6 +14641,27 @@ enum StaffMemberStatus @doc(category: "Users") {
 }
 
 type Mutation {
+  """Sends an email with a contact form."""
+  contactForm(
+    """Contact e-mail"""
+    email: String!
+
+    """First name"""
+    firstName: String!
+
+    """Last name"""
+    lastName: String!
+
+    """Contact form message"""
+    message: String!
+
+    """Contact phone number"""
+    phone: String
+
+    """Target e-mail"""
+    targetEmail: String!
+  ): ContactForm @doc(category: "Users")
+
   """
   Updates externally created receipt info. 
   
@@ -19565,6 +19586,34 @@ type Mutation {
     """ID of the group to delete."""
     id: ID!
   ): PermissionGroupDelete @doc(category: "Users") @webhookEventsInfo(asyncEvents: [PERMISSION_GROUP_DELETED], syncEvents: [])
+}
+
+"""Sends an email with a contact form."""
+type ContactForm @doc(category: "Users") {
+  contactFormErrors: [ContactFormError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ContactFormError!]!
+}
+
+type ContactFormError {
+  """
+  Name of a field that caused the error. A value of `null` indicates that the error isn't associated with a particular field.
+  """
+  field: String
+
+  """The error message."""
+  message: String
+
+  """The error code."""
+  code: ContactFormErrorCode!
+}
+
+"""An enumeration."""
+enum ContactFormErrorCode {
+  GRAPHQL_ERROR
+  INVALID
+  NOT_FOUND
+  REQUIRED
+  UNIQUE
 }
 
 """
