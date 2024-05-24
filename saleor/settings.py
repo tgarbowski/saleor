@@ -677,6 +677,11 @@ if APP_ENVIRONMENT in ['production']:
             'task': 'saleor_gs.saleor.plugins.allegro.tasks.synchronize_allegro_offers_task',
             'schedule': crontab(minute=30, hour=2),
             "options": {"queue": CELERY_LONG_TASKS_QUEUE}
+        },
+        'save_ebay_orders_task': {
+            'task': 'saleor_gs.saleor.plugins.ebay.tasks.save_ebay_orders_task',
+            'schedule': 600.0,
+            "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
         }
     })
 
