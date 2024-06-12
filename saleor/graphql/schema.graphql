@@ -20,6 +20,12 @@ directive @webhookEventsInfo(
 ) on FIELD | FIELD_DEFINITION | INPUT_OBJECT | OBJECT
 
 type Query {
+  """B64 encoded barcodes pdf file"""
+  barcodes(
+    """List of barcodes to generate."""
+    input: [BarcodeInput!]!
+  ): String
+
   """List of wms deliverers"""
   wmsDeliverers(
     """Filtering wms deliverers"""
@@ -1906,6 +1912,14 @@ type Query {
   ): User @doc(category: "Users")
   _entities(representations: [_Any]): [_Entity]
   _service: _Service
+}
+
+input BarcodeInput {
+  """Barcode title"""
+  title: String
+
+  """Text to convert to barcode"""
+  code: String
 }
 
 type WMSDelivererCountableConnection {
