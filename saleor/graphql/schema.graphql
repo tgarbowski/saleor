@@ -177,6 +177,9 @@ type Query {
     """Last warehouse location of products."""
     locationTo: String
 
+    """Only discounted products."""
+    isDiscounted: Boolean
+
     """Filtering options for products."""
     filter: ProductFilterInput
 
