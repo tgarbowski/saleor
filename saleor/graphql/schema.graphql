@@ -20,6 +20,53 @@ directive @webhookEventsInfo(
 ) on FIELD | FIELD_DEFINITION | INPUT_OBJECT | OBJECT
 
 type Query {
+  """List of the shop's attributes."""
+  attributesExtended(
+    """Filtering options for attributes."""
+    filter: AttributeFilterInput
+
+    """
+    Filtering options for attributes.
+    
+    Added in Saleor 3.11.
+    """
+    where: AttributeWhereInput
+
+    """
+    Search attributes.
+    
+    Added in Saleor 3.11.
+    
+    Note: this API is currently in Feature Preview and can be subject to changes at later point.
+    """
+    search: String
+
+    """Sorting options for attributes."""
+    sortBy: AttributeSortingInput
+
+    """Slug of a channel for which the data should be returned."""
+    channel: String
+
+    """Only attributes with discounted products."""
+    isDiscounted: Boolean
+
+    """Return the elements in the list that come before the specified cursor."""
+    before: String
+
+    """Return the elements in the list that come after the specified cursor."""
+    after: String
+
+    """
+    Retrieve the first n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
+    """
+    first: Int
+
+    """
+    Retrieve the last n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
+    """
+    last: Int
+  ): AttributeCountableConnection @doc(category: "Attributes")
+
   """B64 encoded barcodes pdf file"""
   barcodes(
     """List of barcodes to generate."""
@@ -1917,18 +1964,10 @@ type Query {
   _service: _Service
 }
 
-input BarcodeInput {
-  """Barcode title"""
-  title: String
-
-  """Text to convert to barcode"""
-  code: String
-}
-
-type WMSDelivererCountableConnection {
+type AttributeCountableConnection @doc(category: "Attributes") {
   """Pagination data for this connection."""
   pageInfo: PageInfo!
-  edges: [WMSDelivererCountableEdge!]!
+  edges: [AttributeCountableEdge!]!
 
   """A total count of items in the collection."""
   totalCount: Int
@@ -1951,1104 +1990,12 @@ type PageInfo {
   endCursor: String
 }
 
-type WMSDelivererCountableEdge {
+type AttributeCountableEdge @doc(category: "Attributes") {
   """The item at the end of the edge."""
-  node: WmsDeliverer!
+  node: Attribute!
 
   """A cursor for use in pagination."""
   cursor: String!
-}
-
-"""Represents a wms deliverer"""
-type WmsDeliverer implements Node {
-  id: ID!
-
-  """Company name"""
-  companyName: String
-
-  """Street"""
-  street: String
-
-  """City"""
-  city: String
-
-  """Postal Code"""
-  postalCode: String
-
-  """Email"""
-  email: String
-
-  """VAT ID"""
-  vatId: String
-
-  """Phone"""
-  phone: String
-
-  """Country"""
-  country: CountryCode
-
-  """First name"""
-  firstName: String
-
-  """Last name"""
-  lastName: String
-}
-
-"""An object with an ID"""
-interface Node {
-  """The ID of the object."""
-  id: ID!
-}
-
-"""An enumeration."""
-enum CountryCode {
-  AF
-  AX
-  AL
-  DZ
-  AS
-  AD
-  AO
-  AI
-  AQ
-  AG
-  AR
-  AM
-  AW
-  AU
-  AT
-  AZ
-  BS
-  BH
-  BD
-  BB
-  BY
-  BE
-  BZ
-  BJ
-  BM
-  BT
-  BO
-  BQ
-  BA
-  BW
-  BV
-  BR
-  IO
-  BN
-  BG
-  BF
-  BI
-  CV
-  KH
-  CM
-  CA
-  KY
-  CF
-  TD
-  CL
-  CN
-  CX
-  CC
-  CO
-  KM
-  CG
-  CD
-  CK
-  CR
-  CI
-  HR
-  CU
-  CW
-  CY
-  CZ
-  DK
-  DJ
-  DM
-  DO
-  EC
-  EG
-  SV
-  GQ
-  ER
-  EE
-  SZ
-  ET
-  EU
-  FK
-  FO
-  FJ
-  FI
-  FR
-  GF
-  PF
-  TF
-  GA
-  GM
-  GE
-  DE
-  GH
-  GI
-  GR
-  GL
-  GD
-  GP
-  GU
-  GT
-  GG
-  GN
-  GW
-  GY
-  HT
-  HM
-  VA
-  HN
-  HK
-  HU
-  IS
-  IN
-  ID
-  IR
-  IQ
-  IE
-  IM
-  IL
-  IT
-  JM
-  JP
-  JE
-  JO
-  KZ
-  KE
-  KI
-  KW
-  KG
-  LA
-  LV
-  LB
-  LS
-  LR
-  LY
-  LI
-  LT
-  LU
-  MO
-  MG
-  MW
-  MY
-  MV
-  ML
-  MT
-  MH
-  MQ
-  MR
-  MU
-  YT
-  MX
-  FM
-  MD
-  MC
-  MN
-  ME
-  MS
-  MA
-  MZ
-  MM
-  NA
-  NR
-  NP
-  NL
-  NC
-  NZ
-  NI
-  NE
-  NG
-  NU
-  NF
-  KP
-  MK
-  MP
-  NO
-  OM
-  PK
-  PW
-  PS
-  PA
-  PG
-  PY
-  PE
-  PH
-  PN
-  PL
-  PT
-  PR
-  QA
-  RE
-  RO
-  RU
-  RW
-  BL
-  SH
-  KN
-  LC
-  MF
-  PM
-  VC
-  WS
-  SM
-  ST
-  SA
-  SN
-  RS
-  SC
-  SL
-  SG
-  SX
-  SK
-  SI
-  SB
-  SO
-  ZA
-  GS
-  KR
-  SS
-  ES
-  LK
-  SD
-  SR
-  SJ
-  SE
-  CH
-  SY
-  TW
-  TJ
-  TZ
-  TH
-  TL
-  TG
-  TK
-  TO
-  TT
-  TN
-  TR
-  TM
-  TC
-  TV
-  UG
-  UA
-  AE
-  GB
-  UM
-  US
-  UY
-  UZ
-  VU
-  VE
-  VN
-  VG
-  VI
-  WF
-  EH
-  YE
-  ZM
-  ZW
-}
-
-input WmsDelivererFilterInput {
-  search: String
-}
-
-type WMSDocPositionCountableConnection {
-  """Pagination data for this connection."""
-  pageInfo: PageInfo!
-  edges: [WMSDocPositionCountableEdge!]!
-
-  """A total count of items in the collection."""
-  totalCount: Int
-}
-
-type WMSDocPositionCountableEdge {
-  """The item at the end of the edge."""
-  node: WmsDocPosition!
-
-  """A cursor for use in pagination."""
-  cursor: String!
-}
-
-"""Represents a wms document"""
-type WmsDocPosition implements Node {
-  id: ID!
-  productVariant: ProductVariant
-  quantity: Int
-  weight: Float
-  document: WmsDocument
-}
-
-"""Represents a version of a product such as different size or color."""
-type ProductVariant implements Node & ObjectWithMetadata @doc(category: "Products") {
-  """The ID of the product variant."""
-  id: ID!
-
-  """List of private metadata items. Requires staff permissions to access."""
-  privateMetadata: [MetadataItem!]!
-
-  """
-  A single key from private metadata. Requires staff permissions to access.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  
-  Added in Saleor 3.3.
-  """
-  privateMetafield(key: String!): String
-
-  """
-  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
-  
-  Added in Saleor 3.3.
-  """
-  privateMetafields(keys: [String!]): Metadata
-
-  """List of public metadata items. Can be accessed without permissions."""
-  metadata: [MetadataItem!]!
-
-  """
-  A single key from public metadata.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  
-  Added in Saleor 3.3.
-  """
-  metafield(key: String!): String
-
-  """
-  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
-  
-  Added in Saleor 3.3.
-  """
-  metafields(keys: [String!]): Metadata
-
-  """The name of the product variant."""
-  name: String!
-
-  """The SKU (stock keeping unit) of the product variant."""
-  sku: String
-
-  """The product to which the variant belongs."""
-  product: Product!
-
-  """
-  Determines if the inventory of this variant should be tracked. If false, the quantity won't change when customers buy this item. If the field is not provided, `Shop.trackInventoryByDefault` will be used.
-  """
-  trackInventory: Boolean!
-
-  """The maximum quantity of this variant that a customer can purchase."""
-  quantityLimitPerCustomer: Int
-
-  """The weight of the product variant."""
-  weight: Weight
-
-  """
-  Channel given to retrieve this product variant. Also used by federation gateway to resolve this object in a federated query.
-  """
-  channel: String
-
-  """
-  List of price information in channels for the product.
-  
-  Requires one of the following permissions: AUTHENTICATED_APP, AUTHENTICATED_STAFF_USER.
-  """
-  channelListings: [ProductVariantChannelListing!]
-
-  """
-  Lists the storefront variant's pricing, the current price and discounts, only meant for displaying.
-  """
-  pricing(
-    """
-    Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
-    """
-    address: AddressInput
-  ): VariantPricingInfo
-
-  """List of attributes assigned to this variant."""
-  attributes(
-    """Define scope of returned attributes."""
-    variantSelection: VariantAttributeScope
-  ): [SelectedAttribute!]!
-
-  """Gross margin percentage value."""
-  margin: Int
-
-  """
-  Total quantity ordered.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS.
-  """
-  quantityOrdered: Int
-
-  """
-  Total revenue generated by a variant in given period of time. Note: this field should be queried using `reportProductSales` query as it uses optimizations suitable for such calculations.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS.
-  """
-  revenue(period: ReportingPeriod): TaxedMoney
-
-  """List of images for the product variant."""
-  images: [ProductImage!] @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `media` field instead.")
-
-  """List of media for the product variant."""
-  media: [ProductMedia!]
-
-  """Returns translated product variant fields for the given language code."""
-  translation(
-    """A language code to return the translation for product variant."""
-    languageCode: LanguageCodeEnum!
-  ): ProductVariantTranslation
-
-  """
-  Digital content for the product variant.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS.
-  """
-  digitalContent: DigitalContent
-
-  """
-  Stocks for the product variant.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS, MANAGE_ORDERS.
-  """
-  stocks(
-    """
-    Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
-    """
-    address: AddressInput
-
-    """
-    Two-letter ISO 3166-1 country code. 
-    
-    DEPRECATED: this field will be removed in Saleor 4.0. Use `address` argument instead.
-    """
-    countryCode: CountryCode
-  ): [Stock!]
-
-  """
-  Quantity of a product available for sale in one checkout. Field value will be `null` when no `limitQuantityPerCheckout` in global settings has been set, and `productVariant` stocks are not tracked.
-  """
-  quantityAvailable(
-    """
-    Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
-    """
-    address: AddressInput
-
-    """
-    Two-letter ISO 3166-1 country code. When provided, the exact quantity from a warehouse operating in shipping zones that contain this country will be returned. Otherwise, it will return the maximum quantity from all shipping zones. 
-    
-    DEPRECATED: this field will be removed in Saleor 4.0. Use `address` argument instead.
-    """
-    countryCode: CountryCode
-  ): Int
-
-  """
-  Preorder data for product variant.
-  
-  Added in Saleor 3.1.
-  """
-  preorder: PreorderData
-
-  """The date and time when the product variant was created."""
-  created: DateTime!
-
-  """The date and time when the product variant was last updated."""
-  updatedAt: DateTime!
-
-  """
-  External ID of this product. 
-  
-  Added in Saleor 3.10.
-  """
-  externalReference: String
-}
-
-interface ObjectWithMetadata {
-  """List of private metadata items. Requires staff permissions to access."""
-  privateMetadata: [MetadataItem!]!
-
-  """
-  A single key from private metadata. Requires staff permissions to access.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  """
-  privateMetafield(key: String!): String
-
-  """
-  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
-  """
-  privateMetafields(keys: [String!]): Metadata
-
-  """List of public metadata items. Can be accessed without permissions."""
-  metadata: [MetadataItem!]!
-
-  """
-  A single key from public metadata.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  """
-  metafield(key: String!): String
-
-  """
-  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
-  """
-  metafields(keys: [String!]): Metadata
-}
-
-type MetadataItem {
-  """Key of a metadata item."""
-  key: String!
-
-  """Value of a metadata item."""
-  value: String!
-}
-
-"""
-Metadata is a map of key-value pairs, both keys and values are `String`.
-
-Example:
-```
-{
-    "key1": "value1",
-    "key2": "value2"
-}
-```
-"""
-scalar Metadata
-
-"""Represents an individual item for sale in the storefront."""
-type Product implements Node & ObjectWithMetadata @doc(category: "Products") {
-  """The ID of the product."""
-  id: ID!
-
-  """List of private metadata items. Requires staff permissions to access."""
-  privateMetadata: [MetadataItem!]!
-
-  """
-  A single key from private metadata. Requires staff permissions to access.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  
-  Added in Saleor 3.3.
-  """
-  privateMetafield(key: String!): String
-
-  """
-  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
-  
-  Added in Saleor 3.3.
-  """
-  privateMetafields(keys: [String!]): Metadata
-
-  """List of public metadata items. Can be accessed without permissions."""
-  metadata: [MetadataItem!]!
-
-  """
-  A single key from public metadata.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  
-  Added in Saleor 3.3.
-  """
-  metafield(key: String!): String
-
-  """
-  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
-  
-  Added in Saleor 3.3.
-  """
-  metafields(keys: [String!]): Metadata
-
-  """SEO title of the product."""
-  seoTitle: String
-
-  """SEO description of the product."""
-  seoDescription: String
-
-  """SEO description of the product."""
-  name: String!
-
-  """
-  Description of the product.
-  
-  Rich text format. For reference see https://editorjs.io/
-  """
-  description: JSONString
-
-  """Type of the product."""
-  productType: ProductType!
-
-  """Slug of the product."""
-  slug: String!
-  category: Category
-
-  """The date and time when the product was created."""
-  created: DateTime!
-
-  """The date and time when the product was last updated."""
-  updatedAt: DateTime!
-  chargeTaxes: Boolean! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `Channel.taxConfiguration` field to determine whether tax collection is enabled.")
-
-  """Weight of the product."""
-  weight: Weight
-
-  """Default variant of the product."""
-  defaultVariant: ProductVariant
-
-  """Rating of the product."""
-  rating: Float
-
-  """
-  Channel given to retrieve this product. Also used by federation gateway to resolve this object in a federated query.
-  """
-  channel: String
-
-  """
-  Description of the product.
-  
-  Rich text format. For reference see https://editorjs.io/
-  """
-  descriptionJson: JSONString @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `description` field instead.")
-
-  """Thumbnail of the product."""
-  thumbnail(
-    """
-    Desired longest side the image in pixels. Defaults to 4096. Images are never cropped. Pass 0 to retrieve the original size (not recommended).
-    """
-    size: Int
-
-    """
-    The format of the image. When not provided, format of the original image will be used.
-    
-    Added in Saleor 3.6.
-    """
-    format: ThumbnailFormatEnum = ORIGINAL
-  ): Image
-
-  """
-  Lists the storefront product's pricing, the current price and discounts, only meant for displaying.
-  """
-  pricing(
-    """
-    Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
-    """
-    address: AddressInput
-  ): ProductPricingInfo
-
-  """
-  Whether the product is in stock, set as available for purchase in the given channel, and published.
-  """
-  isAvailable(
-    """
-    Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
-    """
-    address: AddressInput
-  ): Boolean
-
-  """A type of tax. Assigned by enabled tax gateway"""
-  taxType: TaxType @deprecated(reason: "This field will be removed in Saleor 4.0. Use `taxClass` field instead.")
-
-  """
-  Get a single attribute attached to product by attribute slug.
-  
-  Added in Saleor 3.9.
-  """
-  attribute(
-    """Slug of the attribute"""
-    slug: String!
-  ): SelectedAttribute
-
-  """List of attributes assigned to this product."""
-  attributes: [SelectedAttribute!]!
-
-  """
-  List of availability in channels for the product.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS.
-  """
-  channelListings: [ProductChannelListing!]
-
-  """Get a single product media by ID."""
-  mediaById(
-    """ID of a product media."""
-    id: ID
-  ): ProductMedia
-
-  """Get a single product image by ID."""
-  imageById(
-    """ID of a product image."""
-    id: ID
-  ): ProductImage @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `mediaById` field instead.")
-
-  """
-  Get a single variant by SKU or ID. 
-  
-  Added in Saleor 3.9.
-  """
-  variant(
-    """ID of the variant."""
-    id: ID
-
-    """SKU of the variant."""
-    sku: String
-  ): ProductVariant @deprecated(reason: "This field will be removed in Saleor 4.0. Use top-level `variant` query.")
-
-  """
-  List of variants for the product. Requires the following permissions to include the unpublished items: MANAGE_ORDERS, MANAGE_DISCOUNTS, MANAGE_PRODUCTS.
-  """
-  variants: [ProductVariant!]
-
-  """List of media for the product."""
-  media(
-    """
-    Sort media. 
-    
-    Added in Saleor 3.9.
-    """
-    sortBy: MediaSortingInput
-  ): [ProductMedia!]
-
-  """List of images for the product."""
-  images: [ProductImage!] @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `media` field instead.")
-
-  """
-  List of collections for the product. Requires the following permissions to include the unpublished items: MANAGE_ORDERS, MANAGE_DISCOUNTS, MANAGE_PRODUCTS.
-  """
-  collections: [Collection!]
-
-  """Returns translated product fields for the given language code."""
-  translation(
-    """A language code to return the translation for product."""
-    languageCode: LanguageCodeEnum!
-  ): ProductTranslation
-
-  """Date when product is available for purchase."""
-  availableForPurchase: Date @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `availableForPurchaseAt` field to fetch the available for purchase date.")
-
-  """Date when product is available for purchase."""
-  availableForPurchaseAt: DateTime
-
-  """
-  Refers to a state that can be set by admins to control whether a product is available for purchase in storefronts. This does not guarantee the availability of stock. When set to `False`, this product is still visible to customers, but it cannot be purchased.
-  """
-  isAvailableForPurchase: Boolean
-
-  """
-  Tax class assigned to this product type. All products of this product type use this tax class, unless it's overridden in the `Product` type.
-  
-  Requires one of the following permissions: AUTHENTICATED_STAFF_USER, AUTHENTICATED_APP.
-  """
-  taxClass: TaxClass
-
-  """
-  External ID of this product. 
-  
-  Added in Saleor 3.10.
-  """
-  externalReference: String
-}
-
-scalar JSONString
-
-"""
-Represents a type of product. It defines what attributes are available to products of this type.
-"""
-type ProductType implements Node & ObjectWithMetadata @doc(category: "Products") {
-  """The ID of the product type."""
-  id: ID!
-
-  """List of private metadata items. Requires staff permissions to access."""
-  privateMetadata: [MetadataItem!]!
-
-  """
-  A single key from private metadata. Requires staff permissions to access.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  
-  Added in Saleor 3.3.
-  """
-  privateMetafield(key: String!): String
-
-  """
-  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
-  
-  Added in Saleor 3.3.
-  """
-  privateMetafields(keys: [String!]): Metadata
-
-  """List of public metadata items. Can be accessed without permissions."""
-  metadata: [MetadataItem!]!
-
-  """
-  A single key from public metadata.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  
-  Added in Saleor 3.3.
-  """
-  metafield(key: String!): String
-
-  """
-  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
-  
-  Added in Saleor 3.3.
-  """
-  metafields(keys: [String!]): Metadata
-
-  """Name of the product type."""
-  name: String!
-
-  """Slug of the product type."""
-  slug: String!
-
-  """Whether the product type has variants."""
-  hasVariants: Boolean!
-
-  """Whether shipping is required for this product type."""
-  isShippingRequired: Boolean!
-
-  """Whether the product type is digital."""
-  isDigital: Boolean!
-
-  """Weight of the product type."""
-  weight: Weight
-
-  """The product type kind."""
-  kind: ProductTypeKindEnum!
-
-  """List of products of this type."""
-  products(
-    """Slug of a channel for which the data should be returned."""
-    channel: String
-
-    """Return the elements in the list that come before the specified cursor."""
-    before: String
-
-    """Return the elements in the list that come after the specified cursor."""
-    after: String
-
-    """
-    Retrieve the first n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
-    """
-    first: Int
-
-    """
-    Retrieve the last n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
-    """
-    last: Int
-  ): ProductCountableConnection @deprecated(reason: "This field will be removed in Saleor 4.0. Use the top-level `products` query with the `productTypes` filter.")
-
-  """A type of tax. Assigned by enabled tax gateway"""
-  taxType: TaxType @deprecated(reason: "This field will be removed in Saleor 4.0. Use `taxClass` field instead.")
-
-  """
-  Tax class assigned to this product type. All products of this product type use this tax class, unless it's overridden in the `Product` type.
-  
-  Requires one of the following permissions: AUTHENTICATED_STAFF_USER, AUTHENTICATED_APP.
-  """
-  taxClass: TaxClass
-
-  """Variant attributes of that product type."""
-  variantAttributes(
-    """Define scope of returned attributes."""
-    variantSelection: VariantAttributeScope
-  ): [Attribute!] @deprecated(reason: "This field will be removed in Saleor 4.0. Use `assignedVariantAttributes` instead.")
-
-  """
-  Variant attributes of that product type with attached variant selection.
-  
-  Added in Saleor 3.1.
-  """
-  assignedVariantAttributes(
-    """Define scope of returned attributes."""
-    variantSelection: VariantAttributeScope
-  ): [AssignedVariantAttribute!]
-
-  """Product attributes of that product type."""
-  productAttributes: [Attribute!]
-
-  """
-  List of attributes which can be assigned to this product type.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS.
-  """
-  availableAttributes(
-    filter: AttributeFilterInput
-    where: AttributeWhereInput
-
-    """Return the elements in the list that come before the specified cursor."""
-    before: String
-
-    """Return the elements in the list that come after the specified cursor."""
-    after: String
-
-    """
-    Retrieve the first n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
-    """
-    first: Int
-
-    """
-    Retrieve the last n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
-    """
-    last: Int
-  ): AttributeCountableConnection
-}
-
-"""Represents weight value in a specific weight unit."""
-type Weight {
-  """Weight unit."""
-  unit: WeightUnitsEnum!
-
-  """Weight value."""
-  value: Float!
-}
-
-"""An enumeration."""
-enum WeightUnitsEnum {
-  G
-  LB
-  OZ
-  KG
-  TONNE
-}
-
-"""An enumeration."""
-enum ProductTypeKindEnum @doc(category: "Products") {
-  NORMAL
-  GIFT_CARD
-}
-
-type ProductCountableConnection @doc(category: "Products") {
-  """Pagination data for this connection."""
-  pageInfo: PageInfo!
-  edges: [ProductCountableEdge!]!
-
-  """A total count of items in the collection."""
-  totalCount: Int
-}
-
-type ProductCountableEdge @doc(category: "Products") {
-  """The item at the end of the edge."""
-  node: Product!
-
-  """A cursor for use in pagination."""
-  cursor: String!
-}
-
-"""Representation of tax types fetched from tax gateway."""
-type TaxType @doc(category: "Taxes") {
-  """Description of the tax type."""
-  description: String
-
-  """External tax code used to identify given tax group."""
-  taxCode: String
-}
-
-"""
-Tax class is a named object used to define tax rates per country. Tax class can be assigned to product types, products and shipping methods to define their tax rates.
-
-Added in Saleor 3.9.
-"""
-type TaxClass implements Node & ObjectWithMetadata @doc(category: "Taxes") {
-  """The ID of the object."""
-  id: ID!
-
-  """List of private metadata items. Requires staff permissions to access."""
-  privateMetadata: [MetadataItem!]!
-
-  """
-  A single key from private metadata. Requires staff permissions to access.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  
-  Added in Saleor 3.3.
-  """
-  privateMetafield(key: String!): String
-
-  """
-  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
-  
-  Added in Saleor 3.3.
-  """
-  privateMetafields(keys: [String!]): Metadata
-
-  """List of public metadata items. Can be accessed without permissions."""
-  metadata: [MetadataItem!]!
-
-  """
-  A single key from public metadata.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  
-  Added in Saleor 3.3.
-  """
-  metafield(key: String!): String
-
-  """
-  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
-  
-  Added in Saleor 3.3.
-  """
-  metafields(keys: [String!]): Metadata
-
-  """Name of the tax class."""
-  name: String!
-
-  """Country-specific tax rates for this tax class."""
-  countries: [TaxClassCountryRate!]!
-}
-
-"""
-Tax rate for a country. When tax class is null, it represents the default tax rate for that country; otherwise it's a country tax rate specific to the given tax class.
-
-Added in Saleor 3.9.
-"""
-type TaxClassCountryRate @doc(category: "Taxes") {
-  """Country in which this tax rate applies."""
-  country: CountryDisplay!
-
-  """Tax rate value."""
-  rate: Float!
-
-  """Related tax class."""
-  taxClass: TaxClass
-}
-
-type CountryDisplay {
-  """Country code."""
-  code: String!
-
-  """Country name."""
-  country: String!
-
-  """Country tax."""
-  vat: VAT @deprecated(reason: "This field will be removed in Saleor 4.0. Always returns `null`. Use `TaxClassCountryRate` type to manage tax rates per country.")
-}
-
-"""Represents a VAT rate for a country."""
-type VAT @doc(category: "Taxes") {
-  """Country code."""
-  countryCode: String!
-
-  """Standard VAT rate in percent."""
-  standardRate: Float
-
-  """Country's VAT rate exceptions for specific types of goods."""
-  reducedRates: [ReducedRate!]!
-}
-
-"""Represents a reduced VAT rate for a particular type of goods."""
-type ReducedRate @doc(category: "Taxes") {
-  """Reduced VAT rate in percent."""
-  rate: Float!
-
-  """A type of goods."""
-  rateType: String!
 }
 
 """
@@ -3227,6 +2174,65 @@ type Attribute implements Node & ObjectWithMetadata @doc(category: "Attributes")
   """
   externalReference: String
 }
+
+"""An object with an ID"""
+interface Node {
+  """The ID of the object."""
+  id: ID!
+}
+
+interface ObjectWithMetadata {
+  """List of private metadata items. Requires staff permissions to access."""
+  privateMetadata: [MetadataItem!]!
+
+  """
+  A single key from private metadata. Requires staff permissions to access.
+  
+  Tip: Use GraphQL aliases to fetch multiple keys.
+  """
+  privateMetafield(key: String!): String
+
+  """
+  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
+  """
+  privateMetafields(keys: [String!]): Metadata
+
+  """List of public metadata items. Can be accessed without permissions."""
+  metadata: [MetadataItem!]!
+
+  """
+  A single key from public metadata.
+  
+  Tip: Use GraphQL aliases to fetch multiple keys.
+  """
+  metafield(key: String!): String
+
+  """
+  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
+  """
+  metafields(keys: [String!]): Metadata
+}
+
+type MetadataItem {
+  """Key of a metadata item."""
+  key: String!
+
+  """Value of a metadata item."""
+  value: String!
+}
+
+"""
+Metadata is a map of key-value pairs, both keys and values are `String`.
+
+Example:
+```
+{
+    "key1": "value1",
+    "key2": "value2"
+}
+```
+"""
+scalar Metadata
 
 """An enumeration."""
 enum AttributeInputTypeEnum @doc(category: "Attributes") {
@@ -4183,6 +3189,8 @@ enum LanguageCodeEnum {
   ZU_ZA
 }
 
+scalar JSONString
+
 type File {
   """The URL of the file."""
   url: String!
@@ -4262,150 +3270,421 @@ type ProductTypeCountableEdge @doc(category: "Products") {
   cursor: String!
 }
 
-enum VariantAttributeScope @doc(category: "Products") {
-  ALL
-  VARIANT_SELECTION
-  NOT_VARIANT_SELECTION
-}
-
 """
-Represents assigned attribute to variant with variant selection attached.
-
-Added in Saleor 3.1.
+Represents a type of product. It defines what attributes are available to products of this type.
 """
-type AssignedVariantAttribute @doc(category: "Attributes") {
-  """Attribute assigned to variant."""
-  attribute: Attribute!
+type ProductType implements Node & ObjectWithMetadata @doc(category: "Products") {
+  """The ID of the product type."""
+  id: ID!
+
+  """List of private metadata items. Requires staff permissions to access."""
+  privateMetadata: [MetadataItem!]!
 
   """
-  Determines, whether assigned attribute is allowed for variant selection. Supported variant types for variant selection are: ['dropdown', 'boolean', 'swatch', 'numeric']
+  A single key from private metadata. Requires staff permissions to access.
+  
+  Tip: Use GraphQL aliases to fetch multiple keys.
+  
+  Added in Saleor 3.3.
   """
-  variantSelection: Boolean!
+  privateMetafield(key: String!): String
+
+  """
+  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
+  
+  Added in Saleor 3.3.
+  """
+  privateMetafields(keys: [String!]): Metadata
+
+  """List of public metadata items. Can be accessed without permissions."""
+  metadata: [MetadataItem!]!
+
+  """
+  A single key from public metadata.
+  
+  Tip: Use GraphQL aliases to fetch multiple keys.
+  
+  Added in Saleor 3.3.
+  """
+  metafield(key: String!): String
+
+  """
+  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
+  
+  Added in Saleor 3.3.
+  """
+  metafields(keys: [String!]): Metadata
+
+  """Name of the product type."""
+  name: String!
+
+  """Slug of the product type."""
+  slug: String!
+
+  """Whether the product type has variants."""
+  hasVariants: Boolean!
+
+  """Whether shipping is required for this product type."""
+  isShippingRequired: Boolean!
+
+  """Whether the product type is digital."""
+  isDigital: Boolean!
+
+  """Weight of the product type."""
+  weight: Weight
+
+  """The product type kind."""
+  kind: ProductTypeKindEnum!
+
+  """List of products of this type."""
+  products(
+    """Slug of a channel for which the data should be returned."""
+    channel: String
+
+    """Return the elements in the list that come before the specified cursor."""
+    before: String
+
+    """Return the elements in the list that come after the specified cursor."""
+    after: String
+
+    """
+    Retrieve the first n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
+    """
+    first: Int
+
+    """
+    Retrieve the last n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
+    """
+    last: Int
+  ): ProductCountableConnection @deprecated(reason: "This field will be removed in Saleor 4.0. Use the top-level `products` query with the `productTypes` filter.")
+
+  """A type of tax. Assigned by enabled tax gateway"""
+  taxType: TaxType @deprecated(reason: "This field will be removed in Saleor 4.0. Use `taxClass` field instead.")
+
+  """
+  Tax class assigned to this product type. All products of this product type use this tax class, unless it's overridden in the `Product` type.
+  
+  Requires one of the following permissions: AUTHENTICATED_STAFF_USER, AUTHENTICATED_APP.
+  """
+  taxClass: TaxClass
+
+  """Variant attributes of that product type."""
+  variantAttributes(
+    """Define scope of returned attributes."""
+    variantSelection: VariantAttributeScope
+  ): [Attribute!] @deprecated(reason: "This field will be removed in Saleor 4.0. Use `assignedVariantAttributes` instead.")
+
+  """
+  Variant attributes of that product type with attached variant selection.
+  
+  Added in Saleor 3.1.
+  """
+  assignedVariantAttributes(
+    """Define scope of returned attributes."""
+    variantSelection: VariantAttributeScope
+  ): [AssignedVariantAttribute!]
+
+  """Product attributes of that product type."""
+  productAttributes: [Attribute!]
+
+  """
+  List of attributes which can be assigned to this product type.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  availableAttributes(
+    filter: AttributeFilterInput
+    where: AttributeWhereInput
+
+    """Return the elements in the list that come before the specified cursor."""
+    before: String
+
+    """Return the elements in the list that come after the specified cursor."""
+    after: String
+
+    """
+    Retrieve the first n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
+    """
+    first: Int
+
+    """
+    Retrieve the last n elements from the list. Note that the system only allows fetching a maximum of 100 objects in a single query.
+    """
+    last: Int
+  ): AttributeCountableConnection
 }
 
-type AttributeCountableConnection @doc(category: "Attributes") {
+"""Represents weight value in a specific weight unit."""
+type Weight {
+  """Weight unit."""
+  unit: WeightUnitsEnum!
+
+  """Weight value."""
+  value: Float!
+}
+
+"""An enumeration."""
+enum WeightUnitsEnum {
+  G
+  LB
+  OZ
+  KG
+  TONNE
+}
+
+"""An enumeration."""
+enum ProductTypeKindEnum @doc(category: "Products") {
+  NORMAL
+  GIFT_CARD
+}
+
+type ProductCountableConnection @doc(category: "Products") {
   """Pagination data for this connection."""
   pageInfo: PageInfo!
-  edges: [AttributeCountableEdge!]!
+  edges: [ProductCountableEdge!]!
 
   """A total count of items in the collection."""
   totalCount: Int
 }
 
-type AttributeCountableEdge @doc(category: "Attributes") {
+type ProductCountableEdge @doc(category: "Products") {
   """The item at the end of the edge."""
-  node: Attribute!
+  node: Product!
 
   """A cursor for use in pagination."""
   cursor: String!
 }
 
-input AttributeFilterInput @doc(category: "Attributes") {
-  valueRequired: Boolean
-  isVariantOnly: Boolean
-  visibleInStorefront: Boolean
-  filterableInStorefront: Boolean
-  filterableInDashboard: Boolean
-  availableInGrid: Boolean
-  metadata: [MetadataFilter!]
-  search: String
-  ids: [ID!]
-  type: AttributeTypeEnum
-  inCollection: ID
-  inCategory: ID
-  slugs: [String!]
+"""Represents an individual item for sale in the storefront."""
+type Product implements Node & ObjectWithMetadata @doc(category: "Products") {
+  """The ID of the product."""
+  id: ID!
+
+  """List of private metadata items. Requires staff permissions to access."""
+  privateMetadata: [MetadataItem!]!
 
   """
-  Specifies the channel by which the data should be filtered. 
+  A single key from private metadata. Requires staff permissions to access.
   
-  DEPRECATED: this field will be removed in Saleor 4.0. Use root-level channel argument instead.
+  Tip: Use GraphQL aliases to fetch multiple keys.
+  
+  Added in Saleor 3.3.
+  """
+  privateMetafield(key: String!): String
+
+  """
+  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
+  
+  Added in Saleor 3.3.
+  """
+  privateMetafields(keys: [String!]): Metadata
+
+  """List of public metadata items. Can be accessed without permissions."""
+  metadata: [MetadataItem!]!
+
+  """
+  A single key from public metadata.
+  
+  Tip: Use GraphQL aliases to fetch multiple keys.
+  
+  Added in Saleor 3.3.
+  """
+  metafield(key: String!): String
+
+  """
+  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
+  
+  Added in Saleor 3.3.
+  """
+  metafields(keys: [String!]): Metadata
+
+  """SEO title of the product."""
+  seoTitle: String
+
+  """SEO description of the product."""
+  seoDescription: String
+
+  """SEO description of the product."""
+  name: String!
+
+  """
+  Description of the product.
+  
+  Rich text format. For reference see https://editorjs.io/
+  """
+  description: JSONString
+
+  """Type of the product."""
+  productType: ProductType!
+
+  """Slug of the product."""
+  slug: String!
+  category: Category
+
+  """The date and time when the product was created."""
+  created: DateTime!
+
+  """The date and time when the product was last updated."""
+  updatedAt: DateTime!
+  chargeTaxes: Boolean! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `Channel.taxConfiguration` field to determine whether tax collection is enabled.")
+
+  """Weight of the product."""
+  weight: Weight
+
+  """Default variant of the product."""
+  defaultVariant: ProductVariant
+
+  """Rating of the product."""
+  rating: Float
+
+  """
+  Channel given to retrieve this product. Also used by federation gateway to resolve this object in a federated query.
   """
   channel: String
-}
 
-input MetadataFilter {
-  """Key of a metadata item."""
-  key: String!
+  """
+  Description of the product.
+  
+  Rich text format. For reference see https://editorjs.io/
+  """
+  descriptionJson: JSONString @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `description` field instead.")
 
-  """Value of a metadata item."""
-  value: String
-}
+  """Thumbnail of the product."""
+  thumbnail(
+    """
+    Desired longest side the image in pixels. Defaults to 4096. Images are never cropped. Pass 0 to retrieve the original size (not recommended).
+    """
+    size: Int
 
-"""
-Where filtering options.
+    """
+    The format of the image. When not provided, format of the original image will be used.
+    
+    Added in Saleor 3.6.
+    """
+    format: ThumbnailFormatEnum = ORIGINAL
+  ): Image
 
-Added in Saleor 3.11.
+  """
+  Lists the storefront product's pricing, the current price and discounts, only meant for displaying.
+  """
+  pricing(
+    """
+    Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
+    """
+    address: AddressInput
+  ): ProductPricingInfo
 
-Note: this API is currently in Feature Preview and can be subject to changes at later point.
-"""
-input AttributeWhereInput @doc(category: "Attributes") {
-  valueRequired: Boolean
-  visibleInStorefront: Boolean
-  filterableInDashboard: Boolean
-  metadata: [MetadataFilter!]
-  ids: [ID!]
-  name: StringFilterInput
-  slug: StringFilterInput
-  withChoices: Boolean
-  inputType: AttributeInputTypeEnumFilterInput
-  entityType: AttributeEntityTypeEnumFilterInput
-  type: AttributeTypeEnumFilterInput
-  unit: MeasurementUnitsEnumFilterInput
-  inCollection: ID
-  inCategory: ID
+  """
+  Whether the product is in stock, set as available for purchase in the given channel, and published.
+  """
+  isAvailable(
+    """
+    Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
+    """
+    address: AddressInput
+  ): Boolean
 
-  """List of conditions that must be met."""
-  AND: [AttributeWhereInput!]
+  """A type of tax. Assigned by enabled tax gateway"""
+  taxType: TaxType @deprecated(reason: "This field will be removed in Saleor 4.0. Use `taxClass` field instead.")
 
-  """A list of conditions of which at least one must be met."""
-  OR: [AttributeWhereInput!]
-}
+  """
+  Get a single attribute attached to product by attribute slug.
+  
+  Added in Saleor 3.9.
+  """
+  attribute(
+    """Slug of the attribute"""
+    slug: String!
+  ): SelectedAttribute
 
-"""
-Define the filtering options for string fields.
+  """List of attributes assigned to this product."""
+  attributes: [SelectedAttribute!]!
 
-Added in Saleor 3.11.
+  """
+  List of availability in channels for the product.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  channelListings: [ProductChannelListing!]
 
-Note: this API is currently in Feature Preview and can be subject to changes at later point.
-"""
-input StringFilterInput {
-  """The value equal to."""
-  eq: String
+  """Get a single product media by ID."""
+  mediaById(
+    """ID of a product media."""
+    id: ID
+  ): ProductMedia
 
-  """The value included in."""
-  oneOf: [String!]
-}
+  """Get a single product image by ID."""
+  imageById(
+    """ID of a product image."""
+    id: ID
+  ): ProductImage @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `mediaById` field instead.")
 
-input AttributeInputTypeEnumFilterInput @doc(category: "Attributes") {
-  """The value equal to."""
-  eq: AttributeInputTypeEnum
+  """
+  Get a single variant by SKU or ID. 
+  
+  Added in Saleor 3.9.
+  """
+  variant(
+    """ID of the variant."""
+    id: ID
 
-  """The value included in."""
-  oneOf: [AttributeInputTypeEnum!]
-}
+    """SKU of the variant."""
+    sku: String
+  ): ProductVariant @deprecated(reason: "This field will be removed in Saleor 4.0. Use top-level `variant` query.")
 
-input AttributeEntityTypeEnumFilterInput @doc(category: "Attributes") {
-  """The value equal to."""
-  eq: AttributeEntityTypeEnum
+  """
+  List of variants for the product. Requires the following permissions to include the unpublished items: MANAGE_ORDERS, MANAGE_DISCOUNTS, MANAGE_PRODUCTS.
+  """
+  variants: [ProductVariant!]
 
-  """The value included in."""
-  oneOf: [AttributeEntityTypeEnum!]
-}
+  """List of media for the product."""
+  media(
+    """
+    Sort media. 
+    
+    Added in Saleor 3.9.
+    """
+    sortBy: MediaSortingInput
+  ): [ProductMedia!]
 
-input AttributeTypeEnumFilterInput @doc(category: "Attributes") {
-  """The value equal to."""
-  eq: AttributeTypeEnum
+  """List of images for the product."""
+  images: [ProductImage!] @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `media` field instead.")
 
-  """The value included in."""
-  oneOf: [AttributeTypeEnum!]
-}
+  """
+  List of collections for the product. Requires the following permissions to include the unpublished items: MANAGE_ORDERS, MANAGE_DISCOUNTS, MANAGE_PRODUCTS.
+  """
+  collections: [Collection!]
 
-input MeasurementUnitsEnumFilterInput @doc(category: "Attributes") {
-  """The value equal to."""
-  eq: MeasurementUnitsEnum
+  """Returns translated product fields for the given language code."""
+  translation(
+    """A language code to return the translation for product."""
+    languageCode: LanguageCodeEnum!
+  ): ProductTranslation
 
-  """The value included in."""
-  oneOf: [MeasurementUnitsEnum!]
+  """Date when product is available for purchase."""
+  availableForPurchase: Date @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `availableForPurchaseAt` field to fetch the available for purchase date.")
+
+  """Date when product is available for purchase."""
+  availableForPurchaseAt: DateTime
+
+  """
+  Refers to a state that can be set by admins to control whether a product is available for purchase in storefronts. This does not guarantee the availability of stock. When set to `False`, this product is still visible to customers, but it cannot be purchased.
+  """
+  isAvailableForPurchase: Boolean
+
+  """
+  Tax class assigned to this product type. All products of this product type use this tax class, unless it's overridden in the `Product` type.
+  
+  Requires one of the following permissions: AUTHENTICATED_STAFF_USER, AUTHENTICATED_APP.
+  """
+  taxClass: TaxClass
+
+  """
+  External ID of this product. 
+  
+  Added in Saleor 3.10.
+  """
+  externalReference: String
 }
 
 """
@@ -4728,6 +4007,14 @@ input ProductStockFilterInput @doc(category: "Products") {
   quantity: IntRangeInput
 }
 
+input MetadataFilter {
+  """Key of a metadata item."""
+  key: String!
+
+  """Value of a metadata item."""
+  value: String
+}
+
 input PriceRangeInput {
   """Price greater than or equal to."""
   gte: Float
@@ -4802,6 +4089,21 @@ input ProductWhereInput @doc(category: "Products") {
 
   """A list of conditions of which at least one must be met."""
   OR: [ProductWhereInput!]
+}
+
+"""
+Define the filtering options for string fields.
+
+Added in Saleor 3.11.
+
+Note: this API is currently in Feature Preview and can be subject to changes at later point.
+"""
+input StringFilterInput {
+  """The value equal to."""
+  eq: String
+
+  """The value included in."""
+  oneOf: [String!]
 }
 
 """
@@ -4995,195 +4297,217 @@ type CategoryTranslation implements Node @doc(category: "Products") {
   descriptionJson: JSONString @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `description` field instead.")
 }
 
-"""Represents availability of a product in the storefront."""
-type ProductPricingInfo @doc(category: "Products") {
-  """Whether it is in sale or not."""
-  onSale: Boolean
-
-  """The discount amount if in sale (null otherwise)."""
-  discount: TaxedMoney
-
-  """The discount amount in the local currency."""
-  discountLocalCurrency: TaxedMoney @deprecated(reason: "This field will be removed in Saleor 4.0. Always returns `null`.")
-
-  """
-  Determines whether this product's price displayed in a storefront should include taxes.
-  
-  Added in Saleor 3.9.
-  """
-  displayGrossPrices: Boolean!
-
-  """The discounted price range of the product variants."""
-  priceRange: TaxedMoneyRange
-
-  """The undiscounted price range of the product variants."""
-  priceRangeUndiscounted: TaxedMoneyRange
-
-  """
-  The discounted price range of the product variants in the local currency.
-  """
-  priceRangeLocalCurrency: TaxedMoneyRange @deprecated(reason: "This field will be removed in Saleor 4.0. Always returns `null`.")
-}
-
-"""
-Represents a monetary value with taxes. In cases where taxes were not applied, net and gross values will be equal.
-"""
-type TaxedMoney {
-  """Currency code."""
-  currency: String!
-
-  """Amount of money including taxes."""
-  gross: Money!
-
-  """Amount of money without taxes."""
-  net: Money!
-
-  """Amount of taxes."""
-  tax: Money!
-}
-
-"""Represents amount of money in specific currency."""
-type Money {
-  """Currency code."""
-  currency: String!
-
-  """Amount of money."""
-  amount: Float!
-}
-
-"""Represents a range of monetary values."""
-type TaxedMoneyRange {
-  """Lower bound of a price range."""
-  start: TaxedMoney
-
-  """Upper bound of a price range."""
-  stop: TaxedMoney
-}
-
-input AddressInput {
-  """Given name."""
-  firstName: String
-
-  """Family name."""
-  lastName: String
-
-  """Company or organization."""
-  companyName: String
-
-  """Address."""
-  streetAddress1: String
-
-  """Address."""
-  streetAddress2: String
-
-  """City."""
-  city: String
-
-  """District."""
-  cityArea: String
-
-  """Postal code."""
-  postalCode: String
-
-  """Country."""
-  country: CountryCode
-
-  """State or province."""
-  countryArea: String
-
-  """
-  Phone number.
-  
-  Phone numbers are validated with Google's [libphonenumber](https://github.com/google/libphonenumber) library.
-  """
-  phone: String
-
-  """
-  Address public metadata.
-  
-  Added in Saleor 3.15.
-  """
-  metadata: [MetadataInput!]
-}
-
-input MetadataInput {
-  """Key of a metadata item."""
-  key: String!
-
-  """Value of a metadata item."""
-  value: String!
-}
-
-"""Represents a custom attribute."""
-type SelectedAttribute @doc(category: "Attributes") {
-  """Name of an attribute displayed in the interface."""
-  attribute: Attribute!
-
-  """Values of an attribute."""
-  values: [AttributeValue!]!
-}
-
-"""Represents product channel listing."""
-type ProductChannelListing implements Node @doc(category: "Products") {
-  """The ID of the product channel listing."""
+"""Represents a version of a product such as different size or color."""
+type ProductVariant implements Node & ObjectWithMetadata @doc(category: "Products") {
+  """The ID of the product variant."""
   id: ID!
-  publicationDate: Date @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `publishedAt` field to fetch the publication date.")
+
+  """List of private metadata items. Requires staff permissions to access."""
+  privateMetadata: [MetadataItem!]!
 
   """
-  The product publication date time.
+  A single key from private metadata. Requires staff permissions to access.
+  
+  Tip: Use GraphQL aliases to fetch multiple keys.
   
   Added in Saleor 3.3.
   """
-  publishedAt: DateTime
-
-  """Indicates if the product is published in the channel."""
-  isPublished: Boolean!
-
-  """The channel in which the product is listed."""
-  channel: Channel!
-
-  """Indicates product visibility in the channel listings."""
-  visibleInListings: Boolean!
-  availableForPurchase: Date @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `availableForPurchaseAt` field to fetch the available for purchase date.")
+  privateMetafield(key: String!): String
 
   """
-  The product available for purchase date time.
+  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
   
   Added in Saleor 3.3.
   """
-  availableForPurchaseAt: DateTime
+  privateMetafields(keys: [String!]): Metadata
 
-  """The price of the cheapest variant (including discounts)."""
-  discountedPrice: Money
+  """List of public metadata items. Can be accessed without permissions."""
+  metadata: [MetadataItem!]!
 
   """
-  Purchase cost of product.
+  A single key from public metadata.
   
-  Requires one of the following permissions: MANAGE_PRODUCTS.
-  """
-  purchaseCost: MoneyRange
-
-  """
-  Range of margin percentage value.
+  Tip: Use GraphQL aliases to fetch multiple keys.
   
-  Requires one of the following permissions: MANAGE_PRODUCTS.
+  Added in Saleor 3.3.
   """
-  margin: Margin
+  metafield(key: String!): String
 
   """
-  Refers to a state that can be set by admins to control whether a product is available for purchase in storefronts in this channel. This does not guarantee the availability of stock. When set to `False`, this product is still visible to customers, but it cannot be purchased.
+  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
+  
+  Added in Saleor 3.3.
   """
-  isAvailableForPurchase: Boolean
+  metafields(keys: [String!]): Metadata
+
+  """The name of the product variant."""
+  name: String!
+
+  """The SKU (stock keeping unit) of the product variant."""
+  sku: String
+
+  """The product to which the variant belongs."""
+  product: Product!
 
   """
-  Lists the storefront product's pricing, the current price and discounts, only meant for displaying.
+  Determines if the inventory of this variant should be tracked. If false, the quantity won't change when customers buy this item. If the field is not provided, `Shop.trackInventoryByDefault` will be used.
+  """
+  trackInventory: Boolean!
+
+  """The maximum quantity of this variant that a customer can purchase."""
+  quantityLimitPerCustomer: Int
+
+  """The weight of the product variant."""
+  weight: Weight
+
+  """
+  Channel given to retrieve this product variant. Also used by federation gateway to resolve this object in a federated query.
+  """
+  channel: String
+
+  """
+  List of price information in channels for the product.
+  
+  Requires one of the following permissions: AUTHENTICATED_APP, AUTHENTICATED_STAFF_USER.
+  """
+  channelListings: [ProductVariantChannelListing!]
+
+  """
+  Lists the storefront variant's pricing, the current price and discounts, only meant for displaying.
   """
   pricing(
     """
     Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
     """
     address: AddressInput
-  ): ProductPricingInfo
+  ): VariantPricingInfo
+
+  """List of attributes assigned to this variant."""
+  attributes(
+    """Define scope of returned attributes."""
+    variantSelection: VariantAttributeScope
+  ): [SelectedAttribute!]!
+
+  """Gross margin percentage value."""
+  margin: Int
+
+  """
+  Total quantity ordered.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  quantityOrdered: Int
+
+  """
+  Total revenue generated by a variant in given period of time. Note: this field should be queried using `reportProductSales` query as it uses optimizations suitable for such calculations.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  revenue(period: ReportingPeriod): TaxedMoney
+
+  """List of images for the product variant."""
+  images: [ProductImage!] @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `media` field instead.")
+
+  """List of media for the product variant."""
+  media: [ProductMedia!]
+
+  """Returns translated product variant fields for the given language code."""
+  translation(
+    """A language code to return the translation for product variant."""
+    languageCode: LanguageCodeEnum!
+  ): ProductVariantTranslation
+
+  """
+  Digital content for the product variant.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  digitalContent: DigitalContent
+
+  """
+  Stocks for the product variant.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS, MANAGE_ORDERS.
+  """
+  stocks(
+    """
+    Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
+    """
+    address: AddressInput
+
+    """
+    Two-letter ISO 3166-1 country code. 
+    
+    DEPRECATED: this field will be removed in Saleor 4.0. Use `address` argument instead.
+    """
+    countryCode: CountryCode
+  ): [Stock!]
+
+  """
+  Quantity of a product available for sale in one checkout. Field value will be `null` when no `limitQuantityPerCheckout` in global settings has been set, and `productVariant` stocks are not tracked.
+  """
+  quantityAvailable(
+    """
+    Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
+    """
+    address: AddressInput
+
+    """
+    Two-letter ISO 3166-1 country code. When provided, the exact quantity from a warehouse operating in shipping zones that contain this country will be returned. Otherwise, it will return the maximum quantity from all shipping zones. 
+    
+    DEPRECATED: this field will be removed in Saleor 4.0. Use `address` argument instead.
+    """
+    countryCode: CountryCode
+  ): Int
+
+  """
+  Preorder data for product variant.
+  
+  Added in Saleor 3.1.
+  """
+  preorder: PreorderData
+
+  """The date and time when the product variant was created."""
+  created: DateTime!
+
+  """The date and time when the product variant was last updated."""
+  updatedAt: DateTime!
+
+  """
+  External ID of this product. 
+  
+  Added in Saleor 3.10.
+  """
+  externalReference: String
+}
+
+"""Represents product variant channel listing."""
+type ProductVariantChannelListing implements Node @doc(category: "Products") {
+  """The ID of the variant channel listing."""
+  id: ID!
+
+  """The channel to which the variant listing belongs."""
+  channel: Channel!
+
+  """The price of the variant."""
+  price: Money
+
+  """Cost price of the variant."""
+  costPrice: Money
+
+  """
+  Gross margin percentage value.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  margin: Int
+
+  """
+  Preorder variant data.
+  
+  Added in Saleor 3.1.
+  """
+  preorderThreshold: PreorderThreshold
 }
 
 """Represents channel."""
@@ -5328,6 +4652,38 @@ type Channel implements Node & ObjectWithMetadata @doc(category: "Channels") {
   Requires one of the following permissions: MANAGE_CHANNELS, MANAGE_CHECKOUTS.
   """
   checkoutSettings: CheckoutSettings!
+}
+
+type CountryDisplay {
+  """Country code."""
+  code: String!
+
+  """Country name."""
+  country: String!
+
+  """Country tax."""
+  vat: VAT @deprecated(reason: "This field will be removed in Saleor 4.0. Always returns `null`. Use `TaxClassCountryRate` type to manage tax rates per country.")
+}
+
+"""Represents a VAT rate for a country."""
+type VAT @doc(category: "Taxes") {
+  """Country code."""
+  countryCode: String!
+
+  """Standard VAT rate in percent."""
+  standardRate: Float
+
+  """Country's VAT rate exceptions for specific types of goods."""
+  reducedRates: [ReducedRate!]!
+}
+
+"""Represents a reduced VAT rate for a particular type of goods."""
+type ReducedRate @doc(category: "Taxes") {
+  """Reduced VAT rate in percent."""
+  rate: Float!
+
+  """A type of goods."""
+  rateType: String!
 }
 
 """Represents warehouse."""
@@ -5621,6 +4977,15 @@ type MoneyRange {
   stop: Money
 }
 
+"""Represents amount of money in specific currency."""
+type Money {
+  """Currency code."""
+  currency: String!
+
+  """Amount of money."""
+  amount: Float!
+}
+
 """
 Shipping method are the methods you'll use to get customer's orders to them. They are directly exposed to the customers.
 """
@@ -5810,6 +5175,76 @@ enum PostalCodeRuleInclusionTypeEnum @doc(category: "Shipping") {
 }
 
 """
+Tax class is a named object used to define tax rates per country. Tax class can be assigned to product types, products and shipping methods to define their tax rates.
+
+Added in Saleor 3.9.
+"""
+type TaxClass implements Node & ObjectWithMetadata @doc(category: "Taxes") {
+  """The ID of the object."""
+  id: ID!
+
+  """List of private metadata items. Requires staff permissions to access."""
+  privateMetadata: [MetadataItem!]!
+
+  """
+  A single key from private metadata. Requires staff permissions to access.
+  
+  Tip: Use GraphQL aliases to fetch multiple keys.
+  
+  Added in Saleor 3.3.
+  """
+  privateMetafield(key: String!): String
+
+  """
+  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
+  
+  Added in Saleor 3.3.
+  """
+  privateMetafields(keys: [String!]): Metadata
+
+  """List of public metadata items. Can be accessed without permissions."""
+  metadata: [MetadataItem!]!
+
+  """
+  A single key from public metadata.
+  
+  Tip: Use GraphQL aliases to fetch multiple keys.
+  
+  Added in Saleor 3.3.
+  """
+  metafield(key: String!): String
+
+  """
+  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
+  
+  Added in Saleor 3.3.
+  """
+  metafields(keys: [String!]): Metadata
+
+  """Name of the tax class."""
+  name: String!
+
+  """Country-specific tax rates for this tax class."""
+  countries: [TaxClassCountryRate!]!
+}
+
+"""
+Tax rate for a country. When tax class is null, it represents the default tax rate for that country; otherwise it's a country tax rate specific to the given tax class.
+
+Added in Saleor 3.9.
+"""
+type TaxClassCountryRate @doc(category: "Taxes") {
+  """Country in which this tax rate applies."""
+  country: CountryDisplay!
+
+  """Tax rate value."""
+  rate: Float!
+
+  """Related tax class."""
+  taxClass: TaxClass
+}
+
+"""
 List of shipping methods available for the country.
 
 Added in Saleor 3.6.
@@ -5820,6 +5255,260 @@ type ShippingMethodsPerCountry @doc(category: "Shipping") {
 
   """List of available shipping methods."""
   shippingMethods: [ShippingMethod!]
+}
+
+"""An enumeration."""
+enum CountryCode {
+  AF
+  AX
+  AL
+  DZ
+  AS
+  AD
+  AO
+  AI
+  AQ
+  AG
+  AR
+  AM
+  AW
+  AU
+  AT
+  AZ
+  BS
+  BH
+  BD
+  BB
+  BY
+  BE
+  BZ
+  BJ
+  BM
+  BT
+  BO
+  BQ
+  BA
+  BW
+  BV
+  BR
+  IO
+  BN
+  BG
+  BF
+  BI
+  CV
+  KH
+  CM
+  CA
+  KY
+  CF
+  TD
+  CL
+  CN
+  CX
+  CC
+  CO
+  KM
+  CG
+  CD
+  CK
+  CR
+  CI
+  HR
+  CU
+  CW
+  CY
+  CZ
+  DK
+  DJ
+  DM
+  DO
+  EC
+  EG
+  SV
+  GQ
+  ER
+  EE
+  SZ
+  ET
+  EU
+  FK
+  FO
+  FJ
+  FI
+  FR
+  GF
+  PF
+  TF
+  GA
+  GM
+  GE
+  DE
+  GH
+  GI
+  GR
+  GL
+  GD
+  GP
+  GU
+  GT
+  GG
+  GN
+  GW
+  GY
+  HT
+  HM
+  VA
+  HN
+  HK
+  HU
+  IS
+  IN
+  ID
+  IR
+  IQ
+  IE
+  IM
+  IL
+  IT
+  JM
+  JP
+  JE
+  JO
+  KZ
+  KE
+  KI
+  KW
+  KG
+  LA
+  LV
+  LB
+  LS
+  LR
+  LY
+  LI
+  LT
+  LU
+  MO
+  MG
+  MW
+  MY
+  MV
+  ML
+  MT
+  MH
+  MQ
+  MR
+  MU
+  YT
+  MX
+  FM
+  MD
+  MC
+  MN
+  ME
+  MS
+  MA
+  MZ
+  MM
+  NA
+  NR
+  NP
+  NL
+  NC
+  NZ
+  NI
+  NE
+  NG
+  NU
+  NF
+  KP
+  MK
+  MP
+  NO
+  OM
+  PK
+  PW
+  PS
+  PA
+  PG
+  PY
+  PE
+  PH
+  PN
+  PL
+  PT
+  PR
+  QA
+  RE
+  RO
+  RU
+  RW
+  BL
+  SH
+  KN
+  LC
+  MF
+  PM
+  VC
+  WS
+  SM
+  ST
+  SA
+  SN
+  RS
+  SC
+  SL
+  SG
+  SX
+  SK
+  SI
+  SB
+  SO
+  ZA
+  GS
+  KR
+  SS
+  ES
+  LK
+  SD
+  SR
+  SJ
+  SE
+  CH
+  SY
+  TW
+  TJ
+  TZ
+  TH
+  TL
+  TG
+  TK
+  TO
+  TT
+  TN
+  TR
+  TM
+  TC
+  TV
+  UG
+  UA
+  AE
+  GB
+  UM
+  US
+  UY
+  UZ
+  VU
+  VE
+  VN
+  VG
+  VI
+  WF
+  EH
+  YE
+  ZM
+  ZW
 }
 
 """
@@ -6040,13 +5729,154 @@ type CheckoutSettings {
   useLegacyErrorFlow: Boolean!
 }
 
-"""Metadata for the Margin class."""
-type Margin @doc(category: "Products") {
-  """The starting value of the margin."""
-  start: Int
+"""Represents preorder variant data for channel."""
+type PreorderThreshold @doc(category: "Products") {
+  """Preorder threshold for product variant in this channel."""
+  quantity: Int
 
-  """The ending value of the margin."""
-  stop: Int
+  """Number of sold product variant in this channel."""
+  soldUnits: Int!
+}
+
+"""Represents availability of a variant in the storefront."""
+type VariantPricingInfo @doc(category: "Products") {
+  """Whether it is in sale or not."""
+  onSale: Boolean
+
+  """The discount amount if in sale (null otherwise)."""
+  discount: TaxedMoney
+
+  """The discount amount in the local currency."""
+  discountLocalCurrency: TaxedMoney @deprecated(reason: "This field will be removed in Saleor 4.0. Always returns `null`.")
+
+  """The price, with any discount subtracted."""
+  price: TaxedMoney
+
+  """The price without any discount."""
+  priceUndiscounted: TaxedMoney
+
+  """The discounted price in the local currency."""
+  priceLocalCurrency: TaxedMoney @deprecated(reason: "This field will be removed in Saleor 4.0. Always returns `null`.")
+}
+
+"""
+Represents a monetary value with taxes. In cases where taxes were not applied, net and gross values will be equal.
+"""
+type TaxedMoney {
+  """Currency code."""
+  currency: String!
+
+  """Amount of money including taxes."""
+  gross: Money!
+
+  """Amount of money without taxes."""
+  net: Money!
+
+  """Amount of taxes."""
+  tax: Money!
+}
+
+input AddressInput {
+  """Given name."""
+  firstName: String
+
+  """Family name."""
+  lastName: String
+
+  """Company or organization."""
+  companyName: String
+
+  """Address."""
+  streetAddress1: String
+
+  """Address."""
+  streetAddress2: String
+
+  """City."""
+  city: String
+
+  """District."""
+  cityArea: String
+
+  """Postal code."""
+  postalCode: String
+
+  """Country."""
+  country: CountryCode
+
+  """State or province."""
+  countryArea: String
+
+  """
+  Phone number.
+  
+  Phone numbers are validated with Google's [libphonenumber](https://github.com/google/libphonenumber) library.
+  """
+  phone: String
+
+  """
+  Address public metadata.
+  
+  Added in Saleor 3.15.
+  """
+  metadata: [MetadataInput!]
+}
+
+input MetadataInput {
+  """Key of a metadata item."""
+  key: String!
+
+  """Value of a metadata item."""
+  value: String!
+}
+
+"""Represents a custom attribute."""
+type SelectedAttribute @doc(category: "Attributes") {
+  """Name of an attribute displayed in the interface."""
+  attribute: Attribute!
+
+  """Values of an attribute."""
+  values: [AttributeValue!]!
+}
+
+enum VariantAttributeScope @doc(category: "Products") {
+  ALL
+  VARIANT_SELECTION
+  NOT_VARIANT_SELECTION
+}
+
+enum ReportingPeriod {
+  TODAY
+  THIS_MONTH
+}
+
+"""Represents a product image."""
+type ProductImage @doc(category: "Products") {
+  """The ID of the image."""
+  id: ID!
+
+  """The alt text of the image."""
+  alt: String
+
+  """
+  The new relative sorting position of the item (from -inf to +inf). 1 moves the item one position forward, -1 moves the item one position backward, 0 leaves the item unchanged.
+  """
+  sortOrder: Int
+
+  """The URL of the image."""
+  url(
+    """
+    Desired longest side the image in pixels. Defaults to 4096. Images are never cropped. Pass 0 to retrieve the original size (not recommended).
+    """
+    size: Int
+
+    """
+    The format of the image. When not provided, format of the original image will be used.
+    
+    Added in Saleor 3.6.
+    """
+    format: ThumbnailFormatEnum = ORIGINAL
+  ): String!
 }
 
 """Represents a product media."""
@@ -6141,33 +5971,276 @@ enum ProductMediaType @doc(category: "Products") {
   VIDEO
 }
 
-"""Represents a product image."""
-type ProductImage @doc(category: "Products") {
-  """The ID of the image."""
+type ProductVariantTranslation implements Node @doc(category: "Products") {
+  """The ID of the product variant translation."""
   id: ID!
 
-  """The alt text of the image."""
-  alt: String
+  """Translation language."""
+  language: LanguageDisplay!
+
+  """Translated product variant name."""
+  name: String!
+}
+
+"""Represents digital content associated with a product variant."""
+type DigitalContent implements Node & ObjectWithMetadata @doc(category: "Products") {
+  """The ID of the digital content."""
+  id: ID!
+
+  """List of private metadata items. Requires staff permissions to access."""
+  privateMetadata: [MetadataItem!]!
 
   """
-  The new relative sorting position of the item (from -inf to +inf). 1 moves the item one position forward, -1 moves the item one position backward, 0 leaves the item unchanged.
+  A single key from private metadata. Requires staff permissions to access.
+  
+  Tip: Use GraphQL aliases to fetch multiple keys.
+  
+  Added in Saleor 3.3.
   """
-  sortOrder: Int
+  privateMetafield(key: String!): String
 
-  """The URL of the image."""
-  url(
-    """
-    Desired longest side the image in pixels. Defaults to 4096. Images are never cropped. Pass 0 to retrieve the original size (not recommended).
-    """
-    size: Int
+  """
+  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
+  
+  Added in Saleor 3.3.
+  """
+  privateMetafields(keys: [String!]): Metadata
 
+  """List of public metadata items. Can be accessed without permissions."""
+  metadata: [MetadataItem!]!
+
+  """
+  A single key from public metadata.
+  
+  Tip: Use GraphQL aliases to fetch multiple keys.
+  
+  Added in Saleor 3.3.
+  """
+  metafield(key: String!): String
+
+  """
+  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
+  
+  Added in Saleor 3.3.
+  """
+  metafields(keys: [String!]): Metadata
+
+  """Default settings indicator for digital content."""
+  useDefaultSettings: Boolean!
+
+  """Indicator for automatic fulfillment of digital content."""
+  automaticFulfillment: Boolean!
+
+  """File associated with digital content."""
+  contentFile: String!
+
+  """Maximum number of allowed downloads for the digital content."""
+  maxDownloads: Int
+
+  """Number of days the URL for the digital content remains valid."""
+  urlValidDays: Int
+
+  """List of URLs for the digital variant."""
+  urls: [DigitalContentUrl!]
+
+  """Product variant assigned to digital content."""
+  productVariant: ProductVariant!
+}
+
+"""Represents a URL for digital content."""
+type DigitalContentUrl implements Node @doc(category: "Products") {
+  """The ID of the digital content URL."""
+  id: ID!
+
+  """Digital content associated with the URL."""
+  content: DigitalContent!
+
+  """Date and time when the digital content URL was created."""
+  created: DateTime!
+
+  """Number of times digital content has been downloaded."""
+  downloadNum: Int!
+
+  """URL for digital content."""
+  url: String
+
+  """UUID of digital content."""
+  token: UUID!
+}
+
+scalar UUID
+
+"""Represents stock."""
+type Stock implements Node @doc(category: "Products") {
+  """The ID of stock."""
+  id: ID!
+
+  """The warehouse associated with the stock."""
+  warehouse: Warehouse!
+
+  """Information about the product variant."""
+  productVariant: ProductVariant!
+
+  """
+  Quantity of a product in the warehouse's possession, including the allocated stock that is waiting for shipment.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS, MANAGE_ORDERS.
+  """
+  quantity: Int!
+
+  """
+  Quantity allocated for orders.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS, MANAGE_ORDERS.
+  """
+  quantityAllocated: Int!
+
+  """
+  Quantity reserved for checkouts.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS, MANAGE_ORDERS.
+  """
+  quantityReserved: Int!
+}
+
+"""Represents preorder settings for product variant."""
+type PreorderData @doc(category: "Products") {
+  """
+  The global preorder threshold for product variant.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  globalThreshold: Int
+
+  """
+  Total number of sold product variant during preorder.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  globalSoldUnits: Int!
+
+  """Preorder end date."""
+  endDate: DateTime
+}
+
+"""Represents availability of a product in the storefront."""
+type ProductPricingInfo @doc(category: "Products") {
+  """Whether it is in sale or not."""
+  onSale: Boolean
+
+  """The discount amount if in sale (null otherwise)."""
+  discount: TaxedMoney
+
+  """The discount amount in the local currency."""
+  discountLocalCurrency: TaxedMoney @deprecated(reason: "This field will be removed in Saleor 4.0. Always returns `null`.")
+
+  """
+  Determines whether this product's price displayed in a storefront should include taxes.
+  
+  Added in Saleor 3.9.
+  """
+  displayGrossPrices: Boolean!
+
+  """The discounted price range of the product variants."""
+  priceRange: TaxedMoneyRange
+
+  """The undiscounted price range of the product variants."""
+  priceRangeUndiscounted: TaxedMoneyRange
+
+  """
+  The discounted price range of the product variants in the local currency.
+  """
+  priceRangeLocalCurrency: TaxedMoneyRange @deprecated(reason: "This field will be removed in Saleor 4.0. Always returns `null`.")
+}
+
+"""Represents a range of monetary values."""
+type TaxedMoneyRange {
+  """Lower bound of a price range."""
+  start: TaxedMoney
+
+  """Upper bound of a price range."""
+  stop: TaxedMoney
+}
+
+"""Representation of tax types fetched from tax gateway."""
+type TaxType @doc(category: "Taxes") {
+  """Description of the tax type."""
+  description: String
+
+  """External tax code used to identify given tax group."""
+  taxCode: String
+}
+
+"""Represents product channel listing."""
+type ProductChannelListing implements Node @doc(category: "Products") {
+  """The ID of the product channel listing."""
+  id: ID!
+  publicationDate: Date @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `publishedAt` field to fetch the publication date.")
+
+  """
+  The product publication date time.
+  
+  Added in Saleor 3.3.
+  """
+  publishedAt: DateTime
+
+  """Indicates if the product is published in the channel."""
+  isPublished: Boolean!
+
+  """The channel in which the product is listed."""
+  channel: Channel!
+
+  """Indicates product visibility in the channel listings."""
+  visibleInListings: Boolean!
+  availableForPurchase: Date @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `availableForPurchaseAt` field to fetch the available for purchase date.")
+
+  """
+  The product available for purchase date time.
+  
+  Added in Saleor 3.3.
+  """
+  availableForPurchaseAt: DateTime
+
+  """The price of the cheapest variant (including discounts)."""
+  discountedPrice: Money
+
+  """
+  Purchase cost of product.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  purchaseCost: MoneyRange
+
+  """
+  Range of margin percentage value.
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  margin: Margin
+
+  """
+  Refers to a state that can be set by admins to control whether a product is available for purchase in storefronts in this channel. This does not guarantee the availability of stock. When set to `False`, this product is still visible to customers, but it cannot be purchased.
+  """
+  isAvailableForPurchase: Boolean
+
+  """
+  Lists the storefront product's pricing, the current price and discounts, only meant for displaying.
+  """
+  pricing(
     """
-    The format of the image. When not provided, format of the original image will be used.
-    
-    Added in Saleor 3.6.
+    Destination address used to find warehouses where stock availability for this product is checked. If address is empty, uses `Shop.companyAddress` or fallbacks to server's `settings.DEFAULT_COUNTRY` configuration.
     """
-    format: ThumbnailFormatEnum = ORIGINAL
-  ): String!
+    address: AddressInput
+  ): ProductPricingInfo
+}
+
+"""Metadata for the Margin class."""
+type Margin @doc(category: "Products") {
+  """The starting value of the margin."""
+  start: Int
+
+  """The ending value of the margin."""
+  stop: Int
 }
 
 input MediaSortingInput @doc(category: "Products") {
@@ -6402,220 +6475,233 @@ type ProductTranslation implements Node @doc(category: "Products") {
   descriptionJson: JSONString @deprecated(reason: "This field will be removed in Saleor 4.0. Use the `description` field instead.")
 }
 
-"""Represents product variant channel listing."""
-type ProductVariantChannelListing implements Node @doc(category: "Products") {
-  """The ID of the variant channel listing."""
-  id: ID!
+"""
+Represents assigned attribute to variant with variant selection attached.
 
-  """The channel to which the variant listing belongs."""
-  channel: Channel!
-
-  """The price of the variant."""
-  price: Money
-
-  """Cost price of the variant."""
-  costPrice: Money
+Added in Saleor 3.1.
+"""
+type AssignedVariantAttribute @doc(category: "Attributes") {
+  """Attribute assigned to variant."""
+  attribute: Attribute!
 
   """
-  Gross margin percentage value.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS.
+  Determines, whether assigned attribute is allowed for variant selection. Supported variant types for variant selection are: ['dropdown', 'boolean', 'swatch', 'numeric']
   """
-  margin: Int
-
-  """
-  Preorder variant data.
-  
-  Added in Saleor 3.1.
-  """
-  preorderThreshold: PreorderThreshold
+  variantSelection: Boolean!
 }
 
-"""Represents preorder variant data for channel."""
-type PreorderThreshold @doc(category: "Products") {
-  """Preorder threshold for product variant in this channel."""
+input AttributeFilterInput @doc(category: "Attributes") {
+  valueRequired: Boolean
+  isVariantOnly: Boolean
+  visibleInStorefront: Boolean
+  filterableInStorefront: Boolean
+  filterableInDashboard: Boolean
+  availableInGrid: Boolean
+  metadata: [MetadataFilter!]
+  search: String
+  ids: [ID!]
+  type: AttributeTypeEnum
+  inCollection: ID
+  inCategory: ID
+  slugs: [String!]
+
+  """
+  Specifies the channel by which the data should be filtered. 
+  
+  DEPRECATED: this field will be removed in Saleor 4.0. Use root-level channel argument instead.
+  """
+  channel: String
+}
+
+"""
+Where filtering options.
+
+Added in Saleor 3.11.
+
+Note: this API is currently in Feature Preview and can be subject to changes at later point.
+"""
+input AttributeWhereInput @doc(category: "Attributes") {
+  valueRequired: Boolean
+  visibleInStorefront: Boolean
+  filterableInDashboard: Boolean
+  metadata: [MetadataFilter!]
+  ids: [ID!]
+  name: StringFilterInput
+  slug: StringFilterInput
+  withChoices: Boolean
+  inputType: AttributeInputTypeEnumFilterInput
+  entityType: AttributeEntityTypeEnumFilterInput
+  type: AttributeTypeEnumFilterInput
+  unit: MeasurementUnitsEnumFilterInput
+  inCollection: ID
+  inCategory: ID
+
+  """List of conditions that must be met."""
+  AND: [AttributeWhereInput!]
+
+  """A list of conditions of which at least one must be met."""
+  OR: [AttributeWhereInput!]
+}
+
+input AttributeInputTypeEnumFilterInput @doc(category: "Attributes") {
+  """The value equal to."""
+  eq: AttributeInputTypeEnum
+
+  """The value included in."""
+  oneOf: [AttributeInputTypeEnum!]
+}
+
+input AttributeEntityTypeEnumFilterInput @doc(category: "Attributes") {
+  """The value equal to."""
+  eq: AttributeEntityTypeEnum
+
+  """The value included in."""
+  oneOf: [AttributeEntityTypeEnum!]
+}
+
+input AttributeTypeEnumFilterInput @doc(category: "Attributes") {
+  """The value equal to."""
+  eq: AttributeTypeEnum
+
+  """The value included in."""
+  oneOf: [AttributeTypeEnum!]
+}
+
+input MeasurementUnitsEnumFilterInput @doc(category: "Attributes") {
+  """The value equal to."""
+  eq: MeasurementUnitsEnum
+
+  """The value included in."""
+  oneOf: [MeasurementUnitsEnum!]
+}
+
+input AttributeSortingInput @doc(category: "Attributes") {
+  """Specifies the direction in which to sort attributes."""
+  direction: OrderDirection!
+
+  """Sort attributes by the selected field."""
+  field: AttributeSortField!
+}
+
+enum AttributeSortField @doc(category: "Attributes") {
+  """Sort attributes by name"""
+  NAME
+
+  """Sort attributes by slug"""
+  SLUG
+
+  """Sort attributes by the value required flag"""
+  VALUE_REQUIRED
+
+  """Sort attributes by the variant only flag"""
+  IS_VARIANT_ONLY
+
+  """Sort attributes by visibility in the storefront"""
+  VISIBLE_IN_STOREFRONT
+
+  """Sort attributes by the filterable in storefront flag"""
+  FILTERABLE_IN_STOREFRONT
+
+  """Sort attributes by the filterable in dashboard flag"""
+  FILTERABLE_IN_DASHBOARD
+
+  """Sort attributes by their position in storefront"""
+  STOREFRONT_SEARCH_POSITION
+
+  """
+  Sort attributes based on whether they can be displayed or not in a product grid.
+  """
+  AVAILABLE_IN_GRID
+}
+
+input BarcodeInput {
+  """Barcode title"""
+  title: String
+
+  """Text to convert to barcode"""
+  code: String
+}
+
+type WMSDelivererCountableConnection {
+  """Pagination data for this connection."""
+  pageInfo: PageInfo!
+  edges: [WMSDelivererCountableEdge!]!
+
+  """A total count of items in the collection."""
+  totalCount: Int
+}
+
+type WMSDelivererCountableEdge {
+  """The item at the end of the edge."""
+  node: WmsDeliverer!
+
+  """A cursor for use in pagination."""
+  cursor: String!
+}
+
+"""Represents a wms deliverer"""
+type WmsDeliverer implements Node {
+  id: ID!
+
+  """Company name"""
+  companyName: String
+
+  """Street"""
+  street: String
+
+  """City"""
+  city: String
+
+  """Postal Code"""
+  postalCode: String
+
+  """Email"""
+  email: String
+
+  """VAT ID"""
+  vatId: String
+
+  """Phone"""
+  phone: String
+
+  """Country"""
+  country: CountryCode
+
+  """First name"""
+  firstName: String
+
+  """Last name"""
+  lastName: String
+}
+
+input WmsDelivererFilterInput {
+  search: String
+}
+
+type WMSDocPositionCountableConnection {
+  """Pagination data for this connection."""
+  pageInfo: PageInfo!
+  edges: [WMSDocPositionCountableEdge!]!
+
+  """A total count of items in the collection."""
+  totalCount: Int
+}
+
+type WMSDocPositionCountableEdge {
+  """The item at the end of the edge."""
+  node: WmsDocPosition!
+
+  """A cursor for use in pagination."""
+  cursor: String!
+}
+
+"""Represents a wms document"""
+type WmsDocPosition implements Node {
+  id: ID!
+  productVariant: ProductVariant
   quantity: Int
-
-  """Number of sold product variant in this channel."""
-  soldUnits: Int!
-}
-
-"""Represents availability of a variant in the storefront."""
-type VariantPricingInfo @doc(category: "Products") {
-  """Whether it is in sale or not."""
-  onSale: Boolean
-
-  """The discount amount if in sale (null otherwise)."""
-  discount: TaxedMoney
-
-  """The discount amount in the local currency."""
-  discountLocalCurrency: TaxedMoney @deprecated(reason: "This field will be removed in Saleor 4.0. Always returns `null`.")
-
-  """The price, with any discount subtracted."""
-  price: TaxedMoney
-
-  """The price without any discount."""
-  priceUndiscounted: TaxedMoney
-
-  """The discounted price in the local currency."""
-  priceLocalCurrency: TaxedMoney @deprecated(reason: "This field will be removed in Saleor 4.0. Always returns `null`.")
-}
-
-enum ReportingPeriod {
-  TODAY
-  THIS_MONTH
-}
-
-type ProductVariantTranslation implements Node @doc(category: "Products") {
-  """The ID of the product variant translation."""
-  id: ID!
-
-  """Translation language."""
-  language: LanguageDisplay!
-
-  """Translated product variant name."""
-  name: String!
-}
-
-"""Represents digital content associated with a product variant."""
-type DigitalContent implements Node & ObjectWithMetadata @doc(category: "Products") {
-  """The ID of the digital content."""
-  id: ID!
-
-  """List of private metadata items. Requires staff permissions to access."""
-  privateMetadata: [MetadataItem!]!
-
-  """
-  A single key from private metadata. Requires staff permissions to access.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  
-  Added in Saleor 3.3.
-  """
-  privateMetafield(key: String!): String
-
-  """
-  Private metadata. Requires staff permissions to access. Use `keys` to control which fields you want to include. The default is to include everything.
-  
-  Added in Saleor 3.3.
-  """
-  privateMetafields(keys: [String!]): Metadata
-
-  """List of public metadata items. Can be accessed without permissions."""
-  metadata: [MetadataItem!]!
-
-  """
-  A single key from public metadata.
-  
-  Tip: Use GraphQL aliases to fetch multiple keys.
-  
-  Added in Saleor 3.3.
-  """
-  metafield(key: String!): String
-
-  """
-  Public metadata. Use `keys` to control which fields you want to include. The default is to include everything.
-  
-  Added in Saleor 3.3.
-  """
-  metafields(keys: [String!]): Metadata
-
-  """Default settings indicator for digital content."""
-  useDefaultSettings: Boolean!
-
-  """Indicator for automatic fulfillment of digital content."""
-  automaticFulfillment: Boolean!
-
-  """File associated with digital content."""
-  contentFile: String!
-
-  """Maximum number of allowed downloads for the digital content."""
-  maxDownloads: Int
-
-  """Number of days the URL for the digital content remains valid."""
-  urlValidDays: Int
-
-  """List of URLs for the digital variant."""
-  urls: [DigitalContentUrl!]
-
-  """Product variant assigned to digital content."""
-  productVariant: ProductVariant!
-}
-
-"""Represents a URL for digital content."""
-type DigitalContentUrl implements Node @doc(category: "Products") {
-  """The ID of the digital content URL."""
-  id: ID!
-
-  """Digital content associated with the URL."""
-  content: DigitalContent!
-
-  """Date and time when the digital content URL was created."""
-  created: DateTime!
-
-  """Number of times digital content has been downloaded."""
-  downloadNum: Int!
-
-  """URL for digital content."""
-  url: String
-
-  """UUID of digital content."""
-  token: UUID!
-}
-
-scalar UUID
-
-"""Represents stock."""
-type Stock implements Node @doc(category: "Products") {
-  """The ID of stock."""
-  id: ID!
-
-  """The warehouse associated with the stock."""
-  warehouse: Warehouse!
-
-  """Information about the product variant."""
-  productVariant: ProductVariant!
-
-  """
-  Quantity of a product in the warehouse's possession, including the allocated stock that is waiting for shipment.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS, MANAGE_ORDERS.
-  """
-  quantity: Int!
-
-  """
-  Quantity allocated for orders.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS, MANAGE_ORDERS.
-  """
-  quantityAllocated: Int!
-
-  """
-  Quantity reserved for checkouts.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS, MANAGE_ORDERS.
-  """
-  quantityReserved: Int!
-}
-
-"""Represents preorder settings for product variant."""
-type PreorderData @doc(category: "Products") {
-  """
-  The global preorder threshold for product variant.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS.
-  """
-  globalThreshold: Int
-
-  """
-  Total number of sold product variant during preorder.
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS.
-  """
-  globalSoldUnits: Int!
-
-  """Preorder end date."""
-  endDate: DateTime
+  weight: Float
+  document: WmsDocument
 }
 
 """Represents a wms document"""
@@ -14312,45 +14398,6 @@ type CheckoutLineCountableEdge @doc(category: "Checkout") {
 
   """A cursor for use in pagination."""
   cursor: String!
-}
-
-input AttributeSortingInput @doc(category: "Attributes") {
-  """Specifies the direction in which to sort attributes."""
-  direction: OrderDirection!
-
-  """Sort attributes by the selected field."""
-  field: AttributeSortField!
-}
-
-enum AttributeSortField @doc(category: "Attributes") {
-  """Sort attributes by name"""
-  NAME
-
-  """Sort attributes by slug"""
-  SLUG
-
-  """Sort attributes by the value required flag"""
-  VALUE_REQUIRED
-
-  """Sort attributes by the variant only flag"""
-  IS_VARIANT_ONLY
-
-  """Sort attributes by visibility in the storefront"""
-  VISIBLE_IN_STOREFRONT
-
-  """Sort attributes by the filterable in storefront flag"""
-  FILTERABLE_IN_STOREFRONT
-
-  """Sort attributes by the filterable in dashboard flag"""
-  FILTERABLE_IN_DASHBOARD
-
-  """Sort attributes by their position in storefront"""
-  STOREFRONT_SEARCH_POSITION
-
-  """
-  Sort attributes based on whether they can be displayed or not in a product grid.
-  """
-  AVAILABLE_IN_GRID
 }
 
 """Represents ongoing installation of app."""
