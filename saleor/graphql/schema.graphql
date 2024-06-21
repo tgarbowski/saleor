@@ -14789,6 +14789,19 @@ type Mutation {
   ): ExtMigloCsv @doc(category: "Orders")
 
   """
+  Export products to csv file. 
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  
+  Triggers the following webhook events:
+  - NOTIFY_USER (async): A notification for the exported file.
+  """
+  exportProductsExtended(
+    """Fields required to export product data."""
+    input: ExportProductsExtendedInput!
+  ): ExportProductsExtended @doc(category: "Products") @webhookEventsInfo(asyncEvents: [NOTIFY_USER], syncEvents: [])
+
+  """
   Creates a new WMS document. 
   
   Requires one of the following permissions: MANAGE_WMS.
@@ -19772,6 +19785,110 @@ type ExtMigloCsv @doc(category: "Orders") {
   exportErrors: [InvoiceError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
   errors: [InvoiceError!]!
   invoice: Invoice
+}
+
+"""
+Export products to csv file. 
+
+Requires one of the following permissions: MANAGE_PRODUCTS.
+
+Triggers the following webhook events:
+- NOTIFY_USER (async): A notification for the exported file.
+"""
+type ExportProductsExtended @doc(category: "Products") @webhookEventsInfo(asyncEvents: [NOTIFY_USER], syncEvents: []) {
+  """
+  The newly created export file job which is responsible for export data.
+  """
+  exportFile: ExportFile
+  exportErrors: [ExportError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ExportError!]!
+}
+
+type ExportError {
+  """
+  Name of a field that caused the error. A value of `null` indicates that the error isn't associated with a particular field.
+  """
+  field: String
+
+  """The error message."""
+  message: String
+
+  """The error code."""
+  code: ExportErrorCode!
+}
+
+"""An enumeration."""
+enum ExportErrorCode {
+  GRAPHQL_ERROR
+  INVALID
+  NOT_FOUND
+  REQUIRED
+}
+
+input ExportProductsExtendedInput @doc(category: "Products") {
+  """Determine which products should be exported."""
+  scope: ExportScope!
+
+  """Filtering options for products."""
+  filter: ProductFilterInput
+
+  """List of products IDs to export."""
+  ids: [ID!]
+
+  """Input with info about fields which should be exported."""
+  exportInfo: ExportInfoInput
+
+  """Type of exported file."""
+  fileType: FileTypesEnum!
+
+  """Slug of a channel for which the data should be exported."""
+  channel: String
+}
+
+enum ExportScope @doc(category: "Products") {
+  """Export all products."""
+  ALL
+
+  """Export products with given ids."""
+  IDS
+
+  """Export the filtered products."""
+  FILTER
+}
+
+input ExportInfoInput @doc(category: "Products") {
+  """List of attribute ids witch should be exported."""
+  attributes: [ID!]
+
+  """List of warehouse ids witch should be exported."""
+  warehouses: [ID!]
+
+  """List of channels ids which should be exported."""
+  channels: [ID!]
+
+  """List of product fields witch should be exported."""
+  fields: [ProductFieldEnum!]
+}
+
+enum ProductFieldEnum @doc(category: "Products") {
+  NAME
+  DESCRIPTION
+  PRODUCT_TYPE
+  CATEGORY
+  PRODUCT_WEIGHT
+  COLLECTIONS
+  CHARGE_TAXES
+  PRODUCT_MEDIA
+  VARIANT_ID
+  VARIANT_SKU
+  VARIANT_WEIGHT
+  VARIANT_MEDIA
+}
+
+"""An enumeration."""
+enum FileTypesEnum {
+  CSV
+  XLSX
 }
 
 """
@@ -27506,27 +27623,6 @@ type ExportProducts @doc(category: "Products") @webhookEventsInfo(asyncEvents: [
   errors: [ExportError!]!
 }
 
-type ExportError {
-  """
-  Name of a field that caused the error. A value of `null` indicates that the error isn't associated with a particular field.
-  """
-  field: String
-
-  """The error message."""
-  message: String
-
-  """The error code."""
-  code: ExportErrorCode!
-}
-
-"""An enumeration."""
-enum ExportErrorCode {
-  GRAPHQL_ERROR
-  INVALID
-  NOT_FOUND
-  REQUIRED
-}
-
 input ExportProductsInput @doc(category: "Products") {
   """Determine which products should be exported."""
   scope: ExportScope!
@@ -27542,52 +27638,6 @@ input ExportProductsInput @doc(category: "Products") {
 
   """Type of exported file."""
   fileType: FileTypesEnum!
-}
-
-enum ExportScope @doc(category: "Products") {
-  """Export all products."""
-  ALL
-
-  """Export products with given ids."""
-  IDS
-
-  """Export the filtered products."""
-  FILTER
-}
-
-input ExportInfoInput @doc(category: "Products") {
-  """List of attribute ids witch should be exported."""
-  attributes: [ID!]
-
-  """List of warehouse ids witch should be exported."""
-  warehouses: [ID!]
-
-  """List of channels ids which should be exported."""
-  channels: [ID!]
-
-  """List of product fields witch should be exported."""
-  fields: [ProductFieldEnum!]
-}
-
-enum ProductFieldEnum @doc(category: "Products") {
-  NAME
-  DESCRIPTION
-  PRODUCT_TYPE
-  CATEGORY
-  PRODUCT_WEIGHT
-  COLLECTIONS
-  CHARGE_TAXES
-  PRODUCT_MEDIA
-  VARIANT_ID
-  VARIANT_SKU
-  VARIANT_WEIGHT
-  VARIANT_MEDIA
-}
-
-"""An enumeration."""
-enum FileTypesEnum {
-  CSV
-  XLSX
 }
 
 """
