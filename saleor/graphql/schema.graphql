@@ -226,6 +226,7 @@ type Query {
 
     """Only discounted products."""
     isDiscounted: Boolean
+    privateMetadata: [MetadataFilter]
 
     """Filtering options for products."""
     filter: ProductFilterInput
