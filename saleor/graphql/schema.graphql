@@ -218,17 +218,11 @@ type Query {
   List of the shop's products with filtering by warehouse location. Requires one of the following permissions to include the unpublished items: MANAGE_ORDERS, MANAGE_DISCOUNTS, MANAGE_PRODUCTS.
   """
   productsExtended(
-    """First warehouse location of products."""
-    locationFrom: String
-
-    """Last warehouse location of products."""
-    locationTo: String
-
     """Only discounted products."""
     isDiscounted: Boolean
 
     """Filtering options for products."""
-    filter: ProductFilterInput
+    filter: ProductFilterInputExtended
 
     """
     Where filtering options.
@@ -11681,6 +11675,79 @@ type SitemapSlugs {
   pagesSlugs: [String]
 }
 
+input ProductFilterInputExtended @doc(category: "Products") {
+  isPublished: Boolean
+  collections: [ID!]
+  categories: [ID!]
+  hasCategory: Boolean
+  attributes: [AttributeInput!]
+
+  """Filter by variants having specific stock status."""
+  stockAvailability: StockAvailability
+  stocks: ProductStockFilterInput
+  search: String
+  metadata: [MetadataFilter!]
+
+  """
+  Filter by the publication date. 
+  
+  Added in Saleor 3.8.
+  """
+  publishedFrom: DateTime
+
+  """
+  Filter by availability for purchase. 
+  
+  Added in Saleor 3.8.
+  """
+  isAvailable: Boolean
+
+  """
+  Filter by the date of availability for purchase. 
+  
+  Added in Saleor 3.8.
+  """
+  availableFrom: DateTime
+
+  """
+  Filter by visibility in product listings. 
+  
+  Added in Saleor 3.8.
+  """
+  isVisibleInListing: Boolean
+  price: PriceRangeInput
+
+  """Filter by the lowest variant price after discounts."""
+  minimalPrice: PriceRangeInput
+
+  """Filter by when was the most recent update."""
+  updatedAt: DateTimeRangeInput
+  productTypes: [ID!]
+
+  """Filter on whether product is a gift card or not."""
+  giftCard: Boolean
+  ids: [ID!]
+  hasPreorderedVariants: Boolean
+  slugs: [String!]
+  privateMetadata: [MetadataFilter!]
+  location: LocationRangeInput
+
+  """
+  Specifies the channel by which the data should be filtered. 
+  
+  DEPRECATED: this field will be removed in Saleor 4.0. Use root-level channel argument instead.
+  """
+  channel: String
+}
+
+input LocationRangeInput {
+  """First warehouse location of products."""
+  gte: String
+
+  """Last warehouse location of products."""
+  lte: String
+}
+
 """data to generate redirect url for payment"""
 type PaymentUrl {
   """"""
@@ -14958,12 +15025,10 @@ type Mutation {
   productBulkPublish(
     channel: String!
     endingAt: Date
-    filter: ProductFilterInput
+    filter: ProductFilterInputExtended
 
     """List of products IDs to publish."""
     ids: [ID]!
-    locationFrom: String
-    locationTo: String
     mode: String!
 
     """Determine product offer type."""
@@ -14974,7 +15039,7 @@ type Mutation {
 
   """Adds new products to Megapack."""
   addProductsToMegapack(
-    filter: ProductFilterInput
+    filter: ProductFilterInputExtended
 
     """ID of megapack."""
     id: ID!
@@ -19830,7 +19895,7 @@ input ExportProductsExtendedInput @doc(category: "Products") {
   scope: ExportScope!
 
   """Filtering options for products."""
-  filter: ProductFilterInput
+  filter: ProductFilterInputExtended
 
   """List of products IDs to export."""
   ids: [ID!]
