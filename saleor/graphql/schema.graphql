@@ -20241,7 +20241,7 @@ type LabelCreate {
 }
 
 input LabelCreateInput {
-  packageId: Int!
+  packageId: String!
 
   """Order ID"""
   order: String!
