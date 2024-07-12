@@ -15087,7 +15087,7 @@ type Mutation {
     filter: ProductFilterInputExtended
 
     """List of products IDs to change."""
-    ids: [ID]
+    productIds: [ID]
 
     """Product type"""
     productType: String!
