@@ -11729,7 +11729,7 @@ input ProductFilterInputExtended @doc(category: "Products") {
   ids: [ID!]
   hasPreorderedVariants: Boolean
   slugs: [String!]
-  privateMetadata: [MetadataFilter!]
+  privateMetadata: [MetadataFilterExtended!]
   location: LocationRangeInput
 
   """
@@ -11738,6 +11738,22 @@ input ProductFilterInputExtended @doc(category: "Products") {
   DEPRECATED: this field will be removed in Saleor 4.0. Use root-level channel argument instead.
   """
   channel: String
+}
+
+input MetadataFilterExtended {
+  """Key of a metadata item."""
+  key: String!
+
+  """Value of a metadata item."""
+  value: String
+
+  """Operation type."""
+  op: FilterOperatorType
+}
+
+enum FilterOperatorType {
+  EQUAL
+  CONTAINS
 }
 
 input LocationRangeInput {
