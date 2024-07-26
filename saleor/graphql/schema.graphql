@@ -15130,7 +15130,7 @@ type Mutation {
     """Quality"""
     quality: String!
 
-    """Weight"""
+    """Weight in kg"""
     weight: WeightScalar!
   ): CalculatePrice
 
@@ -20591,6 +20591,8 @@ Calculate product price.
 Requires one of the following permissions: MANAGE_PRODUCTS.
 """
 type CalculatePrice {
+  """Price"""
+  price: Float
   productErrors: [ProductError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
   errors: [ProductError!]!
 }
