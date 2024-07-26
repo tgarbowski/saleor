@@ -15110,6 +15110,31 @@ type Mutation {
   ): ProductAttributesBulkUpdate
 
   """
+  Calculate product price. 
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  calculatePrice(
+    """Brand"""
+    brand: String!
+
+    """Condition"""
+    condition: String!
+
+    """Material"""
+    material: String!
+
+    """Product type"""
+    productType: String!
+
+    """Quality"""
+    quality: String!
+
+    """Weight"""
+    weight: WeightScalar!
+  ): CalculatePrice
+
+  """
   Creates a new webhook subscription. 
   
   Requires one of the following permissions: MANAGE_APPS, AUTHENTICATED_APP.
@@ -20561,6 +20586,18 @@ input AttributeValueSelectableTypeInput @doc(category: "Attributes") {
 }
 
 """
+Calculate product price. 
+
+Requires one of the following permissions: MANAGE_PRODUCTS.
+"""
+type CalculatePrice {
+  productErrors: [ProductError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ProductError!]!
+}
+
+scalar WeightScalar
+
+"""
 Creates a new webhook subscription. 
 
 Requires one of the following permissions: MANAGE_APPS, AUTHENTICATED_APP.
@@ -21834,8 +21871,6 @@ input ShippingPriceInput @doc(category: "Shipping") {
   """
   taxClass: ID
 }
-
-scalar WeightScalar
 
 input ShippingPostalCodeRulesCreateInputRange @doc(category: "Shipping") {
   """Start range of the postal code."""
