@@ -14838,6 +14838,9 @@ type Mutation {
   Requires one of the following permissions: MANAGE_ORDERS.
   """
   extInvoicesZipRequest(
+    """Email"""
+    email: String!
+
     """End date"""
     endDate: DateTime!
 
