@@ -263,6 +263,30 @@ type Query {
     last: Int
   ): ProductCountableConnection @doc(category: "Products")
 
+  "\\n\\nRequires one of the following permissions: MANAGE_PRODUCTS."
+  estimatedProductPrice(
+    """Weight in kg"""
+    weight: WeightScalar!
+
+    """Brand"""
+    brand: String!
+
+    """Product type"""
+    productType: String!
+
+    """Material"""
+    material: String!
+
+    """Condition"""
+    condition: String!
+
+    """Quality"""
+    quality: String!
+
+    """Channel slug"""
+    channel: String!
+  ): EstimatedProductPrice
+
   """Generates an url to redirect to payment gateway and complete payment"""
   generatePaymentUrl(
     """Payment ID."""
@@ -11764,6 +11788,15 @@ input LocationRangeInput {
   lte: String
 }
 
+"""Estimated product price"""
+type EstimatedProductPrice {
+  minPrice: Money
+  midPrice: Money
+  maxPrice: Money
+}
+
+scalar WeightScalar
+
 """data to generate redirect url for payment"""
 type PaymentUrl {
   """"""
@@ -15111,31 +15144,6 @@ type Mutation {
     """Product type"""
     productType: String!
   ): ProductAttributesBulkUpdate
-
-  """
-  Calculate product price. 
-  
-  Requires one of the following permissions: MANAGE_PRODUCTS.
-  """
-  calculatePrice(
-    """Brand"""
-    brand: String!
-
-    """Condition"""
-    condition: String!
-
-    """Material"""
-    material: String!
-
-    """Product type"""
-    productType: String!
-
-    """Quality"""
-    quality: String!
-
-    """Weight in kg"""
-    weight: WeightScalar!
-  ): CalculatePrice
 
   """
   Creates a new webhook subscription. 
@@ -20587,20 +20595,6 @@ input AttributeValueSelectableTypeInput @doc(category: "Attributes") {
   """
   value: String
 }
-
-"""
-Calculate product price. 
-
-Requires one of the following permissions: MANAGE_PRODUCTS.
-"""
-type CalculatePrice {
-  """Price"""
-  price: Float
-  productErrors: [ProductError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
-  errors: [ProductError!]!
-}
-
-scalar WeightScalar
 
 """
 Creates a new webhook subscription. 
