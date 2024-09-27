@@ -20280,7 +20280,7 @@ input PackageCreateInput {
   packageData: [PackageInput]!
 
   """Order fullfilment ID"""
-  fulfillment: String!
+  fulfillments: [String]!
 
   """Order ID"""
   order: String!
