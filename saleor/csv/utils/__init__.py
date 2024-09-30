@@ -16,6 +16,7 @@ class ProductExportFields:
             "variant is preorder": "variants__is_preorder",
             "variant preorder global threshold": "variants__preorder_global_threshold",
             "variant preorder end date": "variants__preorder_end_date",
+            "location": "variants__private_metadata__location"
         },
         "product_many_to_many": {
             "collections": "collections__slug",
