@@ -683,6 +683,11 @@ if APP_ENVIRONMENT in ['production']:
             'task': 'saleor_gs.saleor.plugins.ebay.tasks.save_ebay_orders_task',
             'schedule': 600.0,
             "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
+        },
+        'bulk_publish_allegro_channels': {
+            'task': 'saleor_gs.saleor.plugins.allegro.tasks.bulk_publish_allegro_channels',
+            'schedule': crontab(minute=15, hour=15),
+            "options": {"queue": CELERY_LONG_TASKS_QUEUE}
         }
     })
 
