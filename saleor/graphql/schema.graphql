@@ -11756,6 +11756,9 @@ input ProductFilterInputExtended @doc(category: "Products") {
   privateMetadata: [MetadataFilterExtended!]
   location: LocationRangeInput
 
+  """Filter by date created."""
+  createdAt: DateTimeRangeInput
+
   """
   Specifies the channel by which the data should be filtered. 
   
