@@ -211,7 +211,7 @@ type Query {
     categoriesAmount: Int
 
     """Number of slugs to return"""
-    pagesAmount: Int
+    collectionsAmount: Int
   ): SitemapSlugs
 
   """
@@ -11696,7 +11696,7 @@ enum OrderStatusFilter @doc(category: "Orders") {
 type SitemapSlugs {
   productSlugs: [String]
   categoriesSlugs: [String]
-  pagesSlugs: [String]
+  collectionsSlugs: [String]
 }
 
 input ProductFilterInputExtended @doc(category: "Products") {
