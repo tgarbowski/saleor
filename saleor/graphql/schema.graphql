@@ -11781,6 +11781,7 @@ input MetadataFilterExtended {
 enum FilterOperatorType {
   EQUAL
   CONTAINS
+  NOT_EQUAL
 }
 
 input LocationRangeInput {
