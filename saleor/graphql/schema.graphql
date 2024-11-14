@@ -16139,6 +16139,22 @@ type Mutation {
   ): ProductAttributesBulkUpdate
 
   """
+  Move products to new channel. 
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  productChannelListingBulkUpdate(
+    channel: String!
+    filter: ProductFilterInputExtended
+
+    """List of products IDs to move."""
+    productIds: [ID]
+
+    """ID of target channel to move products."""
+    targetChannelId: ID!
+  ): ProductChannelListingBulkUpdate
+
+  """
   Creates a new webhook subscription. 
   
   Requires one of the following permissions: MANAGE_APPS, AUTHENTICATED_APP.
@@ -21989,6 +22005,16 @@ input AttributeValueSelectableTypeInput @doc(category: "Attributes") {
   The value or slug of an attribute to resolve. If the passed value is non-existent, it will be created.
   """
   value: String
+}
+
+"""
+Move products to new channel. 
+
+Requires one of the following permissions: MANAGE_PRODUCTS.
+"""
+type ProductChannelListingBulkUpdate {
+  productChannelListingErrors: [ProductChannelListingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ProductChannelListingError!]!
 }
 
 """
