@@ -16144,14 +16144,16 @@ type Mutation {
   Requires one of the following permissions: MANAGE_PRODUCTS.
   """
   productChannelListingBulkUpdate(
-    channel: String!
     filter: ProductFilterInputExtended
 
     """List of products IDs to move."""
     productIds: [ID]
 
+    """ID of source channel to move products."""
+    sourceChannel: ID!
+
     """ID of target channel to move products."""
-    targetChannelId: ID!
+    targetChannel: ID!
   ): ProductChannelListingBulkUpdate
 
   """
