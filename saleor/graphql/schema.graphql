@@ -15857,7 +15857,7 @@ type Mutation {
     modelId: String!
 
     """Product media id"""
-    productMediaId: ID
+    productMediaId: ID!
 
     """Photo generator provider"""
     provider: FashionModelProvider!
