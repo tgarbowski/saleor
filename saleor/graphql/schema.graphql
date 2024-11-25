@@ -20,6 +20,11 @@ directive @webhookEventsInfo(
 ) on FIELD | FIELD_DEFINITION | INPUT_OBJECT | OBJECT
 
 type Query {
+  fashionModels(
+    """Photo generator provider"""
+    provider: FashionModelProvider!
+  ): [FashionModel!] @doc(category: "Products")
+
   """List of the shop's attributes."""
   attributesExtended(
     """Filtering options for attributes."""
@@ -2034,6 +2039,31 @@ type Query {
   ): User @doc(category: "Users")
   _entities(representations: [_Any]): [_Entity]
   _service: _Service
+}
+
+"""Pre-trained model."""
+type FashionModel @doc(category: "Products") {
+  """The preset model ID."""
+  id: String!
+
+  """The preset model thumbnail image URL."""
+  thumbnail: String!
+
+  """The preset model name."""
+  name: String!
+
+  """The preset model gender."""
+  gender: String
+
+  """The preset model skin tone."""
+  skin: String
+
+  """The preset model age range."""
+  age: String
+}
+
+enum FashionModelProvider {
+  VMAKE
 }
 
 type AttributeCountableConnection @doc(category: "Attributes") {
@@ -15814,6 +15844,25 @@ enum StaffMemberStatus @doc(category: "Users") {
 }
 
 type Mutation {
+  """
+  Create try-on models for flatlay apparel. 
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  fashionModelGenerate(
+    """Type of apparel"""
+    apparelType: ApparelType!
+
+    """Model ID"""
+    modelId: String!
+
+    """Product media id"""
+    productMediaId: ID!
+
+    """Photo generator provider"""
+    provider: FashionModelProvider!
+  ): FashionModelGenerate
+
   """Sends an email with a contact form."""
   contactForm(
     """Contact e-mail"""
@@ -16137,6 +16186,24 @@ type Mutation {
     """Product type"""
     productType: String!
   ): ProductAttributesBulkUpdate
+
+  """
+  Move products to new channel. 
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  productChannelListingBulkUpdate(
+    filter: ProductFilterInputExtended
+
+    """List of products IDs to move."""
+    productIds: [ID]
+
+    """ID of source channel to move products."""
+    sourceChannel: ID!
+
+    """ID of target channel to move products."""
+    targetChannel: ID!
+  ): ProductChannelListingBulkUpdate
 
   """
   Creates a new webhook subscription. 
@@ -21197,6 +21264,65 @@ type Mutation {
   ): PermissionGroupDelete @doc(category: "Users") @webhookEventsInfo(asyncEvents: [PERMISSION_GROUP_DELETED], syncEvents: [])
 }
 
+"""
+Create try-on models for flatlay apparel. 
+
+Requires one of the following permissions: MANAGE_PRODUCTS.
+"""
+type FashionModelGenerate {
+  productErrors: [ProductError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ProductError!]!
+}
+
+type ProductError @doc(category: "Products") {
+  """
+  Name of a field that caused the error. A value of `null` indicates that the error isn't associated with a particular field.
+  """
+  field: String
+
+  """The error message."""
+  message: String
+
+  """The error code."""
+  code: ProductErrorCode!
+
+  """List of attributes IDs which causes the error."""
+  attributes: [ID!]
+
+  """List of attribute values IDs which causes the error."""
+  values: [ID!]
+}
+
+"""An enumeration."""
+enum ProductErrorCode @doc(category: "Products") {
+  ALREADY_EXISTS
+  ATTRIBUTE_ALREADY_ASSIGNED
+  ATTRIBUTE_CANNOT_BE_ASSIGNED
+  ATTRIBUTE_VARIANTS_DISABLED
+  MEDIA_ALREADY_ASSIGNED
+  DUPLICATED_INPUT_ITEM
+  GRAPHQL_ERROR
+  INVALID
+  INVALID_PRICE
+  PRODUCT_WITHOUT_CATEGORY
+  NOT_PRODUCTS_IMAGE
+  NOT_PRODUCTS_VARIANT
+  NOT_FOUND
+  REQUIRED
+  UNIQUE
+  VARIANT_NO_DIGITAL_CONTENT
+  CANNOT_MANAGE_PRODUCT_WITHOUT_VARIANT
+  PRODUCT_NOT_ASSIGNED_TO_CHANNEL
+  UNSUPPORTED_MEDIA_PROVIDER
+  PREORDER_VARIANT_CANNOT_BE_DEACTIVATED
+}
+
+enum ApparelType {
+  TOP
+  BOTTOM
+  ONE_PIECE
+}
+
 """Sends an email with a contact form."""
 type ContactForm @doc(category: "Users") {
   contactFormErrors: [ContactFormError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
@@ -21729,49 +21855,6 @@ type ProductBulkClearWarehouseLocation @doc(category: "Products") {
   errors: [ProductError!]!
 }
 
-type ProductError @doc(category: "Products") {
-  """
-  Name of a field that caused the error. A value of `null` indicates that the error isn't associated with a particular field.
-  """
-  field: String
-
-  """The error message."""
-  message: String
-
-  """The error code."""
-  code: ProductErrorCode!
-
-  """List of attributes IDs which causes the error."""
-  attributes: [ID!]
-
-  """List of attribute values IDs which causes the error."""
-  values: [ID!]
-}
-
-"""An enumeration."""
-enum ProductErrorCode @doc(category: "Products") {
-  ALREADY_EXISTS
-  ATTRIBUTE_ALREADY_ASSIGNED
-  ATTRIBUTE_CANNOT_BE_ASSIGNED
-  ATTRIBUTE_VARIANTS_DISABLED
-  MEDIA_ALREADY_ASSIGNED
-  DUPLICATED_INPUT_ITEM
-  GRAPHQL_ERROR
-  INVALID
-  INVALID_PRICE
-  PRODUCT_WITHOUT_CATEGORY
-  NOT_PRODUCTS_IMAGE
-  NOT_PRODUCTS_VARIANT
-  NOT_FOUND
-  REQUIRED
-  UNIQUE
-  VARIANT_NO_DIGITAL_CONTENT
-  CANNOT_MANAGE_PRODUCT_WITHOUT_VARIANT
-  PRODUCT_NOT_ASSIGNED_TO_CHANNEL
-  UNSUPPORTED_MEDIA_PROVIDER
-  PREORDER_VARIANT_CANNOT_BE_DEACTIVATED
-}
-
 """
 Retrieves a product media from backup. 
 
@@ -21989,6 +22072,16 @@ input AttributeValueSelectableTypeInput @doc(category: "Attributes") {
   The value or slug of an attribute to resolve. If the passed value is non-existent, it will be created.
   """
   value: String
+}
+
+"""
+Move products to new channel. 
+
+Requires one of the following permissions: MANAGE_PRODUCTS.
+"""
+type ProductChannelListingBulkUpdate {
+  productChannelListingErrors: [ProductChannelListingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ProductChannelListingError!]!
 }
 
 """

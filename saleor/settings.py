@@ -840,7 +840,8 @@ EXTERNAL_PLUGINS = [
     "saleor_gs.saleor.plugins.payu.plugin.PayuGatewayPlugin",
     "saleor_gs.saleor.plugins.erp_next.plugin.ErpNextPlugin",
     "saleor_gs.saleor.plugins.invoicing.plugin.InvoicingPlugin",
-    "saleor_gs.saleor.plugins.vercel.plugin.VercelPlugin"
+    "saleor_gs.saleor.plugins.vercel.plugin.VercelPlugin",
+    "saleor_gs.saleor.plugins.vmake.plugin.VmakePlugin"
 ]
 installed_plugins = pkg_resources.iter_entry_points("saleor.plugins")
 for entry_point in installed_plugins:
