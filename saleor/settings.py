@@ -702,6 +702,11 @@ if APP_ENVIRONMENT in ['production']:
             'task': 'saleor_gs.saleor.plugins.allegro.tasks.synchronize_allegro_offers_task',
             'schedule': crontab(minute=30, hour=2),
             "options": {"queue": CELERY_LONG_TASKS_QUEUE}
+        },
+        'bulk_publish_allegro_channels': {
+            'task': 'saleor_gs.saleor.plugins.allegro.tasks.bulk_publish_allegro_channels',
+            'schedule': crontab(minute=15, hour=15),
+            "options": {"queue": CELERY_LONG_TASKS_QUEUE}
         }
     })
 
