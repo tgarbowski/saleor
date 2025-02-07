@@ -15963,6 +15963,19 @@ type Mutation {
   ): ExportProductsExtended @doc(category: "Products") @webhookEventsInfo(asyncEvents: [NOTIFY_USER], syncEvents: [])
 
   """
+  Export products to csv file. 
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  
+  Triggers the following webhook events:
+  - NOTIFY_USER (async): A notification for the exported file.
+  """
+  exportProductsExtendedWithLocations(
+    """Fields required to export product data."""
+    input: ExportProductsExtendedInput!
+  ): ExportProductsExtendedWithLocations @doc(category: "Products") @webhookEventsInfo(asyncEvents: [NOTIFY_USER], syncEvents: [])
+
+  """
   Creates a new WMS document. 
   
   Requires one of the following permissions: MANAGE_WMS.
@@ -21547,6 +21560,23 @@ enum ProductFieldEnum @doc(category: "Products") {
 enum FileTypesEnum {
   CSV
   XLSX
+}
+
+"""
+Export products to csv file. 
+
+Requires one of the following permissions: MANAGE_PRODUCTS.
+
+Triggers the following webhook events:
+- NOTIFY_USER (async): A notification for the exported file.
+"""
+type ExportProductsExtendedWithLocations @doc(category: "Products") @webhookEventsInfo(asyncEvents: [NOTIFY_USER], syncEvents: []) {
+  """
+  The newly created export file job which is responsible for export data.
+  """
+  exportFile: ExportFile
+  exportErrors: [ExportError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ExportError!]!
 }
 
 """
