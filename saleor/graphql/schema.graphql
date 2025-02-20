@@ -15963,7 +15963,7 @@ type Mutation {
   ): ExportProductsExtended @doc(category: "Products") @webhookEventsInfo(asyncEvents: [NOTIFY_USER], syncEvents: [])
 
   """
-  Export products to csv file. 
+  Export products with locations to csv file. 
   
   Requires one of the following permissions: MANAGE_PRODUCTS.
   
@@ -16217,6 +16217,16 @@ type Mutation {
     """ID of target channel to move products."""
     targetChannel: ID!
   ): ProductChannelListingBulkUpdate
+
+  """
+  Archive product. 
+  
+  Requires one of the following permissions: MANAGE_PRODUCTS.
+  """
+  productArchive(
+    """SKU of a product to archive."""
+    sku: String!
+  ): ProductArchive
 
   """
   Creates a new webhook subscription. 
@@ -21563,7 +21573,7 @@ enum FileTypesEnum {
 }
 
 """
-Export products to csv file. 
+Export products with locations to csv file. 
 
 Requires one of the following permissions: MANAGE_PRODUCTS.
 
@@ -22112,6 +22122,16 @@ Requires one of the following permissions: MANAGE_PRODUCTS.
 type ProductChannelListingBulkUpdate {
   productChannelListingErrors: [ProductChannelListingError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
   errors: [ProductChannelListingError!]!
+}
+
+"""
+Archive product. 
+
+Requires one of the following permissions: MANAGE_PRODUCTS.
+"""
+type ProductArchive {
+  productErrors: [ProductError!]! @deprecated(reason: "This field will be removed in Saleor 4.0. Use `errors` field instead.")
+  errors: [ProductError!]!
 }
 
 """
