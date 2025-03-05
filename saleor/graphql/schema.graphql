@@ -15856,6 +15856,9 @@ type Mutation {
     """Model ID"""
     modelId: String!
 
+    """Model size"""
+    modelSize: ModelSize!
+
     """Product media id"""
     productMediaId: ID!
 
@@ -21344,6 +21347,13 @@ enum ApparelType {
   TOP
   BOTTOM
   ONE_PIECE
+}
+
+enum ModelSize {
+  SIMILAR
+  S
+  M
+  L
 }
 
 """Sends an email with a contact form."""
