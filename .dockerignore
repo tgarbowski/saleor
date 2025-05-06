@@ -3,4 +3,5 @@
 *.sqlite
 media
 node_modules
-static
+staticfiles
+
