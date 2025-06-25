@@ -669,6 +669,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": timedelta(minutes=10),
         "options": {"queue": CELERY_TASK_DEFAULT_QUEUE}
     },
+    'opinion_request_email': {
+        'task': 'saleor_gs.saleor.salingo.tasks.send_email_after_purchase_task',
+        'schedule': crontab(minute=00, hour=12),
+        "options": {"queue": CELERY_LONG_TASKS_QUEUE}
+    }
 }
 
 if APP_ENVIRONMENT in ['production']:
